@@ -635,16 +635,16 @@ installworld: installcheck
 	@echo "--------------------------------------------------------------"
 
 os-release:
-	@echo "NAME=DragonFly" > ${DESTDIR}/etc/os-release
+	@echo "NAME=FoxynBSD" > ${DESTDIR}/etc/os-release
 	@echo "VERSION=${OSREL}-SYNTH" >> ${DESTDIR}/etc/os-release
 	@echo "VERSION_ID=${OSREL}" >> ${DESTDIR}/etc/os-release
 	@echo "ID=dragonfly" >> ${DESTDIR}/etc/os-release
 	@echo "ANSI_COLOR=\"0;32\"" >> ${DESTDIR}/etc/os-release
-	@echo "PRETTY_NAME=\"DragonFlyBSD ${OSREL}-SYNTH\"" >> ${DESTDIR}/etc/os-release
+	@echo "PRETTY_NAME=\"FoxynBSD ${OSREL}-SYNTH\"" >> ${DESTDIR}/etc/os-release
 	@echo "CPE_NAME=\"cpe:/o:dragonflybsd:dragonfly:${OSREL}\"" >> ${DESTDIR}/etc/os-release
-	@echo "SUPPORT_URL=\"http://chat.efnet.org:9090/?nick=dflynick&channels=%23dragonflybsd&Login=Login\"" >> ${DESTDIR}/etc/os-release
-	@echo "HOME_URL=\"https://www.dragonflybsd.org/\"" >> ${DESTDIR}/etc/os-release
-	@echo "BUG_REPORT_URL=\"https://bugs.dragonflybsd.org/\"" >> ${DESTDIR}/etc/os-release
+	@echo "SUPPORT_URL=\"https://github.com/FoxynBSD/FoxynBSD/discussions\"" >> ${DESTDIR}/etc/os-release
+	@echo "HOME_URL=\"https://github.com/FoxynBSD/FoxynBSD\"" >> ${DESTDIR}/etc/os-release
+	@echo "BUG_REPORT_URL=\"https://github.com/FoxynBSD/FoxynBSD/issues\"" >> ${DESTDIR}/etc/os-release
 	@echo "MACHINE_ARCH=${MACHINE_ARCH}" >> ${DESTDIR}/etc/os-release
 	@echo "MACHINE=${MACHINE}" >> ${DESTDIR}/etc/os-release
 	@echo "DFLYVERSION=${DFLYVERSION}" >> ${DESTDIR}/etc/os-release
