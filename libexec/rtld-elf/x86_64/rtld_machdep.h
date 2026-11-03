@@ -34,9 +34,25 @@
 
 struct Struct_Obj_Entry;
 
-/* Return the address of the .dynamic section in the dynamic linker. */
-#define rtld_dynamic(obj) \
-    ((const Elf_Dyn *)((obj)->relocbase + (Elf_Addr)&_DYNAMIC))
+/*
+ * Return the address of the .dynamic section in the dynamic linker.
+ *
+ * Take it PC-relative: "relocbase + &_DYNAMIC" assumes &_DYNAMIC yields
+ * the link-time address from an unrelocated GOT slot, but a linker may
+ * relax that GOT load into "lea _DYNAMIC(%rip)" (lld does, the symbol
+ * being local), which already gives the run-time address, and the base
+ * would then be added twice.
+ */
+#define rtld_dynamic(obj) ({						\
+	Elf_Addr _dynamic_addr;						\
+	__asm__ __volatile__("leaq _DYNAMIC(%%rip),%0"			\
+	    : "=r" (_dynamic_addr));					\
+	(void)(obj);							\
+	(const Elf_Dyn *)_dynamic_addr;					\
+})
+
+/* The dynamic linker is always linked -shared, so it has a _DYNAMIC. */
+#define RTLD_IS_DYNAMIC()	1
 
 /* Fixup the jump slot at "where" to transfer control to "target". */
 static inline Elf_Addr
