@@ -9,7 +9,7 @@ compiler and then runs the build in `sys/` directly.
 
     sudo pacman -S --needed base-devel flex bison libbsd libtirpc
     # for the userland (sysroot is fine without them, libc needs them):
-    sudo pacman -S --needed clang lld
+    sudo pacman -S --needed clang lld compiler-rt
     # for booting under QEMU:
     sudo pacman -S --needed qemu-base edk2-ovmf
 
@@ -61,10 +61,35 @@ to those host tools.
 `build.sh sysroot` does what buildworld's `includes` stage does. It copies
 the kernel headers, creates the directory tree from
 `etc/mtree/BSD.include.dist`, and runs `buildincludes` and
-`installincludes` under `include/` and `lib/`. `build.sh libc` then builds
-`lib/csu` and `lib/libc` with `xcc`. The world is built with `CCVER=clang`,
-so `share/mk` adds neither gcc-only flags nor `-Werror`: clang warnings
-are reported but do not fail the build.
+`installincludes` under `include/` and `lib/`. It also creates the
+`BSD.root.dist` and `BSD.usr.dist` directory trees.
+
+`build.sh libc` builds `lib/csu` and `lib/libc` with `xcc` and installs
+them into the sysroot, the way buildworld's library stage does, so that
+later links find them. The world is built with `CCVER=clang` on the make
+command line, so `share/mk` adds neither gcc-only flags nor `-Werror`;
+clang warnings are reported but do not fail the build.
+
+How `xcc` stays inside the sysroot:
+
+* clang's DragonFly driver looks for `crt*.o` and libraries in
+  `<driver dir>/../lib`. On Linux that is the host's `/usr/lib`, with
+  glibc's `crti.o`. `xcc` therefore runs a copy of the small `clang`
+  driver binary from `$OBJDIR/xtool/bin`, with `xtool/lib` pointing into
+  the sysroot.
+* `-Wl,--undefined-version`: lld, unlike GNU ld, rejects version scripts
+  that name symbols a configuration does not build (hesiod in libc).
+* Absolute symlinks installed into the sysroot
+  (`/usr/lib/libc.so -> /lib/libc.so.8`) are re-pointed into the sysroot;
+  otherwise the linker silently falls back to `libc.a`.
+
+The compiler runtime (`crtbegin*.o`, `crtend*.o` and the `libgcc` helpers)
+comes from the host's LLVM **compiler-rt** for now. The in-tree gcc
+runtime (`gnu/lib/gcc120`) depends on gcc internals and does not build
+with clang. The compiler-rt objects are OS-independent and PIC, and they
+are installed where the driver looks (`usr/lib/gcc80`). `libgcc_eh` is
+an empty archive, because C code needs no exception unwinder. Building
+compiler-rt from source in the tree is a TODO.
 
 ## Why the host `cc` is wrapped
 
@@ -102,7 +127,8 @@ Linux compiler act like DragonFly's base gcc for kernel code:
 | CI (`.github/workflows/linux-build.yml`) | kernel, loader, ESP and modules on Ubuntu; QEMU boot test (to `mountroot>`) is blocking |
 | header sysroot via the tree's `includes` rules | works |
 | userland: `lib/csu`, `libc.a` | build with clang (`xcc`) |
-| userland: `libc.so` | next: needs `crtbeginS.o`/`crtendS.o` (compiler runtime) |
+| userland: `libc.so.8`, linking programs | works (compiler-rt from the host); a test program links dynamically against `libc.so.8` with the DragonFly ELF note |
+| userland: `rtld` (`ld-elf.so.2`), base programs | next |
 | rest of world, root image     | TODO (issue #7) |
 
 QEMU path: OVMF runs `EFI/BOOT/BOOTX64.EFI` (our `loader.efi`). The

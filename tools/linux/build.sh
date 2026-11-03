@@ -200,18 +200,39 @@ EOF
 # Cross compiler for the world: host clang targeting DragonFly, against the
 # staged sysroot, linking with lld.
 write_xcc_wrapper() {
-	local clang
+	local clang xtool=$OBJDIR/xtool
 	if ! clang=$(command -v "${HOST_CLANG:-clang}") ||
 	    ! command -v ld.lld >/dev/null 2>&1; then
 		msg "clang/ld.lld not found: skipping xcc (needed only for the userland)"
 		rm -f "$HOSTBIN/xcc"
 		return 0
 	fi
+	# clang's DragonFly driver looks for crt*.o and libraries in
+	# <its own dir>/../lib, i.e. the host's /usr/lib.  Run a copy of the
+	# (small) driver binary from $OBJDIR/xtool/bin, with xtool/lib
+	# pointing into the sysroot, so only target files are ever found.
+	# The driver's resource dir then resolves through
+	# $SYSROOT/usr/lib/clang, which points at the host's clang headers.
+	rm -rf "$xtool"; mkdir -p "$xtool/bin" "$SYSROOT/usr/lib"
+	cp "$(readlink -f "$clang")" "$xtool/bin/clang"
+	ln -sfn "$SYSROOT/usr/lib" "$xtool/lib"
+	ln -sfn "$("$clang" -print-resource-dir)/.." "$SYSROOT/usr/lib/clang"
 	cat > "$HOSTBIN/xcc" <<EOF
 #!/bin/sh
-exec "$clang" --target=x86_64-unknown-dragonfly --sysroot="$SYSROOT" \\
-	-fuse-ld=lld -Qunused-arguments -Wno-unknown-warning-option \\
-	"\$@"
+# Drop gcc-only options that the gcc runtime makefiles pass.
+n=\$#
+while [ "\$n" -gt 0 ]; do
+	a=\$1; shift; n=\$((n - 1))
+	case \$a in
+	-fbuilding-libgcc|-finhibit-size-directive) ;;
+	*) set -- "\$@" "\$a" ;;
+	esac
+done
+# --undefined-version: like GNU ld, accept version scripts that name
+# symbols a given configuration does not build (e.g. hesiod in libc).
+exec "$xtool/bin/clang" --target=x86_64-unknown-dragonfly \\
+	--sysroot="$SYSROOT" -fuse-ld=lld -Wl,--undefined-version \\
+	-Qunused-arguments -Wno-unknown-warning-option "\$@"
 EOF
 	chmod 755 "$HOSTBIN/xcc"
 }
@@ -320,6 +341,8 @@ do_sysroot() {
 	# Linux, so read the spec with awk), then let every directory under
 	# include/ and lib/ install its own headers.  Generated headers, such
 	# as the rpcgen output for include/rpc, come from the same rules.
+	mtree_dirs "$SRCDIR/etc/mtree/BSD.root.dist" "$SYSROOT"
+	mtree_dirs "$SRCDIR/etc/mtree/BSD.usr.dist" "$SYSROOT/usr"
 	mtree_dirs "$SRCDIR/etc/mtree/BSD.include.dist" "$inc"
 	(
 	wenv
@@ -369,11 +392,60 @@ do_libc() {
 	wenv
 	[ -x "$HOSTBIN/xcc" ] ||
 	    die "xcc missing: install clang and lld, then run build.sh tools"
-	for d in lib/csu lib/libc; do
-		msg "building $d"
-		( cd "$SRCDIR/$d" && make obj >/dev/null &&
-		  make -j"$JOBS" DESTDIR="$SYSROOT" )
+	world_lib lib/csu
+	install_compiler_rt
+	world_lib lib/libc
+}
+
+# Build one userland directory with xcc and install it into the sysroot,
+# as buildworld's library stage does, so later links find it.  CCVER is
+# passed on the command line because gnu/ makefiles assign it themselves.
+world_lib() {
+	msg "building $1"
+	( cd "$SRCDIR/$1" && make obj >/dev/null &&
+	  make -j"$JOBS" CCVER=clang DESTDIR="$SYSROOT" &&
+	  make CCVER=clang DESTDIR="$SYSROOT" install )
+	fix_sysroot_links
+}
+
+# Installed symlinks are absolute (/usr/lib/libc.so -> /lib/libc.so.8).
+# Inside the sysroot that would resolve on the host, so the linker would
+# silently fall back to the static library; re-point them into the sysroot.
+fix_sysroot_links() {
+	find "$SYSROOT" -type l -lname '/*' | while read -r l; do
+		t=$(readlink "$l")
+		case $t in "$SYSROOT"/*|/usr/lib/clang*) continue ;; esac
+		ln -sfn "$SYSROOT$t" "$l"
 	done
+}
+
+# The compiler runtime (crtbegin/crtend and the libgcc helpers).  The
+# in-tree gcc runtime (gnu/lib/gcc120) depends on gcc internals and does
+# not build with clang, so use the host's LLVM compiler-rt instead.  Its
+# objects are OS-independent and position-independent.  They go where
+# clang's DragonFly driver looks: /usr/lib/gcc80.
+# Stopgap until compiler-rt is built from source in the tree.
+install_compiler_rt() {
+	local rt dst=$SYSROOT/usr/lib/gcc80 f
+	rt=$("$OBJDIR/xtool/bin/clang" -print-resource-dir)/lib/x86_64-pc-linux-gnu
+	for f in clang_rt.crtbegin.o clang_rt.crtend.o libclang_rt.builtins.a; do
+		[ -f "$rt/$f" ] ||
+		    die "compiler-rt not found ($rt/$f); install compiler-rt"
+	done
+	msg "installing compiler-rt from $rt into $dst"
+	mkdir -p "$dst"
+	for f in crtbegin crtbeginS crtbeginT; do
+		cp "$rt/clang_rt.crtbegin.o" "$dst/$f.o"
+	done
+	for f in crtend crtendS; do
+		cp "$rt/clang_rt.crtend.o" "$dst/$f.o"
+	done
+	cp "$rt/libclang_rt.builtins.a" "$dst/libgcc.a"
+	cp "$rt/libclang_rt.builtins.a" "$dst/libgcc_pic.a"
+	# libgcc_eh is the exception unwinder; C needs none, but the driver
+	# asks for it in static links.  An empty archive satisfies -lgcc_eh.
+	rm -f "$dst/libgcc_eh.a"
+	ar rc "$dst/libgcc_eh.a"
 }
 
 # EFI boot loader: stand/lib -> dloader -> libefi -> loader.efi, compiled
