@@ -36,8 +36,13 @@ tools/linux/build.sh esp && tools/linux/qemu.sh   # boot under QEMU
 On a DragonFly host, the usual `make buildworld` / `make buildkernel` flow
 also works.
 
-CI runs the Linux kernel and loader build on every pull request. A pull
-request needs green CI before it can be merged.
+CI builds the kernel, the modules, the EFI loader and a minimal userland
+on every pull request, and boots them under QEMU twice: kernel-only (to
+`mountroot>`) and from a root image (to a shell). `dev` only accepts
+changes through pull requests whose three checks (`Kernel, loader and
+boot tree`, `Kernel modules`, `Userland and boot to a shell`) are green.
+Repository administrators can push to `dev` directly; that is for
+maintenance work, and CI still runs on those pushes.
 
 ## Commits
 
