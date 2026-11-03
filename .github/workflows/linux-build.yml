@@ -74,16 +74,14 @@ jobs:
           sudo udevadm control --reload-rules
           sudo udevadm trigger --name-match=kvm || true
 
-      # The QEMU boot has not passed yet, so a failure here is reported
-      # but does not fail the workflow.  Make it blocking once it passes
-      # reliably.
+      # Kernel-only boot: passes when the kernel asks for a root
+      # filesystem (there is no userland image yet).
       - name: Boot test under QEMU
         id: boot
-        continue-on-error: true
         run: tools/linux/boot-test.sh
 
       - name: Report boot test result
-        if: steps.boot.outcome == 'failure'
+        if: failure() && steps.boot.outcome == 'failure'
         run: |
           log="$OBJDIR/qemu/X86_64_GENERIC.boot.log"
           {
