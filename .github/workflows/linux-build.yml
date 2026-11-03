@@ -231,8 +231,9 @@ jobs:
           grep -E '^FoxynBSD foxynbsd [^ ]+ FoxynBSD ' "$log" ||
             { echo "::error title=Identity::uname -a does not report FoxynBSD"; exit 1; }
 
-      # Issue #9: a terminal database, a writable /tmp and login classes.
-      - name: Check terminfo, /tmp and login classes
+      # Issue #9: a terminal database, a writable /tmp, login classes and
+      # a password database.
+      - name: Check terminfo, /tmp, login classes and users
         run: |
           log="$OBJDIR/qemu/X86_64_GENERIC.boot-root.log"
           if grep -aF 'Cannot read termcap database' "$log"; then
@@ -243,6 +244,8 @@ jobs:
           if grep -aF 'login_getclass: unknown class' "$log"; then
             echo "::error title=login.conf::init found no login class for /etc/rc"; exit 1
           fi
+          grep -aF 'rc: user database ready (root)' "$log" ||
+            { echo "::error title=pwd_mkdb::no password database was built in /var"; exit 1; }
 
       # Issue #5: the kernel runs binaries by either ABI note.
       - name: Check both ELF ABI notes

@@ -431,10 +431,10 @@ do_libc() {
 # linker and the libraries first, then init, sh and a few utilities.
 BASE_LIBS="lib/libc_rtld libexec/rtld-elf lib/libutil lib/libcrypt
 	lib/libncurses lib/libedit lib/libm lib/libkvm"
-BASE_PROGS="sbin/init bin/sh bin/cat bin/cp bin/echo bin/hostname bin/kill
+BASE_PROGS="sbin/init bin/sh bin/cat bin/chmod bin/cp bin/echo bin/hostname bin/kill
 	bin/ln bin/ls bin/mkdir bin/mv bin/ps bin/pwd bin/rm bin/sleep
 	sbin/dmesg sbin/mount sbin/mount_tmpfs sbin/reboot sbin/sysctl
-	usr.bin/uname"
+	usr.bin/id usr.bin/uname usr.sbin/pwd_mkdb"
 
 do_base() {
 	local d
@@ -463,7 +463,7 @@ do_rootfs() {
 	wenv
 	rm -rf "$root"
 	mkdir -p "$root"
-	for d in bin sbin lib/priv libexec usr/bin usr/lib usr/libexec dev etc \
+	for d in bin sbin lib/priv libexec usr/bin usr/lib usr/libexec usr/sbin dev etc \
 	    root tmp var/run; do
 		mkdir -p "$root/$d"
 	done
@@ -478,6 +478,8 @@ do_rootfs() {
 	done
 	# Links that bsd.prog.mk installs (halt -> reboot, ...).
 	ln -s reboot "$root/sbin/halt"
+	ln -s id "$root/usr/bin/whoami"
+	ln -s id "$root/usr/bin/groups"
 	# Copy the shared libraries, following NEEDED entries to a fixpoint.
 	local added=1 found
 	while [ "$added" = 1 ]; do
@@ -510,6 +512,15 @@ do_rootfs() {
 	# no login.conf.db, getcap(3) reads the text file directly, so no
 	# cap_mkdb run is needed on the build host.
 	cp "$SRCDIR/etc/login.conf" "$root/etc/login.conf"
+	# Users and groups.  getgrent(3) reads /etc/group as text, but the
+	# password functions only read the hashed pwd.db and spwd.db, which
+	# pwd_mkdb(8) cannot make on a Linux host.  /etc/rc builds them in the
+	# tmpfs /var at boot; these links point the fixed /etc paths there.
+	cp "$SRCDIR/etc/group" "$root/etc/group"
+	install -m 600 "$SRCDIR/etc/master.passwd" "$root/etc/master.passwd"
+	for f in passwd pwd.db spwd.db; do
+		ln -s ../var/db/$f "$root/etc/$f"
+	done
 	if command -v xorriso >/dev/null 2>&1; then
 		# -R keeps modes and symlinks (Rock Ridge); the volume is read-only.
 		# Record the files as root:wheel rather than the building user.
@@ -599,6 +610,14 @@ export PATH TERM
 # The root is a read-only CD image; /tmp lives in memory.
 if mount -t tmpfs tmpfs /tmp && echo ok > /tmp/.rc-test; then
 	echo "rc: /tmp is writable (tmpfs)"
+fi
+# /var too, and the password database in it (see do_rootfs).
+if mount -t tmpfs tmpfs /var; then
+	mkdir -p /var/db /var/log /var/run /var/tmp
+	chmod 1777 /var/tmp
+	cp -p /etc/master.passwd /var/db/master.passwd
+	pwd_mkdb -p -d /var/db /var/db/master.passwd &&
+	    id root && echo "rc: user database ready ($(whoami))"
 fi
 hostname "$(cat /etc/hostname)"
 echo

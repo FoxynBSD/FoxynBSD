@@ -113,9 +113,11 @@ libkvm, then `init`, `sh` and a set of utilities (`ls`, `cat`, `ps`,
 programs and every shared library they load into `$OBJDIR/rootfs`, compiles
 a few console terminal types (`xterm`, `vt100`, `vt220`, `cons25`, ...)
 from the tree's `terminfo.src` with the host's `tic`, copies
-`etc/login.conf` (read as text; no `cap_mkdb` needed), adds an `/etc/rc`
-that mounts a tmpfs on `/tmp`, prints `uname -a` and opens `/bin/sh` on
-the console, and
+`etc/login.conf` (read as text; no `cap_mkdb` needed), `etc/group` and
+`etc/master.passwd`, adds an `/etc/rc` that mounts tmpfs on `/tmp` and
+`/var`, builds the password database in `/var/db` with `pwd_mkdb` (the
+`/etc/pwd.db`, `spwd.db` and `passwd` links point there), prints
+`uname -a` and opens `/bin/sh` on the console, and
 packs the tree as a Rock Ridge ISO with xorriso. `qemu.sh --root` attaches
 it as a second virtio disk and sets `vfs.root.mountfrom="cd9660:vbd1"`, so
 no step needs root privileges and the root stays read-only. (Not as a CD:
@@ -168,7 +170,7 @@ Linux compiler act like DragonFly's base gcc for kernel code:
 | userland: `libc.so.8`, linking programs | works (compiler-rt from the host); a test program links dynamically against `libc.so.8` with the DragonFly ELF note |
 | userland: `rtld` (`ld-elf.so.2`), init, sh, base utilities | build with clang |
 | root image (`root.iso`) and boot to a shell | boots to `/bin/sh` under QEMU; dynamic programs run (verified in CI, blocking) |
-| terminfo, tmpfs `/tmp`, `login.conf` | in the root image (checked in CI) |
+| terminfo, tmpfs `/tmp` and `/var`, `login.conf`, users and groups (`pwd_mkdb` at boot) | in the root image (checked in CI) |
 | rest of world, writable root, `/etc/rc.d` | TODO (issue #9) |
 
 QEMU path: OVMF runs `EFI/BOOT/BOOTX64.EFI` (our `loader.efi`). The
