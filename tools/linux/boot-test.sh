@@ -3,8 +3,9 @@
 # Non-interactive boot test: boot the ESP built by `build.sh esp` under
 # QEMU (via qemu.sh) and wait for the kernel to reach the root mount
 # prompt, which is as far as a kernel-only boot can get.  With --root, also
-# attach the root image from `build.sh rootfs` and wait for the login
-# prompt that getty prints once /etc/rc has finished.
+# attach the root image from `build.sh rootfs`, wait for the login prompt
+# that getty prints once /etc/rc has finished, then log in as root over
+# the serial line and check that a shell runs a command.
 #
 # Usage:
 #	tools/linux/boot-test.sh [--root] [KERNCONF]
@@ -13,7 +14,8 @@
 #	BOOT_TIMEOUT	seconds to wait (default 300)
 #	BOOT_LOG	serial log path (default $OBJDIR/qemu/<KERNCONF>.boot.log)
 #
-# Exit status: 0 if the expected prompt appeared, 1 otherwise.  The serial
+# Exit status: 0 if the expected prompt appeared (and, with --root, the
+# login worked), 1 otherwise.  The serial
 # log is kept either way.
 
 set -eu
@@ -38,8 +40,24 @@ fi
 mkdir -p "$(dirname "$LOG")"
 : > "$LOG"
 
-OBJDIR=$OBJDIR SERIAL_LOG=$LOG "$SRCDIR/tools/linux/qemu.sh" $ROOTARG "$CONF" \
-    </dev/null >/dev/null 2>"$LOG.stderr" &
+if [ -n "$ROOTARG" ]; then
+	# With a root, the test also logs in, so it needs to type on the
+	# serial line: QEMU reads $PIPE.in and writes $PIPE.out.  Holding
+	# $PIPE.in open read-write on fd 3 never blocks.
+	PIPE=$OBJDIR/qemu/$CONF.serial
+	rm -f "$PIPE.in" "$PIPE.out"
+	mkfifo "$PIPE.in" "$PIPE.out"
+	exec 3<>"$PIPE.in"
+	cat "$PIPE.out" > "$LOG" &
+	catpid=$!
+	CONSOLE_ENV="SERIAL_PIPE=$PIPE"
+else
+	catpid=
+	CONSOLE_ENV="SERIAL_LOG=$LOG"
+fi
+
+env OBJDIR="$OBJDIR" "$CONSOLE_ENV" "$SRCDIR/tools/linux/qemu.sh" $ROOTARG \
+    "$CONF" </dev/null >/dev/null 2>"$LOG.stderr" &
 pid=$!
 
 result=1
@@ -57,8 +75,30 @@ while [ "$elapsed" -lt "$TIMEOUT" ]; do
 	elapsed=$((elapsed + 5))
 done
 
+# Log in as root (no password) and run a command whose output differs
+# from its echo, so seeing it proves PAM let root in and a shell ran.
+# Repeat the command in case it was typed before the shell read input.
+LOGIN_OK='login-ok-42 root'
+if [ "$result" -eq 0 ] && [ -n "$ROOTARG" ]; then
+	result=1
+	printf 'root\r' >&3
+	tries=0
+	while [ "$tries" -lt 12 ]; do
+		sleep 5
+		if grep -aFq "$LOGIN_OK" "$LOG"; then
+			result=0
+			break
+		fi
+		grep -Eq "$FAIL|Login incorrect" "$LOG" && break
+		printf 'echo login-ok-$((6*7)) $(id -un)\r' >&3
+		tries=$((tries + 1))
+	done
+	[ "$result" -eq 0 ] || echo ">>> logging in as root FAILED" >&2
+fi
+
 kill "$pid" 2>/dev/null || :
 wait "$pid" 2>/dev/null || :
+[ -n "$catpid" ] && { kill "$catpid" 2>/dev/null || :; wait "$catpid" 2>/dev/null || :; }
 
 if [ "$result" -eq 0 ]; then
 	if [ -n "$ROOTARG" ]; then

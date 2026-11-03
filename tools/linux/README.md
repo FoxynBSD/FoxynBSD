@@ -169,12 +169,12 @@ Linux compiler act like DragonFly's base gcc for kernel code:
 | kernel modules (682 .ko)      | build      |
 | stand/ (loader.efi)           | builds; PE32+ EFI app, only R_X86_64_RELATIVE relocs |
 | ESP tree + `qemu.sh` runner   | boots to `mountroot>` under QEMU + OVMF (verified in CI) |
-| CI (`.github/workflows/linux-build.yml`) | kernel, loader, ESP and modules on Ubuntu; QEMU boot tests to `mountroot>` and, with the userland, to a login prompt; all blocking |
+| CI (`.github/workflows/linux-build.yml`) | kernel, loader, ESP and modules on Ubuntu; QEMU boot tests to `mountroot>` and, with the userland, through a root login on the serial console; all blocking |
 | header sysroot via the tree's `includes` rules | works |
 | userland: `lib/csu`, `libc.a` | build with clang (`xcc`) |
 | userland: `libc.so.8`, linking programs | works (compiler-rt from the host); a test program links dynamically against `libc.so.8` with the DragonFly ELF note |
 | userland: `rtld` (`ld-elf.so.2`), init, sh, base utilities | build with clang |
-| root image (`root.iso`) and boot to `login:` | getty and login (PAM) under QEMU; dynamic programs run (verified in CI, blocking) |
+| root image (`root.iso`) and boot to `login:` | getty and login (PAM) under QEMU; CI logs in as root over the serial line and runs a command (blocking) |
 | terminfo, tmpfs `/tmp` and `/var`, `login.conf`, users and groups (`pwd_mkdb` at boot) | in the root image (checked in CI) |
 | rest of world, writable root, `/etc/rc.d` | TODO (issue #9) |
 

@@ -218,9 +218,10 @@ jobs:
           sudo udevadm control --reload-rules
           sudo udevadm trigger --name-match=kvm || true
 
-      # Passes at getty's login prompt: init has run /etc/rc from root.iso
-      # and gone multi-user.
-      - name: Boot to a login prompt under QEMU
+      # Passes when root has logged in on the serial console: init ran
+      # /etc/rc from root.iso, went multi-user, and getty, login and PAM
+      # let root into a shell.
+      - name: Boot and log in under QEMU
         id: boot
         run: tools/linux/boot-test.sh --root
 

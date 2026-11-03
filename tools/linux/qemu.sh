@@ -24,6 +24,9 @@
 #	ROOTISO		root image for --root (default $OBJDIR/root.iso)
 #	ROOTDISK	optional disk image to attach as a second virtio disk
 #	SERIAL_LOG	headless: write the serial console to this file
+#	SERIAL_PIPE	headless: connect the serial console to the FIFOs
+#			$SERIAL_PIPE.in and $SERIAL_PIPE.out (made by the caller),
+#			so a script can both read the console and type on it
 #	GUI=1		same as --gui
 #	DISPLAY_BACKEND	QEMU -display backend for --gui (default gtk)
 #
@@ -126,7 +129,9 @@ fi
 
 # Console: interactive serial on the terminal, or (SERIAL_LOG=<file>) a
 # headless run that writes the serial console to a file, for boot-test.sh.
-if [ -n "${SERIAL_LOG:-}" ]; then
+if [ -n "${SERIAL_PIPE:-}" ]; then
+	CONSOLE="-display none -monitor none -chardev pipe,id=con,path=$SERIAL_PIPE -serial chardev:con"
+elif [ -n "${SERIAL_LOG:-}" ]; then
 	CONSOLE="-display none -monitor none -serial file:$SERIAL_LOG"
 elif [ "$GUI" = 1 ]; then
 	CONSOLE="-display ${DISPLAY_BACKEND:-gtk} -vga std -serial stdio"
