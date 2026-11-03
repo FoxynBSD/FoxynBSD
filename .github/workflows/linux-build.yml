@@ -282,12 +282,20 @@ jobs:
           line=$(grep -a '^daemons-42:' "$log" | tail -n 1) ||
             { echo "::error title=daemons::the boot test got no process list"; exit 1; }
           echo "$line"
-          for d in syslogd cron; do
+          for d in syslogd cron devd; do
             case " $line " in
             *" $d "*) ;;
             *) echo "::error title=daemons::$d is not running"; exit 1 ;;
             esac
           done
+
+      # libgcc_eh and libstdc++ are built with clang: a static C++ test
+      # throws through two frames and catches.
+      - name: Check C++ exceptions
+        run: |
+          log="$OBJDIR/qemu/X86_64_GENERIC.boot-root.log"
+          grep -aF "c++ exceptions: ok" "$log" ||
+            { echo "::error title=C++::the exception test did not unwind"; grep -a 'c++ exceptions\|cxx-eh' "$log"; exit 1; }
 
       # Issue #5: the kernel runs binaries by either ABI note.
       - name: Check both ELF ABI notes

@@ -121,7 +121,8 @@ from the tree's `terminfo.src` with the host's `tic`, copies
 live CD's (`nrelease/root/etc`): the root stays read-only
 (`root_rw_mount="NO"`), and `rc.d/mountcritlocal` mounts tmpfs with
 `-C` (copy the CD's files in) over `/var`, `/tmp` and `/root`.
-`syslogd` and `newsyslog` run, with the tree's `syslog.conf` and the
+`syslogd`, `newsyslog` and `devd` run, with the tree's `syslog.conf`,
+`devd.conf` and `devd/*.conf`, and the
 empty `/var/log` files that `etc/Makefile` installs. `cron` runs too,
 with the tree's `crontab` minus the `atrun` and `periodic` jobs, whose
 programs are not in the image yet. The other services
@@ -144,9 +145,18 @@ The compiler runtime (`crtbegin*.o`, `crtend*.o` and the `libgcc` helpers)
 comes from the host's LLVM **compiler-rt** for now. The in-tree gcc
 runtime (`gnu/lib/gcc120`) depends on gcc internals and does not build
 with clang. The compiler-rt objects are OS-independent and PIC, and they
-are installed where the driver looks (`usr/lib/gcc80`). `libgcc_eh` is
-an empty archive, because C code needs no exception unwinder. Building
+are installed where the driver looks (`usr/lib/gcc80`). Building
 compiler-rt from source in the tree is a TODO.
+
+C++ uses the tree's gcc 8 runtime. `build.sh base` builds the
+exception unwinder (`gnu/lib/gcc80/libgcc_eh`) and `libstdc++` with
+clang (`xc++`, which finds the headers in `/usr/include/c++/8.0`). The
+unwinder includes a few gcc target headers: `tm.h` and `options.h` come
+from `gnu/usr.bin/cc80/cc_prep`, and `insn-constants.h` gets the one
+value it needs (`FIRST_PSEUDO_REG`, read from `i386.md`). The `xcc`
+wrapper defines the `__LIBGCC_*` macros that gcc predefines for
+`-fbuilding-libgcc`. Until `base` runs, `libgcc_eh` is an empty
+archive, which is enough for C.
 
 ## Why the host `cc` is wrapped
 
@@ -189,7 +199,8 @@ Linux compiler act like DragonFly's base gcc for kernel code:
 | root image (`root.iso`) and boot to `login:` | getty and login (PAM) under QEMU; CI logs in as root over the serial line and runs a command (blocking) |
 | terminfo, tmpfs `/tmp` and `/var`, `login.conf`, users and groups (`pwd_mkdb` at boot) | in the root image (checked in CI) |
 | `/etc/rc` and `rc.d` from the tree | run at boot, tmpfs `/etc` and `/var` (CI lists commands the scripts miss) |
-| `syslogd`, `newsyslog`, `cron` | run at boot; CI checks that a `logger` message reaches `/var/log/messages` and, after logging in, that `syslogd` and `cron` are running |
+| C++ runtime (`libgcc_eh`, `libstdc++` from gcc 8) | builds with clang; `devd` links against it, and CI boots a test that throws and catches an exception |
+| `syslogd`, `newsyslog`, `cron`, `devd` | run at boot; CI checks that a `logger` message reaches `/var/log/messages` and, after logging in, that `syslogd`, `cron` and `devd` are running |
 | rest of world, writable root | TODO (issue #9) |
 
 QEMU path: OVMF runs `EFI/BOOT/BOOTX64.EFI` (our `loader.efi`). The

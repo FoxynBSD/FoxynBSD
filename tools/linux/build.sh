@@ -230,12 +230,17 @@ write_xcc_wrapper() {
 	res=$("$clang" -print-resource-dir)/include
 	cat > "$HOSTBIN/xcc" <<EOF
 #!/bin/sh
-# Drop gcc-only options that the gcc runtime makefiles pass.
+# Drop gcc-only options that the gcc runtime makefiles pass.  For
+# -fbuilding-libgcc, gcc predefines the target facts the unwinder reads
+# (DWARF_FRAME_REGISTERS is 17 on x86_64, gcc/config/i386/i386.h); clang
+# does not, so define the ones libgcc_eh uses.
 n=\$#
 while [ "\$n" -gt 0 ]; do
 	a=\$1; shift; n=\$((n - 1))
 	case \$a in
-	-fbuilding-libgcc|-finhibit-size-directive) ;;
+	-finhibit-size-directive) ;;
+	-fbuilding-libgcc) set -- "\$@" -D__LIBGCC_DWARF_FRAME_REGISTERS__=17 \\
+	    -D__LIBGCC_STACK_GROWS_DOWNWARD__ -D__LIBGCC_EH_RETURN_STACKADJ_RTX__ ;;
 	*) set -- "\$@" "\$a" ;;
 	esac
 done
@@ -253,7 +258,13 @@ exec "$xtool/bin/clang" --target=x86_64-unknown-dragonfly \\
 	-Wno-error=incompatible-function-pointer-types \\
 	-Qunused-arguments -Wno-unknown-warning-option "\$@"
 EOF
-	chmod 755 "$HOSTBIN/xcc"
+	# C++: clang's DragonFly driver finds the headers that
+	# gnu/lib/gcc80/libstdc++ installs in /usr/include/c++/8.0.
+	cat > "$HOSTBIN/xc++" <<'EOF'
+#!/bin/sh
+exec "$(dirname "$0")/xcc" --driver-mode=g++ "$@"
+EOF
+	chmod 755 "$HOSTBIN/xc++"
 }
 
 do_tools() {
@@ -271,7 +282,7 @@ do_tools() {
 
 # Bump when the host tools or shims change, so an existing $OBJDIR gets
 # them rebuilt instead of failing with old ones (install -C/-B, chflags).
-TOOLS_STAMP=4
+TOOLS_STAMP=5
 
 kenv() {
 	[ "$(cat "$HOSTBIN/.done" 2>/dev/null)" = "$TOOLS_STAMP" ] || do_tools
@@ -412,6 +423,7 @@ wenv() {
 	kenv
 	CCVER=clang
 	CC=xcc
+	CXX=xc++
 	MAKEOBJDIRPREFIX=$OBJDIR/world
 	# Build-time helpers (ncurses' make_keys, ...) run on this host, so
 	# the "native" compiler is the host's; its default NXENV would also
@@ -422,7 +434,7 @@ wenv() {
 	# Where buildworld's makefiles look for already-installed libraries
 	# and private headers (e.g. usr/include/priv/ncurses).
 	_SHLIBDIRPREFIX=$SYSROOT
-	export CCVER CC MAKEOBJDIRPREFIX NXENV NXCC NXCC_LINK _SHLIBDIRPREFIX
+	export CCVER CC CXX MAKEOBJDIRPREFIX NXENV NXCC NXCC_LINK _SHLIBDIRPREFIX
 	mkdir -p "$MAKEOBJDIRPREFIX"
 }
 
@@ -443,11 +455,13 @@ do_libc() {
 BASE_LIBS="lib/libc_rtld libexec/rtld-elf lib/libutil lib/libcrypt
 	lib/libncurses lib/libedit lib/libm lib/libkvm lib/libypclnt
 	lib/libpam/libpam lib/libpam/modules lib/libexpat lib/libsbuf
-	gnu/usr.bin/grep/libgreputils usr.bin/awk/maketab usr.sbin/cron/lib"
+	gnu/usr.bin/grep/libgreputils usr.bin/awk/maketab usr.sbin/cron/lib
+	usr.bin/flex/lib gnu/lib/gcc80/libgcc_eh gnu/lib/gcc80/libstdc++/headers
+	gnu/lib/gcc80/libstdc++/components gnu/lib/gcc80/libstdc++/product"
 BASE_PROGS="sbin/init bin/sh bin/cat bin/chmod bin/cp bin/date bin/df
 	bin/echo bin/expr bin/hostname bin/kill bin/ln bin/ls bin/mkdir bin/mv
 	bin/ps bin/pwd bin/rm bin/rmdir bin/sleep bin/stty bin/test bin/varsym
-	sbin/adjkerntz sbin/devfsctl sbin/dmesg sbin/fsck sbin/ifconfig sbin/kldload sbin/kldstat
+	sbin/adjkerntz sbin/devd sbin/devfsctl sbin/dmesg sbin/fsck sbin/ifconfig sbin/kldload sbin/kldstat
 	sbin/ldconfig sbin/mount sbin/mount_tmpfs sbin/rcorder sbin/reboot
 	sbin/route sbin/swapon sbin/sysctl sbin/umount
 	libexec/getty usr.bin/awk/awk usr.bin/basename usr.bin/cmp usr.bin/find
@@ -474,9 +488,28 @@ do_base() {
 		# Static like init, so the image always gets a working shell
 		# (and its /etc/rc runs) even if dynamic linking is broken.
 		bin/sh)		world_lib "$d" NOSHARED=yes ;;
+		gnu/lib/gcc80/libgcc_eh) gcc_prep; world_lib "$d" ;;
 		*)		world_lib "$d" ;;
 		esac
 	done
+}
+
+# The exception unwinder (libgcc_eh) that C++ programs such as devd(8)
+# need.  It includes gcc's target headers, which in a real gcc build come
+# from gnu/usr.bin/cc80: make the ones that are plain shell and awk
+# output (tm.h, options.h) and write the few that gcc's generator
+# programs would make.  libgcc_eh only uses FIRST_PSEUDO_REG from them,
+# for array sizes in i386.h.
+gcc_prep() {
+	local d=$MAKEOBJDIRPREFIX$SRCDIR/gnu/usr.bin/cc80/cc_prep n
+	( cd "$SRCDIR/gnu/usr.bin/cc80/cc_prep" && make obj >/dev/null &&
+	  make CCVER=clang tm.h options.h >/dev/null )
+	n=$(sed -n 's/.*(FIRST_PSEUDO_REG[[:space:]]*\([0-9]*\)).*/\1/p' \
+	    "$SRCDIR/contrib/gcc-8.0/gcc/config/i386/i386.md")
+	[ -n "$n" ] || die "FIRST_PSEUDO_REG not found in i386.md"
+	echo "#define FIRST_PSEUDO_REG $n" > "$d/insn-constants.h"
+	: > "$d/insn-modes.h"
+	: > "$d/libgcc_tm.h"
 }
 
 # Stage a root tree with what $BASE_PROGS installed plus every shared
@@ -499,8 +532,9 @@ do_rootfs() {
 	for d in $BASE_PROGS; do
 		# PROGNAME: xinstall installs as "install".
 		prog=$(cd "$SRCDIR/$d" && make -V '${PROGNAME:U${PROG}}')
-		f=$(cd "$SYSROOT" && ls -d */"$prog" usr/*/"$prog" 2>/dev/null |
-		    head -n 1) || :
+		# Files only: the sysroot also has an /etc/devd directory.
+		f=$(cd "$SYSROOT" && for c in */"$prog" usr/*/"$prog"; do
+			[ -f "$c" ] && echo "$c"; done | head -n 1) || :
 		[ -n "$f" ] || die "$d: $prog not installed in the sysroot"
 		cp -p "$SYSROOT/$f" "$root/$f"
 	done
@@ -539,6 +573,7 @@ do_rootfs() {
 		done
 	done
 	write_brand_tests "$root/root/tests"
+	write_cxx_test "$root/root/tests"
 	write_terminfo "$root/usr/share/terminfo"
 	write_etc "$root"
 	# Login classes: init(8) looks up class "daemon" for /etc/rc.  With
@@ -626,6 +661,55 @@ EOF
 	rm -f "$src"
 }
 
+# A C++ program that throws through a destructor and a second frame
+# before it catches: it only prints "ok" if libgcc_eh (built with clang)
+# unwinds the stack and libstdc++ matches the handler.
+write_cxx_test() {
+	local src=$OBJDIR/cxxtest.cc
+	cat > "$src" <<'EOF'
+#include <cstdio>
+#include <stdexcept>
+#include <string>
+
+static int unwound;
+
+struct guard {
+	~guard() { unwound++; }
+};
+
+static void
+inner(const std::string &what)
+{
+	guard g;
+	throw std::runtime_error(what);
+}
+
+static void __attribute__((noinline))
+outer()
+{
+	guard g;
+	inner("unwound");
+}
+
+int
+main()
+{
+	try {
+		outer();
+	} catch (const std::runtime_error &e) {
+		if (unwound == 2) {
+			std::printf("c++ exceptions: ok (%s)\n", e.what());
+			return 0;
+		}
+	}
+	std::printf("c++ exceptions: destructors ran %d times\n", unwound);
+	return 1;
+}
+EOF
+	xc++ -static -O2 -o "$1/cxx-eh" "$src"
+	rm -f "$src"
+}
+
 # Compile the console terminal types from the tree's terminfo.src with the
 # host's tic.  The image's ncurses reads the same directory-tree format
 # (both the 16- and the 32-bit entries).
@@ -661,7 +745,10 @@ write_etc() {
 	local root=$1
 	cp "$SRCDIR/etc/rc" "$SRCDIR/etc/rc.subr" "$SRCDIR/etc/rc.shutdown" \
 	    "$SRCDIR/etc/network.subr" "$SRCDIR/etc/motd" \
-	    "$SRCDIR/etc/syslog.conf" "$SRCDIR/etc/newsyslog.conf" "$root/etc/"
+	    "$SRCDIR/etc/syslog.conf" "$SRCDIR/etc/newsyslog.conf" \
+	    "$SRCDIR/etc/devd.conf" "$root/etc/"
+	mkdir -p "$root/etc/devd"
+	cp "$SRCDIR/etc/devd/"*.conf "$root/etc/devd/"
 	# The empty log files that etc/Makefile's distribution target
 	# installs: syslogd(8) only writes to files that exist.
 	install -m 600 /dev/null "$root/var/log/auth.log"
@@ -700,7 +787,7 @@ syslogd_enable="YES"
 newsyslog_enable="YES"
 dntpd_enable="NO"
 cron_enable="YES"
-devd_enable="NO"
+devd_enable="YES"
 mixer_enable="NO"
 crashinfo_enable="NO"
 check_quotas="NO"
@@ -758,6 +845,7 @@ else
 	echo "rc: exit status $?"
 fi
 # ABI notes: both brands must be accepted (issue #5).
+/root/tests/cxx-eh || echo "rc: /root/tests/cxx-eh failed with status $?"
 for b in /root/tests/brand-*; do
 	"$b" || echo "rc: $b failed with status $?"
 done
@@ -833,7 +921,8 @@ install_compiler_rt() {
 	cp "$rt/libclang_rt.builtins$sfx.a" "$dst/libgcc.a"
 	cp "$rt/libclang_rt.builtins$sfx.a" "$dst/libgcc_pic.a"
 	# libgcc_eh is the exception unwinder; C needs none, but the driver
-	# asks for it in static links.  An empty archive satisfies -lgcc_eh.
+	# asks for it in static links.  An empty archive satisfies -lgcc_eh
+	# until `base` builds the real one from gnu/lib/gcc80/libgcc_eh.
 	rm -f "$dst/libgcc_eh.a"
 	ar rc "$dst/libgcc_eh.a"
 }
