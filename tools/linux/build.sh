@@ -226,6 +226,8 @@ write_xcc_wrapper() {
 	cp "$(readlink -f "$clang")" "$xtool/bin/clang"
 	ln -sfn "$SYSROOT/usr/lib" "$xtool/lib"
 	ln -sfn "$("$clang" -print-resource-dir)/.." "$SYSROOT/usr/lib/clang"
+	local res
+	res=$("$clang" -print-resource-dir)/include
 	cat > "$HOSTBIN/xcc" <<EOF
 #!/bin/sh
 # Drop gcc-only options that the gcc runtime makefiles pass.
@@ -237,10 +239,15 @@ while [ "\$n" -gt 0 ]; do
 	*) set -- "\$@" "\$a" ;;
 	esac
 done
+# Headers: the sysroot's /usr/include first and clang's own headers
+# (intrinsics, stdatomic.h) after it, the order DragonFly's base gcc
+# uses.  clang's stddef.h, limits.h, stdarg.h, ... would otherwise shadow
+# the system ones, which pull in <sys/cdefs.h> (__unused, __dead2).
 # --undefined-version: like GNU ld, accept version scripts that name
 # symbols a given configuration does not build (e.g. hesiod in libc).
 exec "$xtool/bin/clang" --target=x86_64-unknown-dragonfly \\
-	--sysroot="$SYSROOT" -fuse-ld=lld -Wl,--undefined-version \\
+	--sysroot="$SYSROOT" -nobuiltininc -idirafter "$res" \\
+	-fuse-ld=lld -Wl,--undefined-version \\
 	-Qunused-arguments -Wno-unknown-warning-option "\$@"
 EOF
 	chmod 755 "$HOSTBIN/xcc"
@@ -261,7 +268,7 @@ do_tools() {
 
 # Bump when the host tools or shims change, so an existing $OBJDIR gets
 # them rebuilt instead of failing with old ones (install -C/-B, chflags).
-TOOLS_STAMP=2
+TOOLS_STAMP=3
 
 kenv() {
 	[ "$(cat "$HOSTBIN/.done" 2>/dev/null)" = "$TOOLS_STAMP" ] || do_tools
@@ -430,11 +437,17 @@ do_libc() {
 # The smallest userland that boots to a shell, in build order: the runtime
 # linker and the libraries first, then init, sh and a few utilities.
 BASE_LIBS="lib/libc_rtld libexec/rtld-elf lib/libutil lib/libcrypt
-	lib/libncurses lib/libedit lib/libm lib/libkvm"
+	lib/libncurses lib/libedit lib/libm lib/libkvm lib/libypclnt
+	lib/libpam/libpam lib/libpam/modules"
 BASE_PROGS="sbin/init bin/sh bin/cat bin/chmod bin/cp bin/echo bin/hostname bin/kill
 	bin/ln bin/ls bin/mkdir bin/mv bin/ps bin/pwd bin/rm bin/sleep
 	sbin/dmesg sbin/mount sbin/mount_tmpfs sbin/reboot sbin/sysctl
-	usr.bin/id usr.bin/uname usr.sbin/pwd_mkdb"
+	libexec/getty usr.bin/id usr.bin/login usr.bin/uname usr.sbin/pwd_mkdb"
+
+# PAM modules that /etc/pam.d/login and /etc/pam.d/system load.  login(1)
+# opens them with dlopen(3), so they are not in any NEEDED list.
+PAM_MODULES="pam_lastlog pam_login_access pam_nologin pam_securetty pam_self
+	pam_unix"
 
 do_base() {
 	local d
@@ -480,6 +493,10 @@ do_rootfs() {
 	ln -s reboot "$root/sbin/halt"
 	ln -s id "$root/usr/bin/whoami"
 	ln -s id "$root/usr/bin/groups"
+	mkdir -p "$root/usr/lib/security"
+	for f in $PAM_MODULES; do
+		cp -pL "$SYSROOT/usr/lib/security/$f.so" "$root/usr/lib/security/"
+	done
 	# Copy the shared libraries, following NEEDED entries to a fixpoint.
 	local added=1 found
 	while [ "$added" = 1 ]; do
@@ -517,7 +534,18 @@ do_rootfs() {
 	# pwd_mkdb(8) cannot make on a Linux host.  /etc/rc builds them in the
 	# tmpfs /var at boot; these links point the fixed /etc paths there.
 	cp "$SRCDIR/etc/group" "$root/etc/group"
-	install -m 600 "$SRCDIR/etc/master.passwd" "$root/etc/master.passwd"
+	# csh needs libcrypto, which the image does not have yet: root logs
+	# in to sh.
+	sed 's|^\(root:.*:\)/bin/csh$|\1/bin/sh|' "$SRCDIR/etc/master.passwd" \
+	    > "$root/etc/master.passwd"
+	chmod 600 "$root/etc/master.passwd"
+	# Logins: init(8) starts getty(8) on the terminals in /etc/ttys once
+	# /etc/rc exits, and login(1) checks the password through PAM.
+	cp "$SRCDIR/etc/gettytab" "$SRCDIR/etc/login.access" "$root/etc/"
+	mkdir -p "$root/etc/pam.d"
+	cp "$SRCDIR/etc/pam.d/login" "$SRCDIR/etc/pam.d/system" \
+	    "$SRCDIR/etc/pam.d/other" "$root/etc/pam.d/"
+	write_ttys "$root/etc/ttys"
 	for f in passwd pwd.db spwd.db; do
 		ln -s ../var/db/$f "$root/etc/$f"
 	done
@@ -599,8 +627,22 @@ write_terminfo() {
 	    "$SRCDIR/contrib/ncurses/misc/terminfo.src" 2>/dev/null
 }
 
+# The terminals init(8) runs getty on: the serial port when it is the
+# console (qemu.sh's default) and the first virtual console when there is a
+# screen (qemu.sh --gui).  The tree's etc.x86_64/ttys calls the serial
+# lines "dialup", which has no terminfo entry here.
+write_ttys() {
+	cat > "$1" <<'EOF'
+# name	getty				type	status		comments
+console	none				unknown	off secure
+ttyv0	"/usr/libexec/getty Pc"		xterm	on  secure ifexists
+ttyd0	"/usr/libexec/getty std.115200"	vt100	on  secure ifconsole
+EOF
+}
+
 # /etc/rc for the minimal image: init(8) runs it on the console.  It prints
-# a marker the boot test waits for, then hands the console to a shell.
+# a marker and runs a few checks; when it exits, init starts getty and the
+# console shows a login prompt.
 write_rc() {
 	cat > "$1" <<'EOF'
 #!/bin/sh
@@ -627,7 +669,7 @@ echo
 if uname -a && ls -l /bin/sh; then
 	echo
 	echo "FoxynBSD userland is up (minimal read-only root on cd9660)."
-	echo "This is /bin/sh; 'halt -p' powers the machine off."
+	echo "Log in as root (no password); 'halt -p' powers the machine off."
 else
 	echo "rc: dynamically linked programs fail; ld-elf.so.2 trace follows"
 	LD_DEBUG=1 uname -a
@@ -638,8 +680,7 @@ for b in /root/tests/brand-*; do
 	"$b" || echo "rc: $b failed with status $?"
 done
 echo
-/bin/sh -i
-halt -p
+exit 0
 EOF
 	chmod 755 "$1"
 }

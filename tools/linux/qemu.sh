@@ -10,7 +10,7 @@
 #		Serial output is still copied to the terminal.
 #	--root	attach the root image from `build.sh rootfs` ($OBJDIR/root.iso)
 #		as a second virtio disk and mount it as the root filesystem
-#		(cd9660): boots to a shell.
+#		(cd9660): boots to a login prompt (root, no password).
 #
 # The ESP tree from `build.sh esp` is handed to QEMU as a virtual FAT disk,
 # so nothing needs root.  Without --root the kernel is expected to stop at

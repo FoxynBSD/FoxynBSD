@@ -34,7 +34,7 @@ the userland.
     WITH_MODULES=1 tools/linux/build.sh esp # EFI boot tree: loader + kernel (+ stripped .ko)
     tools/linux/qemu.sh                     # boot it under QEMU/OVMF on the serial console
     tools/linux/qemu.sh --gui               # same, in a QEMU window on the video console
-    tools/linux/qemu.sh --root              # boot with root.iso as the root fs: a shell
+    tools/linux/qemu.sh --root              # boot with root.iso as the root fs: login:
     tools/linux/boot-test.sh                # headless boot, passes at the mountroot> prompt
     tools/linux/boot-test.sh --root         # headless boot to the userland
     eval "$(tools/linux/build.sh env)"      # shell env for running make by hand
@@ -108,7 +108,8 @@ build (ncurses' `make_keys`) use the host compiler through `NXCC`, and
 
 `build.sh base` builds the runtime linker (`libexec/rtld-elf`, on top of
 `lib/libc_rtld`), libutil, libcrypt, the private ncurses, libedit, libm and
-libkvm, then `init`, `sh` and a set of utilities (`ls`, `cat`, `ps`,
+libkvm, libpam and its modules, then `init`, `sh`, `getty`, `login` and
+a set of utilities (`ls`, `cat`, `ps`,
 `mount`, `sysctl`, `dmesg`, `reboot`, ...). `build.sh rootfs` copies those
 programs and every shared library they load into `$OBJDIR/rootfs`, compiles
 a few console terminal types (`xterm`, `vt100`, `vt220`, `cons25`, ...)
@@ -117,7 +118,11 @@ from the tree's `terminfo.src` with the host's `tic`, copies
 `etc/master.passwd`, adds an `/etc/rc` that mounts tmpfs on `/tmp` and
 `/var`, builds the password database in `/var/db` with `pwd_mkdb` (the
 `/etc/pwd.db`, `spwd.db` and `passwd` links point there), prints
-`uname -a` and opens `/bin/sh` on the console, and
+`uname -a` and exits. init then starts `getty` on the console from a
+small `/etc/ttys` (serial `ttyd0`, or `ttyv0` with `--gui`), and `login`
+checks passwords through PAM (`/etc/pam.d`, `pam_unix` and friends).
+Root has no password and logs in to `/bin/sh`, since `csh` needs
+libcrypto, which the image does not have yet. `build.sh rootfs` finally
 packs the tree as a Rock Ridge ISO with xorriso. `qemu.sh --root` attaches
 it as a second virtio disk and sets `vfs.root.mountfrom="cd9660:vbd1"`, so
 no step needs root privileges and the root stays read-only. (Not as a CD:
@@ -164,12 +169,12 @@ Linux compiler act like DragonFly's base gcc for kernel code:
 | kernel modules (682 .ko)      | build      |
 | stand/ (loader.efi)           | builds; PE32+ EFI app, only R_X86_64_RELATIVE relocs |
 | ESP tree + `qemu.sh` runner   | boots to `mountroot>` under QEMU + OVMF (verified in CI) |
-| CI (`.github/workflows/linux-build.yml`) | kernel, loader, ESP and modules on Ubuntu; QEMU boot tests to `mountroot>` and, with the userland, to a shell; all blocking |
+| CI (`.github/workflows/linux-build.yml`) | kernel, loader, ESP and modules on Ubuntu; QEMU boot tests to `mountroot>` and, with the userland, to a login prompt; all blocking |
 | header sysroot via the tree's `includes` rules | works |
 | userland: `lib/csu`, `libc.a` | build with clang (`xcc`) |
 | userland: `libc.so.8`, linking programs | works (compiler-rt from the host); a test program links dynamically against `libc.so.8` with the DragonFly ELF note |
 | userland: `rtld` (`ld-elf.so.2`), init, sh, base utilities | build with clang |
-| root image (`root.iso`) and boot to a shell | boots to `/bin/sh` under QEMU; dynamic programs run (verified in CI, blocking) |
+| root image (`root.iso`) and boot to `login:` | getty and login (PAM) under QEMU; dynamic programs run (verified in CI, blocking) |
 | terminfo, tmpfs `/tmp` and `/var`, `login.conf`, users and groups (`pwd_mkdb` at boot) | in the root image (checked in CI) |
 | rest of world, writable root, `/etc/rc.d` | TODO (issue #9) |
 

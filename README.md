@@ -20,7 +20,7 @@ system can be built from an ordinary Linux machine.
 > and the desktop experience is the goal, not something you can use today.
 > What works now is building the kernel, its modules, the EFI boot
 > loader and a minimal userland on Linux, and booting them under QEMU to
-> a shell. See [Status](#status) before you plan anything around it.
+> a login prompt. See [Status](#status) before you plan anything around it.
 
 ## Status
 
@@ -28,7 +28,7 @@ system can be built from an ordinary Linux machine.
 |------|-------|
 | Kernel (`X86_64_GENERIC`) and all modules | Build on Linux with GCC 16 |
 | EFI boot loader (`loader.efi`) | Builds on Linux |
-| Boot under QEMU | Boots to a shell from a minimal read-only root image; kernel-only boots stop at `mountroot>`. Both checked in CI on every push |
+| Boot under QEMU | Boots to a login prompt from a minimal read-only root image; kernel-only boots stop at `mountroot>`. Both checked in CI on every push |
 | Userland (`world`) | On Linux: libc, the runtime linker, init, sh and core utilities build with clang. The rest of the world still needs a DragonFly host |
 | Installable image / ISO | Not available yet |
 | Desktop defaults | Planned |
@@ -74,15 +74,16 @@ Other distributions should work if they provide the same tools.
    To watch the boot in a QEMU window on the video console instead of the
    terminal, run `tools/linux/qemu.sh --gui`.
 
-4. Build a minimal userland and boot to a shell:
+4. Build a minimal userland and boot to a login prompt:
 
    ```sh
-   tools/linux/build.sh rootfs     # headers, libc, rtld, init, sh, utilities
+   tools/linux/build.sh rootfs     # headers, libc, rtld, init, sh, login, utilities
    tools/linux/qemu.sh --root
    ```
 
    The first `rootfs` builds everything it needs and takes a while.
-   The boot ends at a `#` prompt on a read-only root, with `ls`, `ps`,
+   The boot ends at a `login:` prompt. Log in as `root` with no
+   password to get a `#` prompt on a read-only root, with `ls`, `ps`,
    `mount`, `sysctl`, `dmesg` and a few more; `halt -p` powers off.
 
 Details, extra commands (`modules`, `subdir`, `env`) and the reasons

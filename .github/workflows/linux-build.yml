@@ -218,11 +218,18 @@ jobs:
           sudo udevadm control --reload-rules
           sudo udevadm trigger --name-match=kvm || true
 
-      # Passes when init has run /etc/rc from root.iso and its dynamically
-      # linked programs worked.
-      - name: Boot to a shell under QEMU
+      # Passes at getty's login prompt: init has run /etc/rc from root.iso
+      # and gone multi-user.
+      - name: Boot to a login prompt under QEMU
         id: boot
         run: tools/linux/boot-test.sh --root
+
+      # /etc/rc prints this only after dynamically linked programs ran.
+      - name: Check that dynamically linked programs ran
+        run: |
+          log="$OBJDIR/qemu/X86_64_GENERIC.boot-root.log"
+          grep -aF 'FoxynBSD userland is up' "$log" ||
+            { echo "::error title=rtld::/etc/rc saw dynamically linked programs fail"; exit 1; }
 
       # Identity (issue #3): the running system reports itself as FoxynBSD.
       - name: Check the reported OS name
