@@ -201,7 +201,9 @@ while [ "$n" -gt 0 ]; do
 done
 exec /usr/bin/install "$@"
 EOF
-	chmod 755 "$HOSTBIN/sed" "$HOSTBIN/install"
+	# File flags (schg, ...) do not exist here and need root anyway.
+	printf '#!/bin/sh\nexit 0\n' > "$HOSTBIN/chflags"
+	chmod 755 "$HOSTBIN/sed" "$HOSTBIN/install" "$HOSTBIN/chflags"
 }
 
 # Cross compiler for the world: host clang targeting DragonFly, against the
@@ -429,6 +431,11 @@ do_base() {
 		case $d in
 		# libtic and tic_next only serve share/terminfo.
 		lib/libncurses)	world_lib "$d" NO_SHARE=yes ;;
+		# LD_DEBUG=1 support, for when a dynamic program fails to start.
+		libexec/rtld-elf) world_lib "$d" ENABLE_DEBUG=yes ;;
+		# Static like init, so the image always gets a working shell
+		# (and its /etc/rc runs) even if dynamic linking is broken.
+		bin/sh)		world_lib "$d" NOSHARED=yes ;;
 		*)		world_lib "$d" ;;
 		esac
 	done
@@ -504,10 +511,15 @@ hostname "$(cat /etc/hostname)"
 echo
 # The marker below is what boot-test.sh --root waits for: print it only
 # if dynamically linked programs (rtld + libc + libutil + ncurses) ran.
+# sh and init are static, so this is the first use of ld-elf.so.2.
 if uname -a && ls -l /bin/sh; then
 	echo
 	echo "FoxynBSD userland is up (minimal read-only root on cd9660)."
 	echo "This is /bin/sh; 'halt -p' powers the machine off."
+else
+	echo "rc: dynamically linked programs fail; ld-elf.so.2 trace follows"
+	LD_DEBUG=1 uname -a
+	echo "rc: exit status $?"
 fi
 echo
 /bin/sh -i

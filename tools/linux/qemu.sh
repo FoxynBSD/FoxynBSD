@@ -125,7 +125,10 @@ else
 	CONSOLE="-nographic -serial mon:stdio"
 fi
 
+# -nodefaults: q35 would otherwise add an empty AHCI CD drive, whose
+# ATAPI emulation keeps the ahci(4) driver in timeouts for a minute.
 set -- \
+    -nodefaults \
     -machine q35 $ACCEL \
     -m "${MEM:-2G}" -smp "${SMP:-2}" \
     -drive if=pflash,format=raw,readonly=on,file="$OVMF_CODE" \
