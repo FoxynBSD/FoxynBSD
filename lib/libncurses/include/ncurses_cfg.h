@@ -169,7 +169,12 @@
 #define HAVE_TIMES 1
 #define HAVE_TSEARCH 1
 #define HAVE_VSNPRINTF 1
+/* glibc has no cgetent(3): tic_next is built on a Linux host (tools/linux) */
+#ifdef __linux__
+#define HAVE_BSD_CGETENT 0
+#else
 #define HAVE_BSD_CGETENT 1
+#endif
 #define CGETENT_CONST const
 #define HAVE_ISASCII 1
 #define HAVE_NANOSLEEP 1

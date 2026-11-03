@@ -120,6 +120,9 @@ build_small_tools() {
 	    "$SRCDIR/usr.bin/file2c/file2c.c" $bsd
 	$HOST_CC $HOST_CFLAGS -o "$HOSTBIN/uudecode" \
 	    "$SRCDIR/usr.bin/uudecode/uudecode.c" $bsd -lresolv
+	$HOST_CC $HOST_CFLAGS -include "$SRCDIR/tools/linux/host-compat.h" \
+	    -o "$HOSTBIN/uuencode" \
+	    "$SRCDIR/usr.bin/uuencode/uuencode.c" $bsd -lresolv
 	install -m 755 "$SRCDIR/usr.bin/mkdep/mkdep.sh" "$HOSTBIN/mkdep"
 	# bsd.lib.mk orders archives with `lorder ... | tsort -q`; GNU tsort
 	# has no -q (quiet about cycles), so drop it and silence stderr.
@@ -265,6 +268,75 @@ EOF
 	chmod 755 "$HOSTBIN/sed" "$HOSTBIN/install" "$HOSTBIN/chflags"
 }
 
+# The generators that buildworld's bootstrap-tools stage builds for the
+# share/ data (Makefile.inc1 BSTRAPDIRS): the glibc programs of the same
+# name write other formats, or (cap_mkdb) do not exist.  They are built
+# from the tree with hostcc, which supplies libbsd and host-compat.h.
+build_bootstrap_tools() {
+	local b=$HOSTOBJ/bt inc=$HOSTOBJ/bt/inc t d c=$SRCDIR/lib/libc/citrus
+	local db=$SRCDIR/lib/libc/db
+	rm -rf "$b"; mkdir -p "$inc"
+
+	# localedef(1) for share/colldef, ctypedef and monetdef.  It reads
+	# the _CTYPE_* class bits from DragonFly's <ctype.h>.
+	grep -E '^#define[[:space:]]+_CTYPE_[A-Z0-9]+[[:space:]]' \
+	    "$SRCDIR/include/ctype.h" > "$inc/bsdctype.h"
+	d=$SRCDIR/usr.bin/localedef
+	( cd "$b" && "$HOSTBIN/yacc" -d -o parser.c "$d/parser.y" )
+	"$HOSTBIN/hostcc" $HOST_CFLAGS -include "$inc/bsdctype.h" \
+	    -DBOOTSTRAPPING -I"$b" -I"$d" -I"$SRCDIR/lib/libc/locale" \
+	    -I"$SRCDIR/lib/libc/stdtime" -o "$HOSTBIN/localedef" \
+	    "$b/parser.c" $(for t in charmap collate ctype localedef messages \
+	    monetary numeric scanner time wide; do echo "$d/$t.c"; done)
+
+	# mkcsmapper(1) and mkesdb(1) for share/i18n (citrus iconv tables).
+	for t in mkcsmapper mkesdb; do
+		d=$SRCDIR/usr.bin/$t
+		mkdir -p "$b/$t"
+		( cd "$b/$t" && "$HOSTBIN/yacc" -d -o yacc.c "$d/yacc.y" &&
+		  flex -o lex.c "$d/lex.l" )
+		"$HOSTBIN/hostcc" $HOST_CFLAGS -I"$b/$t" -I"$d" -I"$c" \
+		    -I"$SRCDIR/lib/libc" \
+		    -I"$SRCDIR/lib/i18n_module/mapper_std" -o "$HOSTBIN/$t" \
+		    "$b/$t/yacc.c" "$b/$t/lex.c" "$c/citrus_bcs.c" \
+		    "$c/citrus_db_factory.c" "$c/citrus_db_hash.c" \
+		    "$c/citrus_lookup_factory.c" \
+		    $([ $t = mkcsmapper ] && echo "$c/citrus_pivot_factory.c")
+	done
+
+	# cap_mkdb(1) for share/termcap, with the tree's 4.4BSD db(3) and
+	# getcap(3), which glibc does not have.
+	cp "$SRCDIR/include/db.h" "$SRCDIR/include/mpool.h" "$inc/"
+	: > "$inc/un-namespace.h"
+	for t in open read write close fcntl fstat fsync unlink writev \
+	    sigprocmask; do
+		echo "#define _$t $t"
+	done > "$inc/namespace.h"
+	{
+		echo '#define __BSD_VISIBLE 1'
+		echo '#define O_EXLOCK 0'
+		echo '#define O_SHLOCK 0'
+		echo '#define issetugid() 0'
+		echo 'int mkostemp(char *, int);'
+		grep -E '^#define[[:space:]]+(rounddown2|__PAST_END)\(' \
+		    "$SRCDIR/sys/sys/param.h"
+		grep -E '^(char|int)[[:space:]]+\*?cget[a-z]+\(' \
+		    "$SRCDIR/include/stdlib.h"
+	} > "$inc/dbcompat.h"
+	"$HOSTBIN/hostcc" $HOST_CFLAGS -include "$inc/dbcompat.h" \
+	    -D__DBINTERFACE_PRIVATE -I"$inc" -o "$HOSTBIN/cap_mkdb" \
+	    "$SRCDIR/usr.bin/cap_mkdb/cap_mkdb.c" \
+	    "$SRCDIR/lib/libc/gen/getcap.c" "$db"/btree/bt_*.c \
+	    "$db/db/db.c" "$db"/hash/hash*.c "$db/mpool/mpool.c" \
+	    "$db"/recno/rec_*.c
+
+	# Host programs that read console structures (share/syscons'
+	# mkscrfil) find DragonFly's <sys/consio.h> after the host headers.
+	mkdir -p "$OBJDIR/host/include/sys"
+	cp "$SRCDIR/sys/sys/consio.h" "$SRCDIR/sys/sys/ioccom.h" \
+	    "$OBJDIR/host/include/sys/"
+}
+
 # Cross compiler for the world: host clang targeting DragonFly, against the
 # staged sysroot, linking with lld.
 write_xcc_wrapper() {
@@ -342,13 +414,14 @@ do_tools() {
 	build_config
 	build_small_tools
 	build_world_tools
+	build_bootstrap_tools
 	write_xcc_wrapper
 	echo "$TOOLS_STAMP" > "$HOSTBIN/.done"
 }
 
 # Bump when the host tools or shims change, so an existing $OBJDIR gets
 # them rebuilt instead of failing with old ones (install -C/-B, chflags).
-TOOLS_STAMP=9
+TOOLS_STAMP=10
 
 kenv() {
 	[ "$(cat "$HOSTBIN/.done" 2>/dev/null)" = "$TOOLS_STAMP" ] || do_tools
@@ -583,7 +656,8 @@ world_dir() {
 # as in `base`.
 WORLD_PREBUILD="lib/libc_rtld gnu/lib/gcc80/libgcc_eh
 	lib/libbz2 lib/liblzma lib/libz lib/libzstd lib/libutil lib/libpcap
-	lib/libcrypt lib/libncurses lib/librecrypto lib/libressl lib/libldns
+	lib/libcrypt lib/libncurses lib/libncurses/libtic
+	lib/libncurses/tic_next lib/librecrypto lib/libressl lib/libldns
 	lib/libsbuf lib/libm lib/libpam/libpam lib/libypclnt lib/libprop
 	gnu/lib/gcc80/libstdc++/headers gnu/lib/gcc80/libstdc++/components
 	gnu/lib/gcc80/libstdc++/product"

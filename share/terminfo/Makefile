@@ -28,7 +28,7 @@ run_tic.sh:
 	cat ${MISCDIR}/run_tic.in | sed \
 	  -e 's;@PROG_EXT@;;g' \
 	  -e 's;@DESTDIR@;;g' \
-	  -e 's;@TERMINFO@;${.CURDIR}/terminfo;g' \
+	  -e 's;@TERMINFO@;${.OBJDIR}/terminfo;g' \
 	  -e 's;@TERMINFO_SRC@;${TSOURCE};g' \
 	  -e 's;@TIC@;${TIC};g' \
 	  -e 's;@NCURSES_EXT_FUNCS@;1;g' \
@@ -46,7 +46,7 @@ terminfo.tmp: run_tic.sed ${TSOURCE}
 	sed -f run_tic.sed ${TSOURCE} > ${.TARGET}
 
 terminfo: run_tic.sh terminfo.tmp
-	sh run_tic.sh
+	DESTDIR= sh run_tic.sh
 
 install:
 	for ITEM in ${TERMINFO_ENTRIES}; do \

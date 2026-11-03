@@ -25,6 +25,9 @@
 #ifndef NELEM
 #define NELEM(ary)	(sizeof(ary) / sizeof((ary)[0]))
 #endif
+#ifndef roundup2
+#define roundup2(x, y)	(((x) + ((y) - 1)) & (~((y) - 1)))
+#endif
 #ifndef nitems
 #define nitems(x)	NELEM(x)
 #endif
