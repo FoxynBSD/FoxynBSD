@@ -29,4 +29,17 @@
 #define nitems(x)	NELEM(x)
 #endif
 
+/* srandomdev(3): seed random(3) from the kernel's entropy. */
+#include <stdlib.h>
+#include <sys/random.h>
+static inline void
+srandomdev(void)
+{
+	unsigned int seed;
+
+	if (getrandom(&seed, sizeof(seed), 0) != sizeof(seed))
+		seed = 0;
+	srandom(seed);
+}
+
 #endif /* !_FOXYN_HOST_COMPAT_H_ */

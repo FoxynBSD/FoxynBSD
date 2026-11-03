@@ -58,7 +58,7 @@ ioctl_includes=`
 `
 
 awk -v x="$ioctl_includes" 'BEGIN {print x}' |
-	gcc -D_KERNEL_STRUCTURES -E -I$1 -I$2/../../sys -I$2/../../sys/dev/drm/include -dM - |
+	${CC:-gcc} -D_KERNEL_STRUCTURES -E -I$1 -I$2/../../sys -I$2/../../sys/dev/drm/include -dM - |
 	awk -v ioctl_includes="$ioctl_includes" -v use_switch="$use_switch" '
 BEGIN {
 	print "/* XXX obnoxious prerequisites. */"

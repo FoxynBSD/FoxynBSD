@@ -15,6 +15,8 @@
 #	tools/linux/build.sh libc		(userland: csu + libc, with clang)
 #	tools/linux/build.sh base		(rtld, init, sh, core utilities)
 #	tools/linux/build.sh rootfs		(minimal root tree and root.iso)
+#	tools/linux/build.sh world		(the whole userland, buildworld
+#					 order; KEEP_GOING=1 lists failures)
 #	tools/linux/build.sh subdir DIR...	(build and install world dirs)
 #	tools/linux/build.sh loader		(EFI loader.efi)
 #	tools/linux/build.sh esp [KERNCONF]	(boot tree for QEMU;
@@ -131,6 +133,18 @@ build_small_tools() {
 exec /usr/bin/tsort "$@" 2>/dev/null
 EOF
 	chmod 755 "$HOSTBIN/tsort"
+	# BSD `find -s` walks each directory in sorted order (kdump's
+	# mkioctls lists headers that way); GNU find has no -s, so sort.
+	cat > "$HOSTBIN/find" <<'EOF'
+#!/bin/sh
+if [ "${1:-}" = -s ]; then
+	shift
+	/usr/bin/find "$@" | LC_ALL=C sort
+else
+	exec /usr/bin/find "$@"
+fi
+EOF
+	chmod 755 "$HOSTBIN/find"
 }
 
 # Tools that only the world (userland) build needs, plus BSD-compatible
@@ -156,6 +170,51 @@ build_world_tools() {
 	$HOST_CC $HOST_CFLAGS $compat -I"$HOSTOBJ/inc" \
 	    -DNL_SETMAX=255 -DNL_MSGMAX=32767 \
 	    -o "$HOSTBIN/gencat" "$SRCDIR/usr.bin/gencat/gencat.c" $bsd
+
+	# Compiler for the helpers that run during the world build (NXCC:
+	# mkmagic, make_keys, ...).  Their config headers describe DragonFly;
+	# glibc has the xlocale functions in <locale.h>, so give them an
+	# <xlocale.h> that includes it.
+	mkdir -p "$OBJDIR/host/include"
+	echo '#include <locale.h>' > "$OBJDIR/host/include/xlocale.h"
+	# They also get libbsd and the BSD macros, like the tools above.
+	# bsd.hostprog.mk links them -static; distributions ship libbsd
+	# only as a shared library, and these programs never leave the host.
+	cat > "$HOSTBIN/hostcc" <<EOF
+#!/bin/sh
+n=\$#
+while [ "\$n" -gt 0 ]; do
+	a=\$1; shift; n=\$((n - 1))
+	[ "\$a" = -static ] || set -- "\$@" "\$a"
+done
+exec $HOST_CC $compat -idirafter "$OBJDIR/host/include" "\$@" $bsd
+EOF
+	chmod 755 "$HOSTBIN/hostcc"
+
+	# The zoneinfo build runs zic as root with -u root -g wheel; the
+	# host's zic (same tzcode) does the rest without them.
+	cat > "$HOSTBIN/zic" <<'EOF'
+#!/bin/sh
+n=$#
+while [ "$n" -gt 0 ]; do
+	a=$1; shift; n=$((n - 1))
+	case $a in
+	-u|-g)	shift; n=$((n - 1)) ;;
+	*)	set -- "$@" "$a" ;;
+	esac
+done
+exec /usr/bin/zic "$@"
+EOF
+	chmod 755 "$HOSTBIN/zic"
+
+	# buildworld's bootstrap yacc (byacc): bison differs in the
+	# generated names and headers that ftpd and acpi's iasl rely on.
+	local by=$SRCDIR/contrib/byacc f
+	$HOST_CC $HOST_CFLAGS $compat -DYYPATCH="$(cat "$by/VERSION")" \
+	    -DHAVE_CONFIG_H -I"$SRCDIR/usr.bin/yacc" -DMAXTABLE=65000 \
+	    -o "$HOSTBIN/yacc" $(for f in closure error graph lalr lr0 main \
+	    mkpar mstring output reader symtab verbose warshall yaccpar; do
+		echo "$by/$f.c"; done) $bsd
 
 	# BSD `ln -h` (do not follow a symlinked target) is GNU `ln -n`;
 	# bsd.incs.mk uses `ln -fhs` for header links such as util.h.
@@ -194,8 +253,8 @@ n=$#
 while [ "$n" -gt 0 ]; do
 	a=$1; shift; n=$((n - 1))
 	case $a in
-	-o|-g|-f|-B)	shift; n=$((n - 1)) ;;
-	-o?*|-g?*|-f?*|-B?*|-U|-S|-l?*|-C|-b) ;;
+	-o|-g|-f|-B|-N)	shift; n=$((n - 1)) ;;
+	-o?*|-g?*|-f?*|-B?*|-N?*|-U|-S|-l?*|-C|-b) ;;
 	*)		set -- "$@" "$a" ;;
 	esac
 done
@@ -250,12 +309,16 @@ done
 # the system ones, which pull in <sys/cdefs.h> (__unused, __dead2).
 # --undefined-version: like GNU ld, accept version scripts that name
 # symbols a given configuration does not build (e.g. hesiod in libc).
-# incompatible-function-pointer-types is an error since clang 16 but a
-# warning in the tree's gcc 12 (GNU grep's obstack.c trips it).
+# Old-C diagnostics that recent clang makes errors are warnings in the
+# tree's gcc 12: incompatible (function) pointer types (GNU grep's
+# obstack.c, K&R code in tcp_wrappers), int-conversion, implicit int and
+# implicit function declarations.
 exec "$xtool/bin/clang" --target=x86_64-unknown-dragonfly \\
 	--sysroot="$SYSROOT" -nobuiltininc -idirafter "$res" \\
 	-fuse-ld=lld -Wl,--undefined-version \\
 	-Wno-error=incompatible-function-pointer-types \\
+	-Wno-error=incompatible-pointer-types -Wno-error=int-conversion \\
+	-Wno-error=implicit-int -Wno-error=implicit-function-declaration \\
 	-Qunused-arguments -Wno-unknown-warning-option "\$@"
 EOF
 	chmod 755 "$HOSTBIN/xcc"
@@ -285,7 +348,7 @@ do_tools() {
 
 # Bump when the host tools or shims change, so an existing $OBJDIR gets
 # them rebuilt instead of failing with old ones (install -C/-B, chflags).
-TOOLS_STAMP=6
+TOOLS_STAMP=9
 
 kenv() {
 	[ "$(cat "$HOSTBIN/.done" 2>/dev/null)" = "$TOOLS_STAMP" ] || do_tools
@@ -380,11 +443,12 @@ do_sysroot() {
 	# as the rpcgen output for include/rpc, come from the same rules.
 	mtree_dirs "$SRCDIR/etc/mtree/BSD.root.dist" "$SYSROOT"
 	mtree_dirs "$SRCDIR/etc/mtree/BSD.usr.dist" "$SYSROOT/usr"
+	mtree_dirs "$SRCDIR/etc/mtree/BSD.var.dist" "$SYSROOT/var"
 	mtree_dirs "$SRCDIR/etc/mtree/BSD.include.dist" "$inc"
 	(
 	wenv
 	for d in include/arpa include/protocols include/rpc include/rpcsvc \
-	    include/xlocale lib; do
+	    include/xlocale lib gnu/lib; do
 		msg "installing headers from $d"
 		( cd "$SRCDIR/$d" && make obj >/dev/null &&
 		  make -j"$JOBS" DESTDIR="$SYSROOT" buildincludes &&
@@ -397,7 +461,7 @@ do_sysroot() {
 # Bump when do_sysroot stages headers differently, so sysroots made by an
 # older build.sh are restaged instead of silently missing files (e.g. the
 # rpcsvc/*.x that libc's `make depend` needs).
-HEADERS_STAMP=3
+HEADERS_STAMP=5
 headers_ok() {
 	[ "$(cat "$SYSROOT/.headers_done" 2>/dev/null)" = "$HEADERS_STAMP" ]
 }
@@ -432,12 +496,16 @@ wenv() {
 	# the "native" compiler is the host's; its default NXENV would also
 	# reset PATH and drop the shims.
 	NXENV=
-	NXCC=$HOST_CC
-	NXCC_LINK=$HOST_CC
+	NXCC=hostcc
+	NXCC_LINK=hostcc
 	# Where buildworld's makefiles look for already-installed libraries
 	# and private headers (e.g. usr/include/priv/ncurses).
 	_SHLIBDIRPREFIX=$SYSROOT
+	# Scripts that sort or compare file lists (kdump's mkioctls, ...)
+	# expect the C collation of a BSD host.
+	LC_ALL=C
 	export CCVER CC CXX MAKEOBJDIRPREFIX NXENV NXCC NXCC_LINK _SHLIBDIRPREFIX
+	export LC_ALL
 	mkdir -p "$MAKEOBJDIRPREFIX"
 }
 
@@ -483,18 +551,72 @@ do_base() {
 	[ -f "$SYSROOT/usr/lib/libc.so" ] || do_libc
 	wenv
 	for d in $BASE_LIBS $BASE_PROGS; do
-		case $d in
-		# libtic and tic_next only serve share/terminfo.
-		lib/libncurses)	world_lib "$d" NO_SHARE=yes ;;
-		# LD_DEBUG=1 support, for when a dynamic program fails to start.
-		libexec/rtld-elf) world_lib "$d" ENABLE_DEBUG=yes ;;
-		# Static like init, so the image always gets a working shell
-		# (and its /etc/rc runs) even if dynamic linking is broken.
-		bin/sh)		world_lib "$d" NOSHARED=yes ;;
-		gnu/lib/gcc80/libgcc_eh) gcc_prep; world_lib "$d" ;;
-		*)		world_lib "$d" ;;
-		esac
+		world_dir "$d"
 	done
+}
+
+# world_lib with the settings a few directories need on this host.
+world_dir() {
+	case $1 in
+	# libtic and tic_next only serve share/terminfo.
+	lib/libncurses)	world_lib "$1" NO_SHARE=yes ;;
+	# LD_DEBUG=1 support, for when a dynamic program fails to start.
+	libexec/rtld-elf) world_lib "$1" ENABLE_DEBUG=yes ;;
+	# Static like init, so the image always gets a working shell
+	# (and its /etc/rc runs) even if dynamic linking is broken.
+	bin/sh)		world_lib "$1" NOSHARED=yes ;;
+	gnu/lib/gcc80/libgcc_eh) gcc_prep; world_lib "$1" ;;
+	*)		world_lib "$1" ;;
+	esac
+}
+
+# The whole userland, in buildworld's order (Makefile.inc1): the startup
+# and compiler libraries, the _prebuild_libs that others link against,
+# every other library, then the programs.  Each top-level directory is
+# walked one SUBDIR level deep, so with KEEP_GOING=1 a failing directory
+# is recorded and the rest still builds; the failures are listed at the
+# end (and the command fails).  Without it the first failure stops.
+#
+# Left out: the gcc runtimes' csu and libgcc (the host's compiler-rt
+# stands in, see install_compiler_rt) and gnu/lib/gcc120, which needs
+# gcc internals that do not build with clang; the C++ runtime is gcc 8's,
+# as in `base`.
+WORLD_PREBUILD="lib/libc_rtld gnu/lib/gcc80/libgcc_eh
+	lib/libbz2 lib/liblzma lib/libz lib/libzstd lib/libutil lib/libpcap
+	lib/libcrypt lib/libncurses lib/librecrypto lib/libressl lib/libldns
+	lib/libsbuf lib/libm lib/libpam/libpam lib/libypclnt lib/libprop
+	gnu/lib/gcc80/libstdc++/headers gnu/lib/gcc80/libstdc++/components
+	gnu/lib/gcc80/libstdc++/product"
+WORLD_TOP="gnu/lib lib usr.bin/flex/lib libexec bin sbin usr.bin usr.sbin
+	gnu/usr.bin games share"
+WORLD_SKIP="lib/csu lib/libc gnu/lib/gcc120 gnu/lib/gcc80"
+
+do_world() {
+	local d top failed= seen=
+	[ -f "$SYSROOT/usr/lib/libc.so" ] || do_libc
+	wenv
+	world_try() {
+		case " $WORLD_SKIP $seen " in *" $1 "*) return 0 ;; esac
+		seen="$seen $1"
+		world_dir "$1" && return 0
+		[ -n "${KEEP_GOING:-}" ] || die "world: $1 failed"
+		failed="$failed $1"
+	}
+	for d in $WORLD_PREBUILD; do world_try "$d"; done
+	for top in $WORLD_TOP; do
+		for d in $(world_subdirs "$top"); do world_try "$top/$d"; done
+	done
+	if [ -n "$failed" ]; then
+		msg "world: these directories failed:"
+		for d in $failed; do echo "	$d" >&2; done
+		return 1
+	fi
+	msg "world: done"
+}
+
+# The SUBDIR list of a directory's Makefile, as its make sees it.
+world_subdirs() {
+	(cd "$SRCDIR/$1" && make CCVER=clang -V SUBDIR)
 }
 
 # The exception unwinder (libgcc_eh) that C++ programs such as devd(8)
@@ -874,7 +996,7 @@ world_lib() {
 	( cd "$SRCDIR/$dir" && make obj >/dev/null &&
 	  make CCVER=clang DESTDIR="$SYSROOT" "$@" depend &&
 	  make -j"$JOBS" CCVER=clang DESTDIR="$SYSROOT" "$@" &&
-	  make CCVER=clang DESTDIR="$SYSROOT" "$@" install )
+	  make CCVER=clang DESTDIR="$SYSROOT" "$@" install ) || return
 	fix_sysroot_links
 }
 
@@ -1004,13 +1126,14 @@ main() {
 	sysroot)	do_sysroot ;;
 	libc)		do_libc ;;
 	base)		do_base ;;
+	world)		do_world ;;
 	rootfs)		do_rootfs ;;
 	subdir)		[ -f "$SYSROOT/usr/lib/libc.so" ] || do_libc
 			wenv; for d; do world_lib "$d"; done ;;
 	loader)		do_loader ;;
 	esp)		do_esp "$@" ;;
 	env)		kenv; env | grep -E '^(PATH|MACHINE|MACHINE_ARCH|MACHINE_PLATFORM|CCVER|HOST_CCVER|HOST_BINUTILSVER)=' | sed 's/^/export /' ;;
-	*)		sed -n '3,20p' "$0" | sed 's/^# \{0,1\}//'; exit 1 ;;
+	*)		sed -n '3,22p' "$0" | sed 's/^# \{0,1\}//'; exit 1 ;;
 	esac
 }
 
