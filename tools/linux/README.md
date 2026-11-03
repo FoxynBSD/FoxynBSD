@@ -89,10 +89,11 @@ How `xcc` stays inside the sysroot:
   the sysroot.
 * `-Wl,--undefined-version`: lld, unlike GNU ld, rejects version scripts
   that name symbols a configuration does not build (hesiod in libc).
-* `-Wl,--apply-dynamic-relocs`: GNU ld also writes relocation addends into
-  the sections; lld keeps them only in `.rela.dyn`. `ld-elf.so.2` reads its
-  own `_DYNAMIC` through the GOT before it relocates itself, so without
-  this it sees 0 and every dynamic program dies with SIGSEGV.
+* `ld-elf.so.2` finds its own `_DYNAMIC` PC-relative
+  (`libexec/rtld-elf/x86_64/rtld_machdep.h`). The old
+  `relocbase + &_DYNAMIC` relied on GNU ld leaving that GOT load alone;
+  lld relaxes it to a `lea`, the base was added twice and every dynamic
+  program died with SIGSEGV.
 * Absolute symlinks installed into the sysroot
   (`/usr/lib/libc.so -> /lib/libc.so.8`) are made relative inside the
   sysroot; otherwise the linker silently falls back to `libc.a`.
