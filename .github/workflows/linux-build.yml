@@ -1,7 +1,8 @@
 name: Linux build
 
-# Build the kernel and EFI loader from a Linux host with tools/linux and
-# try a kernel-only boot under QEMU.  See tools/linux/README.md.
+# Build the kernel, EFI loader and a minimal userland from a Linux host with
+# tools/linux, then boot them under QEMU: kernel-only (to the mountroot
+# prompt) and from a root image (to a shell).  See tools/linux/README.md.
 
 on:
   push:
@@ -135,3 +136,88 @@ jobs:
           [ -n "$errs" ] || errs=$(tail -n 20 "$BUILD_LOG")
           msg=$(printf '%s\n' "$errs" | cut -c1-400 | sed 's/%/%25/g' | awk '{printf "%s%%0A", $0}')
           echo "::error title=Build failed::${msg}"
+
+  userland:
+    name: Userland and boot to a shell
+    runs-on: ubuntu-24.04
+    timeout-minutes: 90
+    # New and still settling: report, but do not fail the workflow yet.
+    continue-on-error: true
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+
+      - name: Install host packages
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends \
+            build-essential flex bison libfl-dev libbsd-dev libtirpc-dev \
+            pkg-config clang lld libclang-rt-18-dev xorriso \
+            qemu-system-x86 ovmf
+          clang --version | head -n1
+
+      - name: Build host tools
+        run: set -o pipefail; tools/linux/build.sh tools 2>&1 | tee -a "$BUILD_LOG"
+
+      - name: Build kernel, loader and boot tree
+        run: |
+          set -o pipefail
+          { tools/linux/build.sh kernel && tools/linux/build.sh loader &&
+            tools/linux/build.sh esp; } 2>&1 | tee -a "$BUILD_LOG"
+
+      - name: Build headers, libc and the base userland
+        run: |
+          set -o pipefail
+          { tools/linux/build.sh sysroot && tools/linux/build.sh libc &&
+            tools/linux/build.sh base; } 2>&1 | tee -a "$BUILD_LOG"
+
+      - name: Build the root image
+        run: set -o pipefail; tools/linux/build.sh rootfs 2>&1 | tee -a "$BUILD_LOG"
+
+      - name: Report build failure
+        if: failure()
+        run: |
+          [ -f "$BUILD_LOG" ] || exit 0
+          errs=$(grep -E ': (fatal )?error:|\*\*\* \[|^Error|terminated|Abort|build.sh:' "$BUILD_LOG" | sort -u | head -n 30)
+          [ -n "$errs" ] || errs=$(tail -n 20 "$BUILD_LOG")
+          msg=$(printf '%s\n' "$errs" | cut -c1-400 | sed 's/%/%25/g' | awk '{printf "%s%%0A", $0}')
+          echo "::error title=Userland build failed::${msg}"
+
+      - name: Enable KVM
+        run: |
+          echo 'KERNEL=="kvm", GROUP="kvm", MODE="0666", OPTIONS+="static_node=kvm"' |
+            sudo tee /etc/udev/rules.d/99-kvm4all.rules
+          sudo udevadm control --reload-rules
+          sudo udevadm trigger --name-match=kvm || true
+
+      # Passes when init has run /etc/rc from root.iso and its dynamically
+      # linked programs worked.
+      - name: Boot to a shell under QEMU
+        id: boot
+        run: tools/linux/boot-test.sh --root
+
+      - name: Report boot result
+        if: always() && (steps.boot.outcome == 'failure' || steps.boot.outcome == 'success')
+        run: |
+          log="$OBJDIR/qemu/X86_64_GENERIC.boot-root.log"
+          {
+            cat "$log.fault" 2>/dev/null
+            echo "--- serial tail ---"
+            tail -n 40 "$log" 2>/dev/null
+            echo "--- qemu stderr ---"
+            cat "$log.stderr" 2>/dev/null
+          } | sed 's/%/%25/g; s/\r//g' | awk '{printf "%s%%0A", $0}' > /tmp/boot-tail
+          echo "::notice title=Boot to a shell (${{ steps.boot.outcome }}), serial tail::$(cat /tmp/boot-tail)"
+
+      - name: Upload root image and logs
+        if: always()
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: foxynbsd-root-X86_64_GENERIC
+          path: |
+            ${{ env.OBJDIR }}/root.iso
+            ${{ env.OBJDIR }}/qemu/*.log
+            ${{ env.OBJDIR }}/qemu/*.stderr
+          if-no-files-found: warn
+          retention-days: 14

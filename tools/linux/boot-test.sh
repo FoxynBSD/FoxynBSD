@@ -2,10 +2,12 @@
 #
 # Non-interactive boot test: boot the ESP built by `build.sh esp` under
 # QEMU (via qemu.sh) and wait for the kernel to reach the root mount
-# prompt, which is as far as a kernel-only boot can get.
+# prompt, which is as far as a kernel-only boot can get.  With --root, also
+# attach the root image from `build.sh rootfs` and wait for its /etc/rc to
+# report that init, sh and the shared libraries run.
 #
 # Usage:
-#	tools/linux/boot-test.sh [KERNCONF]
+#	tools/linux/boot-test.sh [--root] [KERNCONF]
 #
 # Environment:
 #	BOOT_TIMEOUT	seconds to wait (default 300)
@@ -18,16 +20,25 @@ set -eu
 
 SRCDIR=$(cd "$(dirname "$0")/../.." && pwd)
 OBJDIR=${OBJDIR:-${XDG_CACHE_HOME:-$HOME/.cache}/foxynbsd}
+ROOTARG=
+if [ "${1:-}" = "--root" ]; then ROOTARG=--root; shift; fi
 CONF=${1:-X86_64_GENERIC}
 TIMEOUT=${BOOT_TIMEOUT:-300}
-LOG=${BOOT_LOG:-$OBJDIR/qemu/$CONF.boot.log}
-# Reaching any of these means the kernel booted and is asking for a root.
-SUCCESS='mountroot>|Manual root filesystem specification'
+LOG=${BOOT_LOG:-$OBJDIR/qemu/$CONF.boot${ROOTARG:+-root}.log}
+FAIL='panic:|Fatal trap|db>'
+if [ -n "$ROOTARG" ]; then
+	# Printed by the image's /etc/rc after uname(1) ran from the CD root.
+	SUCCESS='FoxynBSD userland is up'
+	FAIL="$FAIL|mountroot>|Manual root filesystem specification"
+else
+	# Reaching any of these means the kernel booted and asks for a root.
+	SUCCESS='mountroot>|Manual root filesystem specification'
+fi
 
 mkdir -p "$(dirname "$LOG")"
 : > "$LOG"
 
-OBJDIR=$OBJDIR SERIAL_LOG=$LOG "$SRCDIR/tools/linux/qemu.sh" "$CONF" \
+OBJDIR=$OBJDIR SERIAL_LOG=$LOG "$SRCDIR/tools/linux/qemu.sh" $ROOTARG "$CONF" \
     </dev/null >/dev/null 2>"$LOG.stderr" &
 pid=$!
 
@@ -38,7 +49,7 @@ while [ "$elapsed" -lt "$TIMEOUT" ]; do
 		result=0
 		break
 	fi
-	if grep -Eq 'panic:|Fatal trap|db>' "$LOG" 2>/dev/null; then
+	if grep -Eq "$FAIL" "$LOG" 2>/dev/null; then
 		break
 	fi
 	kill -0 "$pid" 2>/dev/null || break
@@ -50,7 +61,12 @@ kill "$pid" 2>/dev/null || :
 wait "$pid" 2>/dev/null || :
 
 if [ "$result" -eq 0 ]; then
-	echo ">>> boot test passed: kernel reached the root mount prompt" >&2
+	if [ -n "$ROOTARG" ]; then
+		echo ">>> boot test passed: the userland came up from root.iso" >&2
+		sed -n '/FoxynBSD userland is up/,$p' "$LOG" | head -n 5 >&2
+	else
+		echo ">>> boot test passed: kernel reached the root mount prompt" >&2
+	fi
 else
 	echo ">>> boot test FAILED after ${elapsed}s; last serial output:" >&2
 	tail -n 40 "$LOG" >&2

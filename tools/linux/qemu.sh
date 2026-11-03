@@ -3,21 +3,24 @@
 # Boot a FoxynBSD kernel built by tools/linux/build.sh under QEMU + OVMF.
 #
 # Usage:
-#	tools/linux/qemu.sh [--gui] [KERNCONF] [-- extra qemu args]
+#	tools/linux/qemu.sh [--gui] [--root] [KERNCONF] [-- extra qemu args]
 #
 #	--gui	open a QEMU window and use the video console (EFI framebuffer,
 #		then the kernel's syscons) instead of the serial console.
 #		Serial output is still copied to the terminal.
+#	--root	attach the root image from `build.sh rootfs` ($OBJDIR/root.iso)
+#		as a CD and mount it as the root filesystem: boots to a shell.
 #
 # The ESP tree from `build.sh esp` is handed to QEMU as a virtual FAT disk,
-# so nothing needs root.  With no root filesystem attached yet the kernel
-# is expected to stop at the "mountroot>" prompt, which is the kernel-only
-# milestone.  Quit QEMU with Ctrl-A X.
+# so nothing needs root.  Without --root the kernel is expected to stop at
+# the "mountroot>" prompt, which is the kernel-only milestone.  Quit QEMU
+# with Ctrl-A X.
 #
 # Environment:
 #	OBJDIR	same as build.sh
 #	OVMF_CODE / OVMF_VARS	firmware images (auto-detected)
 #	MEM (default 2G), SMP (default 2)
+#	ROOTISO		root image for --root (default $OBJDIR/root.iso)
 #	ROOTDISK	optional disk image to attach as a second virtio disk
 #	SERIAL_LOG	headless: write the serial console to this file
 #	GUI=1		same as --gui
@@ -30,7 +33,16 @@ set -eu
 SRCDIR=$(cd "$(dirname "$0")/../.." && pwd)
 OBJDIR=${OBJDIR:-${XDG_CACHE_HOME:-$HOME/.cache}/foxynbsd}
 GUI=${GUI:-0}
-if [ "${1:-}" = "--gui" ]; then GUI=1; shift; fi
+ROOT=0
+while :; do
+	case ${1:-} in
+	--gui)	GUI=1; shift ;;
+	--root)	ROOT=1; shift ;;
+	*)	break ;;
+	esac
+done
+[ -n "${ROOTISO:-}" ] && ROOT=1
+ROOTISO=${ROOTISO:-$OBJDIR/root.iso}
 CONF=X86_64_GENERIC
 if [ $# -gt 0 ] && [ "$1" != "--" ]; then CONF=$1; shift; fi
 [ "${1:-}" = "--" ] && shift
@@ -65,20 +77,31 @@ OVMF_VARS_TMPL=${OVMF_VARS:-$(find_fw \
     /usr/share/OVMF/OVMF_VARS.fd \
     /usr/share/ovmf/x64/OVMF_VARS.fd)} || die "OVMF vars template not found"
 
-# The ESP from build.sh boots on the serial console.  For --gui, boot a
-# hardlinked copy whose loader.conf selects the video console instead, so
+[ "$ROOT" = 0 ] || [ -f "$ROOTISO" ] ||
+    die "no root image at $ROOTISO; run tools/linux/build.sh rootfs"
+
+# The ESP from build.sh boots on the serial console with no root device.
+# For --gui or --root, boot a hardlinked copy with its own loader.conf, so
 # the build output is left alone and no file contents are duplicated.
-if [ "$GUI" = 1 ]; then
-	GESP=$OBJDIR/qemu/esp-gui/$CONF
-	rm -rf "$GESP"
-	mkdir -p "$(dirname "$GESP")"
-	cp -al "$ESP" "$GESP" 2>/dev/null || cp -a "$ESP" "$GESP"
-	rm -f "$GESP/boot/loader.conf"
-	cat > "$GESP/boot/loader.conf" <<'EOF'
-console="efi"
-autoboot_delay="5"
-EOF
-	ESP=$GESP
+if [ "$GUI" = 1 ] || [ "$ROOT" = 1 ]; then
+	VESP=$OBJDIR/qemu/esp-$GUI$ROOT/$CONF
+	rm -rf "$VESP"
+	mkdir -p "$(dirname "$VESP")"
+	cp -al "$ESP" "$VESP" 2>/dev/null || cp -a "$ESP" "$VESP"
+	if [ "$GUI" = 1 ]; then
+		rm -f "$VESP/boot/loader.conf"
+		printf 'console="efi"\nautoboot_delay="5"\n' > "$VESP/boot/loader.conf"
+	fi
+	if [ "$ROOT" = 1 ]; then
+		# Break the hardlink before appending to the serial loader.conf.
+		if [ "$GUI" = 0 ]; then
+			rm -f "$VESP/boot/loader.conf"
+			cp "$ESP/boot/loader.conf" "$VESP/boot/loader.conf"
+		fi
+		# The CD below is the only ATAPI device on q35's AHCI: cd0.
+		echo 'vfs.root.mountfrom="cd9660:cd0"' >> "$VESP/boot/loader.conf"
+	fi
+	ESP=$VESP
 fi
 
 # Writable per-config copy of the UEFI variable store.
@@ -111,6 +134,9 @@ set -- \
     $CONSOLE \
     "$@"
 
+if [ "$ROOT" = 1 ]; then
+	set -- "$@" -drive file="$ROOTISO",media=cdrom,readonly=on
+fi
 if [ -n "${ROOTDISK:-}" ]; then
 	set -- "$@" -drive file="$ROOTDISK",if=virtio,format=raw
 fi

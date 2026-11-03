@@ -13,6 +13,9 @@
 #	tools/linux/build.sh modules [KERNCONF]
 #	tools/linux/build.sh sysroot		(stage DragonFly headers)
 #	tools/linux/build.sh libc		(userland: csu + libc, with clang)
+#	tools/linux/build.sh base		(rtld, init, sh, core utilities)
+#	tools/linux/build.sh rootfs		(minimal root tree and root.iso)
+#	tools/linux/build.sh subdir DIR...	(build and install world dirs)
 #	tools/linux/build.sh loader		(EFI loader.efi)
 #	tools/linux/build.sh esp [KERNCONF]	(boot tree for QEMU;
 #					 WITH_MODULES=1 to add .ko)
@@ -118,7 +121,10 @@ build_small_tools() {
 	install -m 755 "$SRCDIR/usr.bin/mkdep/mkdep.sh" "$HOSTBIN/mkdep"
 	# bsd.lib.mk orders archives with `lorder ... | tsort -q`; GNU tsort
 	# has no -q (quiet about cycles), so drop it and silence stderr.
-	install -m 755 "$SRCDIR/usr.bin/lorder/lorder.sh" "$HOSTBIN/lorder"
+	# GNU mktemp -t wants XXXXXX in the template, which lorder.sh omits.
+	sed 's/mktemp -t \(_[a-z]*_\)/mktemp -t \1.XXXXXX/' \
+	    "$SRCDIR/usr.bin/lorder/lorder.sh" > "$HOSTBIN/lorder"
+	chmod 755 "$HOSTBIN/lorder"
 	cat > "$HOSTBIN/tsort" <<'EOF'
 #!/bin/sh
 [ "${1:-}" = "-q" ] && shift
@@ -179,16 +185,17 @@ fi
 exec /usr/bin/sed "$@"
 EOF
 	# BSD install(1) for unprivileged staging: drop owner, group and
-	# file-flag options (they need root or do not exist in GNU install)
-	# and BSD-only switches; pass everything else to the host install.
+	# file-flag options (they need root or do not exist in GNU install),
+	# BSD-only switches, and -C/-b/-B (GNU refuses -C together with -s);
+	# pass everything else to the host install.
 	cat > "$HOSTBIN/install" <<'EOF'
 #!/bin/sh
 n=$#
 while [ "$n" -gt 0 ]; do
 	a=$1; shift; n=$((n - 1))
 	case $a in
-	-o|-g|-f)	shift; n=$((n - 1)) ;;
-	-o?*|-g?*|-f?*|-U|-S|-l?*) ;;
+	-o|-g|-f|-B)	shift; n=$((n - 1)) ;;
+	-o?*|-g?*|-f?*|-B?*|-U|-S|-l?*|-C|-b) ;;
 	*)		set -- "$@" "$a" ;;
 	esac
 done
@@ -382,7 +389,16 @@ wenv() {
 	CCVER=clang
 	CC=xcc
 	MAKEOBJDIRPREFIX=$OBJDIR/world
-	export CCVER CC MAKEOBJDIRPREFIX
+	# Build-time helpers (ncurses' make_keys, ...) run on this host, so
+	# the "native" compiler is the host's; its default NXENV would also
+	# reset PATH and drop the shims.
+	NXENV=
+	NXCC=$HOST_CC
+	NXCC_LINK=$HOST_CC
+	# Where buildworld's makefiles look for already-installed libraries
+	# and private headers (e.g. usr/include/priv/ncurses).
+	_SHLIBDIRPREFIX=$SYSROOT
+	export CCVER CC MAKEOBJDIRPREFIX NXENV NXCC NXCC_LINK _SHLIBDIRPREFIX
 	mkdir -p "$MAKEOBJDIRPREFIX"
 }
 
@@ -397,25 +413,137 @@ do_libc() {
 	world_lib lib/libc
 }
 
-# Build one userland directory with xcc and install it into the sysroot,
-# as buildworld's library stage does, so later links find it.  CCVER is
-# passed on the command line because gnu/ makefiles assign it themselves.
+# The smallest userland that boots to a shell, in build order: the runtime
+# linker and the libraries first, then init, sh and a few utilities.
+BASE_LIBS="lib/libc_rtld libexec/rtld-elf lib/libutil lib/libcrypt
+	lib/libncurses lib/libedit lib/libm lib/libkvm"
+BASE_PROGS="sbin/init bin/sh bin/cat bin/cp bin/echo bin/hostname bin/kill
+	bin/ln bin/ls bin/mkdir bin/mv bin/ps bin/pwd bin/rm bin/sleep
+	sbin/dmesg sbin/mount sbin/reboot sbin/sysctl usr.bin/uname"
+
+do_base() {
+	local d
+	[ -f "$SYSROOT/usr/lib/libc.so" ] || do_libc
+	wenv
+	for d in $BASE_LIBS $BASE_PROGS; do
+		case $d in
+		# libtic and tic_next only serve share/terminfo.
+		lib/libncurses)	world_lib "$d" NO_SHARE=yes ;;
+		*)		world_lib "$d" ;;
+		esac
+	done
+}
+
+# Stage a root tree with what $BASE_PROGS installed plus every shared
+# library they load, and pack it as a Rock Ridge ISO (root.iso) that the
+# kernel mounts as cd9660; making it needs no root privileges.
+do_rootfs() {
+	local root=$OBJDIR/rootfs iso=$OBJDIR/root.iso d f prog lib
+	[ -x "$SYSROOT/bin/sh" ] || do_base
+	wenv
+	rm -rf "$root"
+	mkdir -p "$root"
+	for d in bin sbin lib/priv libexec usr/bin usr/lib usr/libexec dev etc \
+	    root tmp var/run; do
+		mkdir -p "$root/$d"
+	done
+	cp -p "$SYSROOT/libexec/ld-elf.so.2" "$root/libexec/"
+	ln -s ../../libexec/ld-elf.so.2 "$root/usr/libexec/ld-elf.so.2"
+	for d in $BASE_PROGS; do
+		prog=$(cd "$SRCDIR/$d" && make -V PROG)
+		f=$(cd "$SYSROOT" && ls -d */"$prog" usr/*/"$prog" 2>/dev/null |
+		    head -n 1) || :
+		[ -n "$f" ] || die "$d: $prog not installed in the sysroot"
+		cp -p "$SYSROOT/$f" "$root/$f"
+	done
+	# Links that bsd.prog.mk installs (halt -> reboot, ...).
+	ln -s reboot "$root/sbin/halt"
+	# Copy the shared libraries, following NEEDED entries to a fixpoint.
+	local added=1 found
+	while [ "$added" = 1 ]; do
+		added=0
+		for f in $(find "$root" -type f); do
+			for lib in $(readelf -d "$f" 2>/dev/null |
+			    sed -n 's/.*(NEEDED).*\[\(.*\)\]/\1/p'); do
+				found=
+				for d in lib lib/priv usr/lib usr/lib/priv; do
+					[ -e "$root/$d/$lib" ] && { found=1; break; }
+				done
+				[ -n "$found" ] && continue
+				for d in lib lib/priv usr/lib usr/lib/priv; do
+					[ -e "$SYSROOT/$d/$lib" ] || continue
+					mkdir -p "$root/$d"
+					cp -pL "$SYSROOT/$d/$lib" "$root/$d/$lib"
+					found=1 added=1
+					break
+				done
+				[ -n "$found" ] ||
+				    die "$f needs $lib, which is not in the sysroot"
+			done
+		done
+	done
+	write_rc "$root/etc/rc"
+	echo "foxynbsd" > "$root/etc/hostname"
+	if command -v xorriso >/dev/null 2>&1; then
+		# -R keeps modes and symlinks (Rock Ridge); the volume is read-only.
+		xorriso -as mkisofs -quiet -R -V FOXYNROOT -o "$iso" "$root"
+		msg "root image: $iso (boot it with tools/linux/qemu.sh --root)"
+	else
+		msg "root tree: $root (install xorriso to pack root.iso)"
+	fi
+}
+
+# /etc/rc for the minimal image: init(8) runs it on the console.  It prints
+# a marker the boot test waits for, then hands the console to a shell.
+write_rc() {
+	cat > "$1" <<'EOF'
+#!/bin/sh
+PATH=/sbin:/bin:/usr/sbin:/usr/bin
+export PATH
+hostname "$(cat /etc/hostname)"
+echo
+# The marker below is what boot-test.sh --root waits for: print it only
+# if dynamically linked programs (rtld + libc + libutil + ncurses) ran.
+if uname -a && ls -l /bin/sh; then
+	echo
+	echo "FoxynBSD userland is up (minimal read-only root on cd9660)."
+	echo "This is /bin/sh; 'halt -p' powers the machine off."
+fi
+echo
+/bin/sh -i
+halt -p
+EOF
+	chmod 755 "$1"
+}
+
+# world_lib DIR [VAR=value ...]: build one userland directory with xcc and
+# install it into the sysroot, as buildworld's library stage does, so later
+# links find it.  CCVER is passed on the command line because gnu/
+# makefiles assign it themselves.
+# `depend` comes first as in buildworld: the generated .depend ties each
+# object to its listed source, so an arch .S wins over a same-named .c
+# that the suffix rules would otherwise pick (libm's e_sqrtl).
 world_lib() {
-	msg "building $1"
-	( cd "$SRCDIR/$1" && make obj >/dev/null &&
-	  make -j"$JOBS" CCVER=clang DESTDIR="$SYSROOT" &&
-	  make CCVER=clang DESTDIR="$SYSROOT" install )
+	local dir=$1; shift
+	msg "building $dir"
+	( cd "$SRCDIR/$dir" && make obj >/dev/null &&
+	  make CCVER=clang DESTDIR="$SYSROOT" "$@" depend &&
+	  make -j"$JOBS" CCVER=clang DESTDIR="$SYSROOT" "$@" &&
+	  make CCVER=clang DESTDIR="$SYSROOT" "$@" install )
 	fix_sysroot_links
 }
 
 # Installed symlinks are absolute (/usr/lib/libc.so -> /lib/libc.so.8).
 # Inside the sysroot that would resolve on the host, so the linker would
-# silently fall back to the static library; re-point them into the sysroot.
+# silently fall back to the static library; re-point them, relative, into
+# the sysroot.
 fix_sysroot_links() {
-	find "$SYSROOT" -type l -lname '/*' | while read -r l; do
+	find "$SYSROOT" -type l -lname '/*' ! -path "$SYSROOT/usr/lib/clang" |
+	while read -r l; do
 		t=$(readlink "$l")
-		case $t in "$SYSROOT"/*|/usr/lib/clang*) continue ;; esac
-		ln -sfn "$SYSROOT$t" "$l"
+		case $t in "$SYSROOT"/*) t=${t#"$SYSROOT"} ;; esac
+		# Relative, so the link resolves both here and in the root image.
+		ln -sfn "$(realpath -m --relative-to="$(dirname "$l")" "$SYSROOT$t")" "$l"
 	done
 }
 
@@ -426,22 +554,30 @@ fix_sysroot_links() {
 # clang's DragonFly driver looks: /usr/lib/gcc80.
 # Stopgap until compiler-rt is built from source in the tree.
 install_compiler_rt() {
-	local rt dst=$SYSROOT/usr/lib/gcc80 f
-	rt=$("$OBJDIR/xtool/bin/clang" -print-resource-dir)/lib/x86_64-pc-linux-gnu
-	for f in clang_rt.crtbegin.o clang_rt.crtend.o libclang_rt.builtins.a; do
+	local res rt sfx dst=$SYSROOT/usr/lib/gcc80 f
+	res=$("$OBJDIR/xtool/bin/clang" -print-resource-dir)/lib
+	# Per-target layout (LLVM >= 19 default, Arch) or the older
+	# lib/linux/*-x86_64 one (Ubuntu's LLVM 18).
+	if [ -f "$res/x86_64-pc-linux-gnu/clang_rt.crtbegin.o" ]; then
+		rt=$res/x86_64-pc-linux-gnu sfx=
+	else
+		rt=$res/linux sfx=-x86_64
+	fi
+	for f in clang_rt.crtbegin$sfx.o clang_rt.crtend$sfx.o \
+	    libclang_rt.builtins$sfx.a; do
 		[ -f "$rt/$f" ] ||
 		    die "compiler-rt not found ($rt/$f); install compiler-rt"
 	done
 	msg "installing compiler-rt from $rt into $dst"
 	mkdir -p "$dst"
 	for f in crtbegin crtbeginS crtbeginT; do
-		cp "$rt/clang_rt.crtbegin.o" "$dst/$f.o"
+		cp "$rt/clang_rt.crtbegin$sfx.o" "$dst/$f.o"
 	done
 	for f in crtend crtendS; do
-		cp "$rt/clang_rt.crtend.o" "$dst/$f.o"
+		cp "$rt/clang_rt.crtend$sfx.o" "$dst/$f.o"
 	done
-	cp "$rt/libclang_rt.builtins.a" "$dst/libgcc.a"
-	cp "$rt/libclang_rt.builtins.a" "$dst/libgcc_pic.a"
+	cp "$rt/libclang_rt.builtins$sfx.a" "$dst/libgcc.a"
+	cp "$rt/libclang_rt.builtins$sfx.a" "$dst/libgcc_pic.a"
 	# libgcc_eh is the exception unwinder; C needs none, but the driver
 	# asks for it in static links.  An empty archive satisfies -lgcc_eh.
 	rm -f "$dst/libgcc_eh.a"
@@ -511,6 +647,10 @@ kernel)		do_kernel "$@" ;;
 modules)	do_modules "$@" ;;
 sysroot)	do_sysroot ;;
 libc)		do_libc ;;
+base)		do_base ;;
+rootfs)		do_rootfs ;;
+subdir)		[ -f "$SYSROOT/usr/lib/libc.so" ] || do_libc
+		wenv; for d; do world_lib "$d"; done ;;
 loader)		do_loader ;;
 esp)		do_esp "$@" ;;
 env)		kenv; env | grep -E '^(PATH|MACHINE|MACHINE_ARCH|MACHINE_PLATFORM|CCVER|HOST_CCVER|HOST_BINUTILSVER)=' | sed 's/^/export /' ;;

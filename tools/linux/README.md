@@ -8,14 +8,16 @@ compiler and then runs the build in `sys/` directly.
 ## Host packages
 
     sudo pacman -S --needed base-devel flex bison libbsd libtirpc
-    # for the userland (sysroot is fine without them, libc needs them):
-    sudo pacman -S --needed clang lld compiler-rt
+    # for the userland (sysroot is fine without them, libc needs them),
+    # and xorriso to pack the root image:
+    sudo pacman -S --needed clang lld compiler-rt libisoburn
     # for booting under QEMU:
     sudo pacman -S --needed qemu-base edk2-ovmf
 
 On Debian/Ubuntu, the same set is
 `build-essential flex bison libfl-dev libbsd-dev libtirpc-dev pkg-config
-qemu-system-x86 ovmf`, plus `clang lld` for the userland.
+qemu-system-x86 ovmf`, plus `clang lld libclang-rt-18-dev xorriso` for
+the userland.
 
 ## Usage
 
@@ -25,11 +27,16 @@ qemu-system-x86 ovmf`, plus `clang lld` for the userland.
     tools/linux/build.sh modules            # all kernel modules
     tools/linux/build.sh sysroot            # stage DragonFly headers (for stand/ and the world)
     tools/linux/build.sh libc               # userland: lib/csu and lib/libc with clang
+    tools/linux/build.sh base               # rtld, libs, init, sh and core utilities
+    tools/linux/build.sh rootfs             # minimal root tree + root.iso (cd9660)
+    tools/linux/build.sh subdir bin/date    # build and install any world directory
     tools/linux/build.sh loader             # stand/ -> loader.efi
     WITH_MODULES=1 tools/linux/build.sh esp # EFI boot tree: loader + kernel (+ stripped .ko)
     tools/linux/qemu.sh                     # boot it under QEMU/OVMF on the serial console
     tools/linux/qemu.sh --gui               # same, in a QEMU window on the video console
+    tools/linux/qemu.sh --root              # boot with root.iso as the root fs: a shell
     tools/linux/boot-test.sh                # headless boot, passes at the mountroot> prompt
+    tools/linux/boot-test.sh --root         # headless boot to the userland
     eval "$(tools/linux/build.sh env)"      # shell env for running make by hand
 
 Output goes to `$OBJDIR`, which defaults to `~/.cache/foxynbsd`:
@@ -40,15 +47,18 @@ Output goes to `$OBJDIR`, which defaults to `~/.cache/foxynbsd`:
     $OBJDIR/sysroot/usr/include/   DragonFly headers (mirrors include/Makefile "copies")
     $OBJDIR/stand/<src>/stand/...  libstand, dloader, libefi, loader.efi
     $OBJDIR/esp/<KERNCONF>/        EFI/BOOT/BOOTX64.EFI, boot/{dloader.rc,loader.conf,kernel/}
+    $OBJDIR/world/<src>/...        world objects
+    $OBJDIR/rootfs/, root.iso      minimal root tree and its ISO image
 
 `host/bin` also holds what the stock `share/mk` rules expect from a BSD
 host:
 
-* `lorder` (the in-tree script) and a `tsort` shim, because GNU tsort has
-  no `-q`;
+* `lorder` (the in-tree script, with `mktemp` templates GNU accepts) and
+  a `tsort` shim, because GNU tsort has no `-q`;
 * `rpcgen`, `unifdef` and `gencat` built from the tree (glibc's `gencat`
   writes a different catalog format);
-* shims for `install` (drops `-o`/`-g`/`-f`, which need root), `ln` (BSD
+* shims for `install` (drops `-o`/`-g`/`-f`, which need root, and
+  `-C`/`-b`/`-B`, which GNU reads differently), `ln` (BSD
   `-h` is GNU `-n`) and `sed` (BSD `sed -i ""`);
 * `xcc`, the userland compiler: host clang with
   `--target=x86_64-unknown-dragonfly`, the staged sysroot and `ld.lld`.
@@ -80,8 +90,26 @@ How `xcc` stays inside the sysroot:
 * `-Wl,--undefined-version`: lld, unlike GNU ld, rejects version scripts
   that name symbols a configuration does not build (hesiod in libc).
 * Absolute symlinks installed into the sysroot
-  (`/usr/lib/libc.so -> /lib/libc.so.8`) are re-pointed into the sysroot;
-  otherwise the linker silently falls back to `libc.a`.
+  (`/usr/lib/libc.so -> /lib/libc.so.8`) are made relative inside the
+  sysroot; otherwise the linker silently falls back to `libc.a`.
+
+Each world directory is built like buildworld does it: `make depend`, then
+`make`, then `make install` into the sysroot. `depend` matters: the
+generated `.depend` ties objects to their listed sources, so an arch `.S`
+wins over a same-named `.c` (libm's `e_sqrtl`). Helpers that run during the
+build (ncurses' `make_keys`) use the host compiler through `NXCC`, and
+`_SHLIBDIRPREFIX` points at the sysroot so private headers such as
+`usr/include/priv/ncurses` are found.
+
+`build.sh base` builds the runtime linker (`libexec/rtld-elf`, on top of
+`lib/libc_rtld`), libutil, libcrypt, the private ncurses, libedit, libm and
+libkvm, then `init`, `sh` and a set of utilities (`ls`, `cat`, `ps`,
+`mount`, `sysctl`, `dmesg`, `reboot`, ...). `build.sh rootfs` copies those
+programs and every shared library they load into `$OBJDIR/rootfs`, adds an
+`/etc/rc` that prints `uname -a` and opens `/bin/sh` on the console, and
+packs the tree as a Rock Ridge ISO with xorriso. `qemu.sh --root` attaches
+it as a CD and sets `vfs.root.mountfrom="cd9660:cd0"`, so no step needs
+root privileges and the root stays read-only.
 
 The compiler runtime (`crtbegin*.o`, `crtend*.o` and the `libgcc` helpers)
 comes from the host's LLVM **compiler-rt** for now. The in-tree gcc
@@ -128,13 +156,15 @@ Linux compiler act like DragonFly's base gcc for kernel code:
 | header sysroot via the tree's `includes` rules | works |
 | userland: `lib/csu`, `libc.a` | build with clang (`xcc`) |
 | userland: `libc.so.8`, linking programs | works (compiler-rt from the host); a test program links dynamically against `libc.so.8` with the DragonFly ELF note |
-| userland: `rtld` (`ld-elf.so.2`), base programs | next |
-| rest of world, root image     | TODO (issue #7) |
+| userland: `rtld` (`ld-elf.so.2`), init, sh, base utilities | build with clang |
+| root image (`root.iso`) and boot to a shell | builds; boot checked by the CI `userland` job |
+| rest of world, writable root, `/etc/rc.d` | TODO (issue #7) |
 
 QEMU path: OVMF runs `EFI/BOOT/BOOTX64.EFI` (our `loader.efi`). The
 loader reads `boot/dloader.rc`, `boot/loader.conf` (serial console) and
 `boot/kernel/kernel` from the ESP, which QEMU serves as a read-only
 virtual FAT disk (`-drive file=fat:<dir>`). No root is needed. With no
 root filesystem attached, the expected end of a kernel-only boot is the
-`mountroot>` prompt. `ROOTDISK=<img>` attaches a second disk for when a
-userland image exists.
+`mountroot>` prompt. With `--root`, the kernel mounts `root.iso` instead
+and init runs its `/etc/rc`. `ROOTDISK=<img>` attaches an extra virtio
+disk.
