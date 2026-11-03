@@ -640,6 +640,9 @@ EOF
 }
 
 cmd=${1:-}
+# set -e exits quietly; say which command failed (the last ">>>" line
+# before this one names the step).
+trap 'rc=$?; [ "$rc" = 0 ] || echo "build.sh: $cmd failed (exit $rc)" >&2' EXIT
 [ $# -gt 0 ] && shift
 case $cmd in
 tools)		do_tools ;;
