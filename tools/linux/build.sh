@@ -443,7 +443,7 @@ do_libc() {
 BASE_LIBS="lib/libc_rtld libexec/rtld-elf lib/libutil lib/libcrypt
 	lib/libncurses lib/libedit lib/libm lib/libkvm lib/libypclnt
 	lib/libpam/libpam lib/libpam/modules lib/libexpat lib/libsbuf
-	gnu/usr.bin/grep/libgreputils usr.bin/awk/maketab"
+	gnu/usr.bin/grep/libgreputils usr.bin/awk/maketab usr.sbin/cron/lib"
 BASE_PROGS="sbin/init bin/sh bin/cat bin/chmod bin/cp bin/date bin/df
 	bin/echo bin/expr bin/hostname bin/kill bin/ln bin/ls bin/mkdir bin/mv
 	bin/ps bin/pwd bin/rm bin/rmdir bin/sleep bin/stty bin/test bin/varsym
@@ -454,7 +454,7 @@ BASE_PROGS="sbin/init bin/sh bin/cat bin/chmod bin/cp bin/date bin/df
 	gnu/usr.bin/grep/grep usr.bin/head usr.bin/id usr.bin/logger
 	usr.bin/login usr.bin/mktemp usr.bin/sed usr.bin/tail usr.bin/touch
 	usr.bin/tr usr.bin/uname usr.bin/wc usr.bin/xargs usr.bin/xinstall
-	usr.sbin/chown usr.sbin/newsyslog usr.sbin/pwd_mkdb usr.sbin/syslogd"
+	usr.sbin/chown usr.sbin/cron/cron usr.sbin/cron/crontab usr.sbin/newsyslog usr.sbin/pwd_mkdb usr.sbin/syslogd"
 
 # PAM modules that /etc/pam.d/login and /etc/pam.d/system load.  login(1)
 # opens them with dlopen(3), so they are not in any NEEDED list.
@@ -681,6 +681,10 @@ write_etc() {
 	(cd "$SRCDIR/etc/rc.d" && ls | grep -vx Makefile |
 	    while read -r f; do cp "$f" "$root/etc/rc.d/$f"; done)
 	chmod 755 "$root/etc/rc.d/"*
+	# cron(8) with the tree's crontab, minus the jobs whose programs
+	# (atrun, periodic) the image does not have yet.
+	grep -vE '/usr/libexec/atrun|periodic ' "$SRCDIR/etc/crontab" \
+	    > "$root/etc/crontab"
 	cat > "$root/etc/fstab" <<'EOF'
 # Device	Mountpoint	FStype	Options		Dump	Pass#
 dummy		/var		tmpfs	rw,-C		0	0
@@ -695,7 +699,7 @@ root_rw_mount="NO"	# The root is a read-only cd9660 image.
 syslogd_enable="YES"
 newsyslog_enable="YES"
 dntpd_enable="NO"
-cron_enable="NO"
+cron_enable="YES"
 devd_enable="NO"
 mixer_enable="NO"
 crashinfo_enable="NO"

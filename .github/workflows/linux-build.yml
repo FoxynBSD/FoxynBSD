@@ -275,6 +275,20 @@ jobs:
           grep -aF 'rc: syslogd wrote to /var/log/messages' "$log" ||
             { echo "::error title=syslogd::a logger(1) message did not reach /var/log/messages"; exit 1; }
 
+      # Issue #9: the daemons rc.d starts are still running after login.
+      - name: Check running daemons
+        run: |
+          log="$OBJDIR/qemu/X86_64_GENERIC.boot-root.log"
+          line=$(grep -a '^daemons-42:' "$log" | tail -n 1) ||
+            { echo "::error title=daemons::the boot test got no process list"; exit 1; }
+          echo "$line"
+          for d in syslogd cron; do
+            case " $line " in
+            *" $d "*) ;;
+            *) echo "::error title=daemons::$d is not running"; exit 1 ;;
+            esac
+          done
+
       # Issue #5: the kernel runs binaries by either ABI note.
       - name: Check both ELF ABI notes
         run: |

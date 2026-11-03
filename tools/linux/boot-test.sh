@@ -96,6 +96,17 @@ if [ "$result" -eq 0 ] && [ -n "$ROOTARG" ]; then
 	[ "$result" -eq 0 ] || echo ">>> logging in as root FAILED" >&2
 fi
 
+# List the running programs once, for CI to check the daemons rc.d
+# started ("daemons-42: init syslogd cron ...").
+if [ "$result" -eq 0 ] && [ -n "$ROOTARG" ]; then
+	printf 'echo daemons-$((6*7)): $(ps -axo comm= | tr "\\n" " ")\r' >&3
+	tries=0
+	while [ "$tries" -lt 6 ] && ! grep -aq '^daemons-42:' "$LOG"; do
+		sleep 5
+		tries=$((tries + 1))
+	done
+fi
+
 kill "$pid" 2>/dev/null || :
 wait "$pid" 2>/dev/null || :
 [ -n "$catpid" ] && { kill "$catpid" 2>/dev/null || :; wait "$catpid" 2>/dev/null || :; }
