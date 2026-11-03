@@ -260,10 +260,12 @@ exec "$xtool/bin/clang" --target=x86_64-unknown-dragonfly \\
 EOF
 	chmod 755 "$HOSTBIN/xcc"
 	# C++: clang's DragonFly driver finds the headers that
-	# gnu/lib/gcc80/libstdc++ installs in /usr/include/c++/8.0.
+	# gnu/lib/gcc80/libstdc++ installs in /usr/include/c++/8.0.  Up to
+	# clang 18 a constexpr function that can never be constant is an
+	# error; gcc 8's <cmath> has some (they call non-constexpr builtins).
 	cat > "$HOSTBIN/xc++" <<'EOF'
 #!/bin/sh
-exec "$(dirname "$0")/xcc" --driver-mode=g++ "$@"
+exec "$(dirname "$0")/xcc" --driver-mode=g++ -Wno-invalid-constexpr "$@"
 EOF
 	chmod 755 "$HOSTBIN/xc++"
 }
@@ -283,7 +285,7 @@ do_tools() {
 
 # Bump when the host tools or shims change, so an existing $OBJDIR gets
 # them rebuilt instead of failing with old ones (install -C/-B, chflags).
-TOOLS_STAMP=5
+TOOLS_STAMP=6
 
 kenv() {
 	[ "$(cat "$HOSTBIN/.done" 2>/dev/null)" = "$TOOLS_STAMP" ] || do_tools
