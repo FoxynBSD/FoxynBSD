@@ -139,8 +139,12 @@ live CD's (`nrelease/root/etc`): the root stays read-only
 `syslogd`, `newsyslog` and `devd` run, with the tree's `syslog.conf`,
 `devd.conf` and `devd/*.conf`, and the
 empty `/var/log` files that `etc/Makefile` installs. `cron` runs too,
-with the tree's `crontab` minus the `atrun` and `periodic` jobs, whose
-programs are not in the image yet. The other services
+with the tree's `crontab` minus the `atrun` job, whose program is not in
+the image yet. The daily, weekly and monthly `periodic` jobs write their
+reports to `/var/log/daily.log`, `weekly.log` and `monthly.log`, since
+there is no mail program; the image's `/etc/periodic.conf` turns off the
+checks for what it lacks (sendmail, HAMMER, accounting, ipfw, pf,
+`locate`, `whatis`). The other services
 whose programs the image lacks are off in `rc.conf`. One
 image-only script, `/etc/rc.local.d/imagedb`, runs first: it mounts the
 `/etc` tmpfs and builds the password database with `pwd_mkdb`, before
@@ -251,6 +255,7 @@ Linux compiler act like DragonFly's base gcc for kernel code:
 | `/etc/rc` and `rc.d` from the tree | run at boot, tmpfs `/etc` and `/var` (CI lists commands the scripts miss) |
 | C++ runtime (`libgcc_eh`, `libstdc++` from gcc 8) | builds with clang; `devd` links against it, and CI boots a test that throws and catches an exception |
 | `syslogd`, `newsyslog`, `cron`, `devd` | run at boot; CI checks that a `logger` message reaches `/var/log/messages` and, after logging in, that `syslogd`, `cron` and `devd` are running |
+| `periodic` | CI runs `periodic daily` after logging in and checks that the report in `/var/log/daily.log` is complete |
 | rest of world, writable root | TODO (issue #9) |
 
 QEMU path: OVMF runs `EFI/BOOT/BOOTX64.EFI` (our `loader.efi`). The

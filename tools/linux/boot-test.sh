@@ -105,6 +105,14 @@ if [ "$result" -eq 0 ] && [ -n "$ROOTARG" ]; then
 		sleep 5
 		tries=$((tries + 1))
 	done
+	# Run the daily periodic(8) jobs and print their report, each line
+	# prefixed with "daily| ", for CI to check.
+	printf 'periodic daily; sed "s/^/daily| /" /var/log/daily.log; echo periodic-$((6*7)): $?\r' >&3
+	tries=0
+	while [ "$tries" -lt 24 ] && ! grep -aq '^periodic-42:' "$LOG"; do
+		sleep 5
+		tries=$((tries + 1))
+	done
 fi
 
 kill "$pid" 2>/dev/null || :

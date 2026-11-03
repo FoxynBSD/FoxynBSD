@@ -635,7 +635,8 @@ BASE_LIBS="lib/libc_rtld libexec/rtld-elf lib/libutil lib/libcrypt
 	lib/libpam/libpam lib/libpam/modules lib/libexpat lib/libsbuf
 	gnu/usr.bin/grep/libgreputils usr.bin/awk/maketab usr.sbin/cron/lib
 	usr.bin/flex/lib gnu/lib/gcc80/libgcc_eh gnu/lib/gcc80/libstdc++/headers
-	gnu/lib/gcc80/libstdc++/components gnu/lib/gcc80/libstdc++/product"
+	gnu/lib/gcc80/libstdc++/components gnu/lib/gcc80/libstdc++/product
+	lib/librecrypto lib/libkinfo lib/libnetgraph"
 BASE_PROGS="sbin/init bin/sh bin/cat bin/chmod bin/cp bin/date bin/df
 	bin/echo bin/expr bin/hostname bin/kill bin/ln bin/ls bin/mkdir bin/mv
 	bin/ps bin/pwd bin/rm bin/rmdir bin/sleep bin/stty bin/test bin/varsym
@@ -646,7 +647,9 @@ BASE_PROGS="sbin/init bin/sh bin/cat bin/chmod bin/cp bin/date bin/df
 	gnu/usr.bin/grep/grep usr.bin/head usr.bin/id usr.bin/logger
 	usr.bin/login usr.bin/mktemp usr.bin/sed usr.bin/tail usr.bin/touch
 	usr.bin/tr usr.bin/uname usr.bin/wc usr.bin/xargs usr.bin/xinstall
-	usr.sbin/chown usr.sbin/cron/cron usr.sbin/cron/crontab usr.sbin/newsyslog usr.sbin/pwd_mkdb usr.sbin/syslogd"
+	usr.sbin/chown usr.sbin/cron/cron usr.sbin/cron/crontab usr.sbin/newsyslog usr.sbin/pwd_mkdb usr.sbin/syslogd
+	usr.bin/diff usr.bin/lockf usr.bin/netstat usr.bin/sort usr.bin/tee
+	usr.bin/w gnu/usr.bin/grep/egrep gnu/usr.bin/grep/fgrep usr.sbin/periodic"
 
 # PAM modules that /etc/pam.d/login and /etc/pam.d/system load.  login(1)
 # opens them with dlopen(3), so they are not in any NEEDED list.
@@ -813,8 +816,10 @@ do_rootfs() {
 	cp -p "$SYSROOT/libexec/ld-elf.so.2" "$root/libexec/"
 	ln -s ../../libexec/ld-elf.so.2 "$root/usr/libexec/ld-elf.so.2"
 	for d in $BASE_PROGS; do
-		# PROGNAME: xinstall installs as "install".
-		prog=$(cd "$SRCDIR/$d" && make -V '${PROGNAME:U${PROG}}')
+		# PROGNAME: xinstall installs as "install".  SCRIPTS: periodic.sh
+		# installs as "periodic".
+		prog=$(cd "$SRCDIR/$d" &&
+		    make -V '${PROGNAME:U${PROG:U${SCRIPTS:T:R}}}')
 		# Files only: the sysroot also has an /etc/devd directory.
 		f=$(cd "$SYSROOT" && for c in */"$prog" usr/*/"$prog"; do
 			[ -f "$c" ] && echo "$c"; done | head -n 1) || :
@@ -827,6 +832,7 @@ do_rootfs() {
 	ln -s id "$root/usr/bin/groups"
 	ln -s test "$root/bin/["
 	ln -s chown "$root/usr/sbin/chgrp"
+	ln -s w "$root/usr/bin/uptime"
 	mkdir -p "$root/usr/lib/security"
 	for f in $PAM_MODULES; do
 		cp -pL "$SYSROOT/usr/lib/security/$f.so" "$root/usr/lib/security/"
@@ -1047,14 +1053,19 @@ write_etc() {
 	install -m 644 /dev/null "$root/var/log/wtmpx"
 	mkdir -p "$root/etc/defaults" "$root/etc/rc.d" "$root/etc/rc.local.d"
 	cp "$SRCDIR/etc/defaults/rc.conf" "$SRCDIR/etc/defaults/devfs.conf" \
-	    "$root/etc/defaults/"
+	    "$SRCDIR/etc/defaults/periodic.conf" "$root/etc/defaults/"
+	for d in daily weekly monthly security; do
+		mkdir -p "$root/etc/periodic/$d"
+		(cd "$SRCDIR/etc/periodic/$d" && ls | grep -vx Makefile |
+		    while read -r f; do cp "$f" "$root/etc/periodic/$d/$f"; done)
+	done
+	chmod 755 "$root/etc/periodic/"*/[0-9]*
 	(cd "$SRCDIR/etc/rc.d" && ls | grep -vx Makefile |
 	    while read -r f; do cp "$f" "$root/etc/rc.d/$f"; done)
 	chmod 755 "$root/etc/rc.d/"*
-	# cron(8) with the tree's crontab, minus the jobs whose programs
-	# (atrun, periodic) the image does not have yet.
-	grep -vE '/usr/libexec/atrun|periodic ' "$SRCDIR/etc/crontab" \
-	    > "$root/etc/crontab"
+	# cron(8) with the tree's crontab, minus atrun, which the image
+	# does not have yet.
+	grep -v '/usr/libexec/atrun' "$SRCDIR/etc/crontab" > "$root/etc/crontab"
 	cat > "$root/etc/fstab" <<'EOF'
 # Device	Mountpoint	FStype	Options		Dump	Pass#
 dummy		/var		tmpfs	rw,-C		0	0
@@ -1082,6 +1093,37 @@ sendmail_outbound_enable="NO"
 sendmail_msp_queue_enable="NO"
 sendmail_rebuild_aliases="NO"
 blanktime="NO"		# Without --gui there is no ttyv0 to blank.
+EOF
+	# periodic(8): the reports go to files in /var/log, since the image
+	# has no mail program; the checks for programs and subsystems it
+	# lacks (sendmail, HAMMER, accounting, ipfw, pf, locate, whatis)
+	# are off.
+	cat > "$root/etc/periodic.conf" <<'EOF'
+# periodic.conf for the root image from tools/linux/build.sh rootfs.
+daily_output="/var/log/daily.log"
+weekly_output="/var/log/weekly.log"
+monthly_output="/var/log/monthly.log"
+daily_status_security_inline="YES"	# In daily.log.
+weekly_status_security_inline="YES"
+monthly_status_security_inline="YES"
+daily_clean_msgs_enable="NO"
+daily_clean_hoststat_enable="NO"
+daily_clean_hammer_enable="NO"
+daily_clean_hammer2_enable="NO"
+daily_backup_aliases_enable="NO"
+daily_accounting_enable="NO"
+daily_news_expire_enable="NO"
+daily_status_mailq_enable="NO"
+daily_status_mail_rejects_enable="NO"
+daily_queuerun_enable="NO"
+weekly_locate_enable="NO"
+weekly_whatis_enable="NO"
+monthly_accounting_enable="NO"
+security_status_ipfwdenied_enable="NO"
+security_status_pfdenied_enable="NO"
+security_status_ipfwlimit_enable="NO"
+security_status_ip6fwdenied_enable="NO"
+security_status_ip6fwlimit_enable="NO"
 EOF
 	# The first rc.d step: make /etc a writable copy and build the
 	# password databases in it, before devfs(8) rules look up users.

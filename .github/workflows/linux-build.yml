@@ -289,6 +289,17 @@ jobs:
             esac
           done
 
+      - name: Check periodic daily
+        run: |
+          log="$OBJDIR/qemu/X86_64_GENERIC.boot-root.log"
+          grep -aq '^periodic-42:' "$log" ||
+            { echo "::error title=periodic::the boot test got no periodic report"; exit 1; }
+          grep -a '^daily| ' "$log" | tr -d '\r'
+          grep -aq '^daily| -- End of daily output --' "$log" ||
+            { echo "::error title=periodic::daily.log has no end marker"; exit 1; }
+          missing=$(grep -a '^daily| .*not found' "$log" | tr -d '\r' | sed 's/^daily| //' | sort -u | tr '\n' ';')
+          [ -z "$missing" ] || echo "::notice title=periodic::commands not found: $missing"
+
       # libgcc_eh and libstdc++ are built with clang: a static C++ test
       # throws through two frames and catches.
       - name: Check C++ exceptions
