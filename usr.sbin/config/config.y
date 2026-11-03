@@ -97,6 +97,7 @@ char	errbuf[80];
 int	maxusers;
 
 static int connect(char *, int);
+static void newdev(struct device *);
 static void yyerror(const char *s);
 
 #if YYPATCH < 20180510
