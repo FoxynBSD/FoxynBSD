@@ -81,6 +81,16 @@ jobs:
         id: boot
         run: tools/linux/boot-test.sh
 
+      # Identity (issues #2, #3): the loader and the kernel banner name
+      # FoxynBSD.
+      - name: Check the boot messages
+        run: |
+          log="$OBJDIR/qemu/X86_64_GENERIC.boot.log"
+          grep -E 'FoxynBSD/[^ ]+ .*, Revision' "$log" ||
+            { echo "::error title=Identity::the loader banner does not say FoxynBSD"; exit 1; }
+          grep -E 'FoxynBSD [^ ]+ #[0-9]+: ' "$log" ||
+            { echo "::error title=Identity::the kernel banner does not say FoxynBSD"; exit 1; }
+
       - name: Report boot test result
         if: failure() && steps.boot.outcome == 'failure'
         run: |
@@ -170,6 +180,18 @@ jobs:
           { tools/linux/build.sh sysroot && tools/linux/build.sh libc &&
             tools/linux/build.sh base; } 2>&1 | tee -a "$BUILD_LOG"
 
+      # Identity (issue #4): FoxynBSD's macros exist next to DragonFly's.
+      - name: Check the identity macros
+        run: |
+          printf '%s\n' '#include <sys/param.h>' \
+            '#if !defined(__FoxynBSD__) || __FoxynBSD_version < 1' \
+            '#error __FoxynBSD__ or __FoxynBSD_version missing' \
+            '#endif' \
+            '#if !defined(__DragonFly__) || !defined(__DragonFly_version)' \
+            '#error __DragonFly__ or __DragonFly_version missing' \
+            '#endif' 'int ok;' > /tmp/probe.c
+          "$OBJDIR/host/bin/xcc" -c -o /tmp/probe.o /tmp/probe.c
+
       - name: Build the root image
         run: set -o pipefail; tools/linux/build.sh rootfs 2>&1 | tee -a "$BUILD_LOG"
 
@@ -200,7 +222,17 @@ jobs:
       - name: Check the reported OS name
         run: |
           log="$OBJDIR/qemu/X86_64_GENERIC.boot-root.log"
-          grep -E '^FoxynBSD foxynbsd [^ ]+ FoxynBSD ' "$log"
+          grep -E '^FoxynBSD foxynbsd [^ ]+ FoxynBSD ' "$log" ||
+            { echo "::error title=Identity::uname -a does not report FoxynBSD"; exit 1; }
+
+      # Issue #5: the kernel runs binaries by either ABI note.
+      - name: Check both ELF ABI notes
+        run: |
+          log="$OBJDIR/qemu/X86_64_GENERIC.boot-root.log"
+          for b in FoxynBSD DragonFly; do
+            grep -F "brand $b: ok" "$log" ||
+              { echo "::error title=ABI note::a binary with the $b note did not run"; exit 1; }
+          done
 
       - name: Report boot result
         if: always() && (steps.boot.outcome == 'failure' || steps.boot.outcome == 'success')

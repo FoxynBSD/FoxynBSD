@@ -373,7 +373,7 @@ do_sysroot() {
 # Bump when do_sysroot stages headers differently, so sysroots made by an
 # older build.sh are restaged instead of silently missing files (e.g. the
 # rpcsvc/*.x that libc's `make depend` needs).
-HEADERS_STAMP=2
+HEADERS_STAMP=3
 headers_ok() {
 	[ "$(cat "$SYSROOT/.headers_done" 2>/dev/null)" = "$HEADERS_STAMP" ]
 }
@@ -501,6 +501,7 @@ do_rootfs() {
 			done
 		done
 	done
+	write_brand_tests "$root/root/tests"
 	write_rc "$root/etc/rc"
 	echo "foxynbsd" > "$root/etc/hostname"
 	if command -v xorriso >/dev/null 2>&1; then
@@ -512,6 +513,59 @@ do_rootfs() {
 	else
 		msg "root tree: $root (install xorriso to pack root.iso)"
 	fi
+}
+
+# Two tiny static programs that differ only in their ELF ABI note: one
+# says FoxynBSD, the other DragonFly.  Their EI_OSABI is 255 (standalone)
+# and they have no interpreter, so the kernel can only accept them by the
+# note; /etc/rc runs both (issue #5).
+write_brand_tests() {
+	local dir=$1 vendor src
+	mkdir -p "$dir"
+	src=$OBJDIR/brandtest.c
+	for vendor in FoxynBSD DragonFly; do
+		cat > "$src" <<EOF
+/* ABI note: namesz, descsz, type 1, vendor, osrel. */
+__asm__(".section .note.tag,\"a\",@note\n"
+    "\t.p2align 2\n"
+    "\t.long ${#vendor} + 1\n"
+    "\t.long 4\n"
+    "\t.long 1\n"
+    "\t.asciz \"$vendor\"\n"
+    "\t.p2align 2\n"
+    "\t.long 600522\n"
+    "\t.previous");
+
+static const char msg[] = "brand $vendor: ok\n";
+
+static long
+sys3(long n, long a, long b, long c)
+{
+	long r;
+
+	__asm__ __volatile__("syscall" : "=a" (r)
+	    : "a" (n), "D" (a), "S" (b), "d" (c) : "rcx", "r11", "memory");
+	return (r);
+}
+
+void _start(void);
+
+void
+_start(void)
+{
+	sys3(4, 1, (long)msg, sizeof(msg) - 1);	/* write */
+	sys3(1, 0, 0, 0);			/* exit */
+	for (;;)
+		;
+}
+EOF
+		xcc -static -nostdlib -ffreestanding -fno-stack-protector -O2 \
+		    -o "$dir/brand-$vendor" "$src"
+		# EI_OSABI (byte 7) = 255: no fallback by OS ABI or interpreter.
+		printf '\377' | dd of="$dir/brand-$vendor" bs=1 seek=7 \
+		    conv=notrunc 2>/dev/null
+	done
+	rm -f "$src"
 }
 
 # /etc/rc for the minimal image: init(8) runs it on the console.  It prints
@@ -535,6 +589,10 @@ else
 	LD_DEBUG=1 uname -a
 	echo "rc: exit status $?"
 fi
+# ABI notes: both brands must be accepted (issue #5).
+for b in /root/tests/brand-*; do
+	"$b" || echo "rc: $b failed with status $?"
+done
 echo
 /bin/sh -i
 halt -p

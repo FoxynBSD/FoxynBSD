@@ -37,6 +37,16 @@
 #define	_SYS_CDEFS_H_
 
 /*
+ * FoxynBSD identity.  The compiler still predefines __DragonFly__, which
+ * stays: FoxynBSD keeps DragonFly's API and ABI, and most code tests it.
+ * Use __FoxynBSD__ (and __FoxynBSD_version in <sys/param.h>) only for
+ * what is specific to FoxynBSD.  See docs/compatibility.md.
+ */
+#ifndef	__FoxynBSD__
+#define	__FoxynBSD__	1
+#endif
+
+/*
  * Testing against Clang-specific extensions.
  */
 #ifndef	__has_attribute

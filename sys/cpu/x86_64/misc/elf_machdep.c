@@ -71,6 +71,26 @@ SYSINIT(elf64, SI_SUB_EXEC, SI_ORDER_FIRST,
         (sysinit_cfunc_t) elf64_insert_brand_entry,
         &dragonfly_brand_info);
 
+/*
+ * Binaries with the FoxynBSD ABI note: the same ABI as above, recognised
+ * by their own note.
+ */
+static Elf64_Brandinfo foxynbsd_brand_info = {
+        .brand		= ELFOSABI_NONE,
+        .machine	= EM_X86_64,
+        .compat_3_brand	= "FoxynBSD",
+        .emul_path	= NULL,
+        .interp_path	= "/libexec/ld-elf.so.2",
+        .sysvec		= &elf64_dragonfly_sysvec,
+        .interp_newpath	= NULL,
+        .flags		= BI_CAN_EXEC_DYN | BI_BRAND_NOTE,
+        .brand_note	= &elf64_foxynbsd_brandnote,
+};
+
+SYSINIT(elf64_foxynbsd, SI_SUB_EXEC, SI_ORDER_ANY,
+        (sysinit_cfunc_t) elf64_insert_brand_entry,
+        &foxynbsd_brand_info);
+
 /* Process one elf relocation with addend. */
 static int
 elf_reloc_internal(linker_file_t lf, Elf_Addr relocbase, const void *data,

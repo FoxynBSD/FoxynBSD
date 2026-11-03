@@ -54,6 +54,32 @@ columns. Mention upstream commits or bug reports when relevant.
 `config(8)`, `tools/linux` or `drm/radeon`. Keep unrelated changes in
 separate commits.
 
+## FoxynBSD or DragonFly in code
+
+FoxynBSD keeps DragonFly's API and ABI. The compiler predefines
+`__DragonFly__`, and `<sys/param.h>` defines `__DragonFly_version`. Keep
+using them for anything that is true of DragonFly too.
+
+For code that is specific to FoxynBSD, use the FoxynBSD macros:
+
+- `__FoxynBSD__` is defined by `<sys/cdefs.h>`, which every system header
+  includes. Test it after including a system header.
+- `__FoxynBSD_version` (`<sys/param.h>`) counts changes specific to
+  FoxynBSD that programs can see. When you add one, bump it by one and
+  describe the change in the list above its definition.
+
+```c
+#include <sys/param.h>
+
+#if defined(__FoxynBSD__) && __FoxynBSD_version >= 1
+/* FoxynBSD-only code */
+#endif
+```
+
+Do not replace or remove `__DragonFly__` checks. See
+[docs/compatibility.md](docs/compatibility.md) for what else keeps the
+DragonFly name.
+
 ## Code style
 
 Follow the surrounding code. Kernel and base system C code uses the

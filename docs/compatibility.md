@@ -20,11 +20,41 @@ when a tool needs it.
 
 | Where | Why it stays |
 |-------|--------------|
-| The ELF note in every binary (`lib/csu/common/notes.h`) and the kernel's ELF brand | Packages, `pkg`'s ABI string (`dragonfly:6.x:x86:64`) and existing binaries depend on it. Changing it is issue #5. |
-| `__DragonFly__`, `__DragonFly_version` | About 1,300 places in the tree and most third-party code test them. FoxynBSD adds its own macros next to them (issue #4). |
+| The ELF note stamped into every base binary (`lib/csu/common/notes.h`) | Packages and `pkg`'s ABI string (`dragonfly:6.x:x86:64`) depend on it. See "ABI note and packages" below. |
+| `__DragonFly__`, `__DragonFly_version` | About 1,300 places in the tree and most third-party code test them. FoxynBSD's own `__FoxynBSD__` (`<sys/cdefs.h>`) and `__FoxynBSD_version` (`<sys/param.h>`) are defined next to them; see CONTRIBUTING.md. |
 | `CPE_NAME` in `/etc/os-release` | Vulnerability data is published for the DragonFly code base. |
 | `dsynth` (`OPSYS`, `UNAME_s` for port builds) | DPorts tests for `OPSYS=DragonFly` and dsynth checks the name against the binaries' ELF note, so dsynth maps `FoxynBSD` to `DragonFly`. |
 | Copyright and license notices | The BSD license requires keeping them. They never change. |
+
+## ABI note and packages
+
+Every program carries an ELF note naming its ABI vendor. The kernel uses
+it to pick how to run the program, and `pkg` reads the note of a base
+binary (its `ABI_FILE` setting) to compute the ABI string that selects a
+package repository (`dragonfly:6.x:x86:64`).
+
+The kernel recognises two notes, `DragonFly` and `FoxynBSD`
+(`sys/kern/imgact_elf.c`, `sys/cpu/x86_64/misc/elf_machdep.c`). Both
+select the same system call interface, so a program behaves the same
+whichever note it carries. The root image's `/etc/rc` runs one tiny
+program of each kind, and CI checks that both print `ok`.
+
+The base system still stamps the `DragonFly` note. Switching it to
+`FoxynBSD` would change `pkg`'s ABI string, and DPorts binary packages
+would stop installing. The plan:
+
+1. **Now:** the kernel accepts both notes; base binaries say `DragonFly`;
+   `pkg` keeps using DPorts packages unchanged.
+2. **When FoxynBSD publishes its own package repository** (built with
+   `dsynth` from DPorts): switch `NOTE_VENDOR` in
+   `lib/csu/common/notes.h` to `FoxynBSD`, and point `pkg` at the
+   FoxynBSD repository by default. DragonFly packages stay installable
+   by setting `ABI=dragonfly:6.x:x86:64` in `pkg.conf`, because the
+   kernel keeps accepting the `DragonFly` note.
+3. **Never:** dropping the `DragonFly` note from the kernel. Existing
+   binaries and packages must keep running.
+
+Every upstream merge that touches these files has to keep both notes.
 
 ## Software that checks `uname -s`
 

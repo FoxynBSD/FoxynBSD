@@ -135,6 +135,22 @@ Elf_Brandnote __elfN(dragonfly_brandnote) = {
 	.trans_osrel	= __elfN(bsd_trans_osrel),
 };
 
+/*
+ * FoxynBSD's own ABI note.  Binaries carrying it get exactly the DragonFly
+ * ABI (same sysvec); the base system still stamps the DragonFly note, so
+ * that packages keep working.  See docs/compatibility.md.
+ */
+static const char FOXYNBSD_ABI_VENDOR[] = "FoxynBSD";
+
+Elf_Brandnote __elfN(foxynbsd_brandnote) = {
+	.hdr.n_namesz	= sizeof(FOXYNBSD_ABI_VENDOR),
+	.hdr.n_descsz	= sizeof(int32_t),
+	.hdr.n_type	= 1,
+	.vendor		= FOXYNBSD_ABI_VENDOR,
+	.flags		= BN_TRANSLATE_OSREL,
+	.trans_osrel	= __elfN(bsd_trans_osrel),
+};
+
 int
 __elfN(insert_brand_entry)(Elf_Brandinfo *entry)
 {

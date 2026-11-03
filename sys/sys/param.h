@@ -273,6 +273,16 @@
 #undef __DragonFly_version
 #define __DragonFly_version 600522	/* propagated to newvers */
 
+/*
+ * __FoxynBSD_version counts changes specific to FoxynBSD that programs can
+ * see (new interfaces, changed defaults).  It is separate from
+ * __DragonFly_version, which keeps following upstream.  Bump it by one and
+ * add a line here.
+ *
+ * 1 - __FoxynBSD__ and __FoxynBSD_version introduced
+ */
+#define __FoxynBSD_version 1
+
 #include <sys/_null.h>
 
 #ifndef LOCORE
