@@ -1,0 +1,17 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 64 64" width="64" height="64" role="img" aria-labelledby="t">
+  <title id="t">FoxynBSD</title>
+  <!-- ears -->
+  <path d="M10 6 L26 22 L12 30 Z" fill="#E8622A"/>
+  <path d="M54 6 L38 22 L52 30 Z" fill="#E8622A"/>
+  <path d="M14 13 L22 22 L15 26 Z" fill="#3A1F14"/>
+  <path d="M50 13 L42 22 L49 26 Z" fill="#3A1F14"/>
+  <!-- head -->
+  <path d="M8 26 L32 18 L56 26 L32 58 Z" fill="#F07A36"/>
+  <!-- cheeks -->
+  <path d="M8 26 L24 36 L32 58 Z" fill="#FFF4EA"/>
+  <path d="M56 26 L40 36 L32 58 Z" fill="#FFF4EA"/>
+  <!-- eyes and nose -->
+  <path d="M21 31 L27 33 L22 35 Z" fill="#3A1F14"/>
+  <path d="M43 31 L37 33 L42 35 Z" fill="#3A1F14"/>
+  <path d="M28.5 52 L35.5 52 L32 57 Z" fill="#3A1F14"/>
+</svg>
