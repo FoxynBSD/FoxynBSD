@@ -7,12 +7,15 @@ compiler and then runs the build in `sys/` directly.
 
 ## Host packages
 
-    sudo pacman -S --needed base-devel flex bison libbsd
+    sudo pacman -S --needed base-devel flex bison libbsd libtirpc
+    # for the userland (sysroot is fine without them, libc needs them):
+    sudo pacman -S --needed clang lld
     # for booting under QEMU:
     sudo pacman -S --needed qemu-base edk2-ovmf
 
 On Debian/Ubuntu, the same set is
-`build-essential flex bison libfl-dev libbsd-dev pkg-config qemu-system-x86 ovmf`.
+`build-essential flex bison libfl-dev libbsd-dev libtirpc-dev pkg-config
+qemu-system-x86 ovmf`, plus `clang lld` for the userland.
 
 ## Usage
 
@@ -20,7 +23,8 @@ On Debian/Ubuntu, the same set is
     tools/linux/build.sh kernel             # X86_64_GENERIC, no modules
     tools/linux/build.sh kernel MINI64
     tools/linux/build.sh modules            # all kernel modules
-    tools/linux/build.sh sysroot            # stage DragonFly headers (for stand/, later world)
+    tools/linux/build.sh sysroot            # stage DragonFly headers (for stand/ and the world)
+    tools/linux/build.sh libc               # userland: lib/csu and lib/libc with clang
     tools/linux/build.sh loader             # stand/ -> loader.efi
     WITH_MODULES=1 tools/linux/build.sh esp # EFI boot tree: loader + kernel (+ stripped .ko)
     tools/linux/qemu.sh                     # boot it under QEMU/OVMF on the serial console
@@ -37,8 +41,30 @@ Output goes to `$OBJDIR`, which defaults to `~/.cache/foxynbsd`:
     $OBJDIR/stand/<src>/stand/...  libstand, dloader, libefi, loader.efi
     $OBJDIR/esp/<KERNCONF>/        EFI/BOOT/BOOTX64.EFI, boot/{dloader.rc,loader.conf,kernel/}
 
-`lorder` (the in-tree script) and a `tsort` shim (GNU tsort has no `-q`)
-also go into `host/bin`, because `bsd.lib.mk` orders archives with them.
+`host/bin` also holds what the stock `share/mk` rules expect from a BSD
+host:
+
+* `lorder` (the in-tree script) and a `tsort` shim, because GNU tsort has
+  no `-q`;
+* `rpcgen`, `unifdef` and `gencat` built from the tree (glibc's `gencat`
+  writes a different catalog format);
+* shims for `install` (drops `-o`/`-g`/`-f`, which need root), `ln` (BSD
+  `-h` is GNU `-n`) and `sed` (BSD `sed -i ""`);
+* `xcc`, the userland compiler: host clang with
+  `--target=x86_64-unknown-dragonfly`, the staged sysroot and `ld.lld`.
+
+`tools/linux/host-compat.h` supplies BSD macros (`__unused`, `NELEM`, ...)
+to those host tools.
+
+## The userland (world)
+
+`build.sh sysroot` does what buildworld's `includes` stage does. It copies
+the kernel headers, creates the directory tree from
+`etc/mtree/BSD.include.dist`, and runs `buildincludes` and
+`installincludes` under `include/` and `lib/`. `build.sh libc` then builds
+`lib/csu` and `lib/libc` with `xcc`. The world is built with `CCVER=clang`,
+so `share/mk` adds neither gcc-only flags nor `-Werror`: clang warnings
+are reported but do not fail the build.
 
 ## Why the host `cc` is wrapped
 
@@ -71,11 +97,13 @@ Linux compiler act like DragonFly's base gcc for kernel code:
 | host tools (bmake, config...) | works      |
 | kernel X86_64_GENERIC         | builds and links |
 | kernel modules (682 .ko)      | build      |
-| header sysroot               | staged     |
 | stand/ (loader.efi)           | builds; PE32+ EFI app, only R_X86_64_RELATIVE relocs |
 | ESP tree + `qemu.sh` runner   | boots to `mountroot>` under QEMU + OVMF (verified in CI) |
 | CI (`.github/workflows/linux-build.yml`) | kernel, loader, ESP and modules on Ubuntu; QEMU boot test (to `mountroot>`) is blocking |
-| world (userland)              | TODO: needs a cross toolchain targeting DragonFly |
+| header sysroot via the tree's `includes` rules | works |
+| userland: `lib/csu`, `libc.a` | build with clang (`xcc`) |
+| userland: `libc.so` | next: needs `crtbeginS.o`/`crtendS.o` (compiler runtime) |
+| rest of world, root image     | TODO (issue #7) |
 
 QEMU path: OVMF runs `EFI/BOOT/BOOTX64.EFI` (our `loader.efi`). The
 loader reads `boot/dloader.rc`, `boot/loader.conf` (serial console) and

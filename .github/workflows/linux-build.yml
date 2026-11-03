@@ -39,8 +39,8 @@ jobs:
         run: |
           sudo apt-get update
           sudo apt-get install -y --no-install-recommends \
-            build-essential flex bison libfl-dev libbsd-dev pkg-config \
-            qemu-system-x86 ovmf
+            build-essential flex bison libfl-dev libbsd-dev libtirpc-dev \
+            pkg-config qemu-system-x86 ovmf
           gcc --version | head -n1
 
       - name: Build host tools
@@ -116,7 +116,8 @@ jobs:
         run: |
           sudo apt-get update
           sudo apt-get install -y --no-install-recommends \
-            build-essential flex bison libfl-dev libbsd-dev pkg-config
+            build-essential flex bison libfl-dev libbsd-dev libtirpc-dev \
+            pkg-config
 
       - name: Build kernel and modules
         run: set -o pipefail; tools/linux/build.sh modules 2>&1 | tee -a "$BUILD_LOG"

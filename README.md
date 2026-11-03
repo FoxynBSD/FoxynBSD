@@ -28,7 +28,7 @@ system can be built from an ordinary Linux machine.
 | Kernel (`X86_64_GENERIC`) and all modules | Build on Linux with GCC 16 |
 | EFI boot loader (`loader.efi`) | Builds on Linux |
 | Boot under QEMU | Kernel boots to the root prompt (`mountroot>`), checked in CI on every push |
-| Userland (`world`) | Builds only on a DragonFly host; Linux build in progress |
+| Userland (`world`) | On Linux: headers and `libc` build with clang; shared libraries and the rest in progress. Full build still needs a DragonFly host |
 | Installable image / ISO | Not available yet |
 | Desktop defaults | Planned |
 | FoxynBSD identity (name, `uname`, ABI) | In progress, tracked in issues |
@@ -45,7 +45,7 @@ Other distributions should work if they provide the same tools.
 1. Install the host tools:
 
    ```sh
-   sudo pacman -S --needed base-devel flex bison libbsd qemu-base edk2-ovmf
+   sudo pacman -S --needed base-devel flex bison libbsd libtirpc qemu-base edk2-ovmf
    ```
 
 2. Build the kernel and the EFI loader, and assemble a boot tree:

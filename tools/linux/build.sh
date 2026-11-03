@@ -12,6 +12,7 @@
 #	tools/linux/build.sh kernel [KERNCONF]	(default X86_64_GENERIC)
 #	tools/linux/build.sh modules [KERNCONF]
 #	tools/linux/build.sh sysroot		(stage DragonFly headers)
+#	tools/linux/build.sh libc		(userland: csu + libc, with clang)
 #	tools/linux/build.sh loader		(EFI loader.efi)
 #	tools/linux/build.sh esp [KERNCONF]	(boot tree for QEMU;
 #					 WITH_MODULES=1 to add .ko)
@@ -24,6 +25,7 @@
 #
 # Host packages needed (Arch/Omarchy):
 #	base-devel flex bison libbsd
+#	clang lld libtirpc		(for the userland: sysroot, libc)
 
 set -eu
 
@@ -125,6 +127,95 @@ EOF
 	chmod 755 "$HOSTBIN/tsort"
 }
 
+# Tools that only the world (userland) build needs, plus BSD-compatible
+# shims for sed(1) and install(1) so the stock share/mk rules work.
+build_world_tools() {
+	local bsd compat tirpc
+	bsd=$(pkg-config --cflags --libs libbsd-overlay)
+	compat="-include $SRCDIR/tools/linux/host-compat.h"
+	tirpc=$(pkg-config --cflags libtirpc 2>/dev/null) ||
+	    die "libtirpc headers not found (pacman -S libtirpc / apt install libtirpc-dev)"
+	$HOST_CC $HOST_CFLAGS $compat $tirpc -o "$HOSTBIN/rpcgen" \
+	    "$SRCDIR"/usr.bin/rpcgen/*.c $bsd
+	# unifdef uses "constexpr" as an identifier, a keyword in C23.
+	$HOST_CC $HOST_CFLAGS -std=gnu17 $compat -I"$SRCDIR/usr.bin/unifdef" \
+	    -o "$HOSTBIN/unifdef" "$SRCDIR/usr.bin/unifdef/unifdef.c" $bsd
+
+	# gencat writes BSD message catalogs, not glibc ones.  It needs the
+	# BSD <nl_types.h> catalog structures and the BSD NL_*MAX limits
+	# (include/limits.h).
+	mkdir -p "$HOSTOBJ/inc/machine"
+	cp "$SRCDIR/include/nl_types.h" "$HOSTOBJ/inc/"
+	echo '#include <stdint.h>' > "$HOSTOBJ/inc/machine/stdint.h"
+	$HOST_CC $HOST_CFLAGS $compat -I"$HOSTOBJ/inc" \
+	    -DNL_SETMAX=255 -DNL_MSGMAX=32767 \
+	    -o "$HOSTBIN/gencat" "$SRCDIR/usr.bin/gencat/gencat.c" $bsd
+
+	# BSD `ln -h` (do not follow a symlinked target) is GNU `ln -n`;
+	# bsd.incs.mk uses `ln -fhs` for header links such as util.h.
+	cat > "$HOSTBIN/ln" <<'EOF'
+#!/bin/sh
+n=$#
+while [ "$n" -gt 0 ]; do
+	a=$1; shift; n=$((n - 1))
+	case $a in
+	--)	set -- "$@" "$a"; break ;;
+	-*h*)	a=$(printf '%s' "$a" | tr h n) ;;
+	esac
+	set -- "$@" "$a"
+done
+while [ "$n" -gt 0 ]; do a=$1; shift; n=$((n - 1)); set -- "$@" "$a"; done
+exec /usr/bin/ln "$@"
+EOF
+	chmod 755 "$HOSTBIN/ln"
+
+	# BSD `sed -i ""` means "in place, no backup"; GNU sed would take ""
+	# as a file name.
+	cat > "$HOSTBIN/sed" <<'EOF'
+#!/bin/sh
+if [ "${1:-}" = "-i" ] && [ "${2+x}" = x ] && [ -z "$2" ]; then
+	shift 2; exec /usr/bin/sed -i "$@"
+fi
+exec /usr/bin/sed "$@"
+EOF
+	# BSD install(1) for unprivileged staging: drop owner, group and
+	# file-flag options (they need root or do not exist in GNU install)
+	# and BSD-only switches; pass everything else to the host install.
+	cat > "$HOSTBIN/install" <<'EOF'
+#!/bin/sh
+n=$#
+while [ "$n" -gt 0 ]; do
+	a=$1; shift; n=$((n - 1))
+	case $a in
+	-o|-g|-f)	shift; n=$((n - 1)) ;;
+	-o?*|-g?*|-f?*|-U|-S|-l?*) ;;
+	*)		set -- "$@" "$a" ;;
+	esac
+done
+exec /usr/bin/install "$@"
+EOF
+	chmod 755 "$HOSTBIN/sed" "$HOSTBIN/install"
+}
+
+# Cross compiler for the world: host clang targeting DragonFly, against the
+# staged sysroot, linking with lld.
+write_xcc_wrapper() {
+	local clang
+	if ! clang=$(command -v "${HOST_CLANG:-clang}") ||
+	    ! command -v ld.lld >/dev/null 2>&1; then
+		msg "clang/ld.lld not found: skipping xcc (needed only for the userland)"
+		rm -f "$HOSTBIN/xcc"
+		return 0
+	fi
+	cat > "$HOSTBIN/xcc" <<EOF
+#!/bin/sh
+exec "$clang" --target=x86_64-unknown-dragonfly --sysroot="$SYSROOT" \\
+	-fuse-ld=lld -Qunused-arguments -Wno-unknown-warning-option \\
+	"\$@"
+EOF
+	chmod 755 "$HOSTBIN/xcc"
+}
+
 do_tools() {
 	need gcc flex bison awk pkg-config objcopy ld nm
 	mkdir -p "$HOSTBIN" "$HOSTOBJ"
@@ -133,6 +224,8 @@ do_tools() {
 	build_bmake
 	build_config
 	build_small_tools
+	build_world_tools
+	write_xcc_wrapper
 	touch "$HOSTBIN/.done"
 }
 
@@ -221,7 +314,66 @@ do_sysroot() {
 		    "$s/sys/param.h"
 		echo "#endif"
 	} > "$inc/osreldate.h"
+
+	# The rest is what buildworld's "includes" stage does: create the
+	# directory tree from the mtree spec (mtree(8) is not available on
+	# Linux, so read the spec with awk), then let every directory under
+	# include/ and lib/ install its own headers.  Generated headers, such
+	# as the rpcgen output for include/rpc, come from the same rules.
+	mtree_dirs "$SRCDIR/etc/mtree/BSD.include.dist" "$inc"
+	(
+	wenv
+	for d in include/arpa include/protocols include/rpc include/rpcsvc \
+	    include/xlocale lib; do
+		msg "installing headers from $d"
+		( cd "$SRCDIR/$d" && make obj >/dev/null &&
+		  make -j"$JOBS" DESTDIR="$SYSROOT" buildincludes &&
+		  make DESTDIR="$SYSROOT" installincludes )
+	done
+	)
 	touch "$SYSROOT/.headers_done"
+}
+
+# Create the directories listed in an mtree(8) specification.
+mtree_dirs() {
+	awk '
+	/^[[:space:]]*#/ || /^[[:space:]]*$/ || /^\/set/ { next }
+	{
+		name = $1
+		if (name == "..") { n--; next }
+		if (name == ".") { n = 0; next }
+		path[++n] = name
+		p = path[1]
+		for (i = 2; i <= n; i++) p = p "/" path[i]
+		print p
+	}' "$1" | while read -r d; do
+		mkdir -p "$2/$d"
+	done
+}
+
+# Environment for building the world (userland) with xcc.  CCVER is not
+# a gcc version, so share/mk does not add gcc-only flags or -Werror; clang
+# warnings stay warnings.
+wenv() {
+	kenv
+	CCVER=clang
+	CC=xcc
+	MAKEOBJDIRPREFIX=$OBJDIR/world
+	export CCVER CC MAKEOBJDIRPREFIX
+	mkdir -p "$MAKEOBJDIRPREFIX"
+}
+
+# Userland libraries, starting from the bottom: csu, then libc.
+do_libc() {
+	[ -f "$SYSROOT/.headers_done" ] || do_sysroot
+	wenv
+	[ -x "$HOSTBIN/xcc" ] ||
+	    die "xcc missing: install clang and lld, then run build.sh tools"
+	for d in lib/csu lib/libc; do
+		msg "building $d"
+		( cd "$SRCDIR/$d" && make obj >/dev/null &&
+		  make -j"$JOBS" DESTDIR="$SYSROOT" )
+	done
 }
 
 # EFI boot loader: stand/lib -> dloader -> libefi -> loader.efi, compiled
@@ -286,6 +438,7 @@ tools)		do_tools ;;
 kernel)		do_kernel "$@" ;;
 modules)	do_modules "$@" ;;
 sysroot)	do_sysroot ;;
+libc)		do_libc ;;
 loader)		do_loader ;;
 esp)		do_esp "$@" ;;
 env)		kenv; env | grep -E '^(PATH|MACHINE|MACHINE_ARCH|MACHINE_PLATFORM|CCVER|HOST_CCVER|HOST_BINUTILSVER)=' | sed 's/^/export /' ;;
