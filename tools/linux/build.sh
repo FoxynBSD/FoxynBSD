@@ -706,7 +706,7 @@ WORLD_TOP="gnu/lib lib usr.bin/flex/lib libexec bin sbin usr.bin usr.sbin
 WORLD_SKIP="lib/csu lib/libc gnu/lib/gcc120 gnu/lib/gcc80"
 
 do_world() {
-	local d top failed= seen=
+	local d top subs failed= seen=
 	[ -f "$SYSROOT/usr/lib/libc.so" ] || do_libc
 	wenv
 	world_try() {
@@ -718,7 +718,10 @@ do_world() {
 	}
 	for d in $WORLD_PREBUILD; do world_try "$d"; done
 	for top in $WORLD_TOP; do
-		for d in $(world_subdirs "$top"); do world_try "$top/$d"; done
+		subs=$(world_subdirs "$top")
+		# A leaf (usr.bin/flex/lib) is built itself.
+		[ -n "$subs" ] || { world_try "$top"; continue; }
+		for d in $subs; do world_try "$top/$d"; done
 	done
 	if [ -n "$failed" ]; then
 		msg "world: these directories failed:"
