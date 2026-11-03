@@ -32,7 +32,9 @@
 
 LC_ALL=C; export LC_ALL
 
-OSTYPE="DragonFly"
+# What uname -s and kern.ostype report.  Binaries, packages and ports keep
+# DragonFly's ABI: see docs/compatibility.md.
+OSTYPE="FoxynBSD"
 
 # Set the branch.
 # Examples: "DEVELOPMENT_6_5", "RELEASE_6_4"
@@ -110,6 +112,6 @@ else
 fi
 
 stamp=$(date +%Y%m%d)
-echo DragonFly-${MACHINE}-${stamp}-${SBRANCH}-${GITREV} > vers.txt
+echo ${OSTYPE}-${MACHINE}-${stamp}-${SBRANCH}-${GITREV} > vers.txt
 
 echo $((v + 1)) > version

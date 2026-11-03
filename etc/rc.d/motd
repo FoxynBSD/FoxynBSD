@@ -31,7 +31,8 @@ motd_start()
 
 	old=$(awk '
 	NR == 1 {
-		if ($1 == "DragonFly") { print } else { exit 1 }
+		# DragonFly: a motd from before the system said FoxynBSD.
+		if ($1 == "FoxynBSD" || $1 == "DragonFly") { print } else { exit 1 }
 	}' < ${target})
 	if [ $? -ne 0 ]; then
 		return  # custom motd

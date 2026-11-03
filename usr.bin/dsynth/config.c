@@ -115,6 +115,13 @@ ParseConfiguration(int isworker)
 	 * ReleaseName.
 	 */
 	OperatingSystemName = dokernsysctl(CTL_KERN, KERN_OSTYPE);
+	/*
+	 * FoxynBSD builds and runs DragonFly packages: ports test for
+	 * OPSYS=DragonFly and binaries carry the DragonFly ELF note, which
+	 * is checked against this name below.
+	 */
+	if (strcmp(OperatingSystemName, "FoxynBSD") == 0)
+		OperatingSystemName = "DragonFly";
 	ArchitectureName = dokernsysctl(CTL_HW, HW_MACHINE_ARCH);
 	MachineName = dokernsysctl(CTL_HW, HW_MACHINE);
 	ReleaseName = dokernsysctl(CTL_KERN, KERN_OSRELEASE);

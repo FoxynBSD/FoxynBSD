@@ -196,6 +196,12 @@ jobs:
         id: boot
         run: tools/linux/boot-test.sh --root
 
+      # Identity (issue #3): the running system reports itself as FoxynBSD.
+      - name: Check the reported OS name
+        run: |
+          log="$OBJDIR/qemu/X86_64_GENERIC.boot-root.log"
+          grep -E '^FoxynBSD foxynbsd [^ ]+ FoxynBSD ' "$log"
+
       - name: Report boot result
         if: always() && (steps.boot.outcome == 'failure' || steps.boot.outcome == 'success')
         run: |

@@ -634,11 +634,15 @@ installworld: installcheck
 	@echo ">>> installworld target complete"
 	@echo "--------------------------------------------------------------"
 
+# ID names FoxynBSD, ID_LIKE tells tools to treat it like DragonFly.
+# CPE_NAME stays DragonFly's: vulnerability data is published for that
+# code base.
 os-release:
 	@echo "NAME=FoxynBSD" > ${DESTDIR}/etc/os-release
 	@echo "VERSION=${OSREL}-SYNTH" >> ${DESTDIR}/etc/os-release
 	@echo "VERSION_ID=${OSREL}" >> ${DESTDIR}/etc/os-release
-	@echo "ID=dragonfly" >> ${DESTDIR}/etc/os-release
+	@echo "ID=foxynbsd" >> ${DESTDIR}/etc/os-release
+	@echo "ID_LIKE=dragonfly" >> ${DESTDIR}/etc/os-release
 	@echo "ANSI_COLOR=\"0;32\"" >> ${DESTDIR}/etc/os-release
 	@echo "PRETTY_NAME=\"FoxynBSD ${OSREL}-SYNTH\"" >> ${DESTDIR}/etc/os-release
 	@echo "CPE_NAME=\"cpe:/o:dragonflybsd:dragonfly:${OSREL}\"" >> ${DESTDIR}/etc/os-release
