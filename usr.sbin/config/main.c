@@ -249,9 +249,16 @@ main(int argc, char *argv[])
 static void
 get_srcdir(void)
 {
-	
-	if (realpath("..", srcdir) == NULL)
+	char resolved[MAXPATHLEN];
+
+	/*
+	 * realpath() may write up to MAXPATHLEN bytes, but srcdir is kept
+	 * shorter so that path elements can be appended to it.
+	 */
+	if (realpath("..", resolved) == NULL)
 		errx(2, "Unable to find root of source tree");
+	if (strlcpy(srcdir, resolved, sizeof(srcdir)) >= sizeof(srcdir))
+		errx(2, "Path to the source tree is too long: %s", resolved);
 }
 
 static void
