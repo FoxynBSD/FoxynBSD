@@ -506,6 +506,10 @@ do_rootfs() {
 	write_terminfo "$root/usr/share/terminfo"
 	write_rc "$root/etc/rc"
 	echo "foxynbsd" > "$root/etc/hostname"
+	# Login classes: init(8) looks up class "daemon" for /etc/rc.  With
+	# no login.conf.db, getcap(3) reads the text file directly, so no
+	# cap_mkdb run is needed on the build host.
+	cp "$SRCDIR/etc/login.conf" "$root/etc/login.conf"
 	if command -v xorriso >/dev/null 2>&1; then
 		# -R keeps modes and symlinks (Rock Ridge); the volume is read-only.
 		# Record the files as root:wheel rather than the building user.
