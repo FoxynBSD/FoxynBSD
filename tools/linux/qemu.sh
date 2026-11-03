@@ -15,6 +15,7 @@
 #	OVMF_CODE / OVMF_VARS	firmware images (auto-detected)
 #	MEM (default 2G), SMP (default 2)
 #	ROOTDISK	optional disk image to attach as a second virtio disk
+#	SERIAL_LOG	headless: write the serial console to this file
 #
 # Host packages: qemu-base (or qemu-full) edk2-ovmf
 
@@ -45,12 +46,14 @@ OVMF_CODE=${OVMF_CODE:-$(find_fw \
     /usr/share/edk2/x64/OVMF_CODE.4m.fd \
     /usr/share/edk2/OVMF_CODE_4M.fd \
     /usr/share/edk2-ovmf/x64/OVMF_CODE.fd \
+    /usr/share/OVMF/OVMF_CODE_4M.fd \
     /usr/share/OVMF/OVMF_CODE.fd \
     /usr/share/ovmf/x64/OVMF_CODE.fd)} || die "OVMF firmware not found (pacman -S edk2-ovmf)"
 OVMF_VARS_TMPL=${OVMF_VARS:-$(find_fw \
     /usr/share/edk2/x64/OVMF_VARS.4m.fd \
     /usr/share/edk2/OVMF_VARS_4M.fd \
     /usr/share/edk2-ovmf/x64/OVMF_VARS.fd \
+    /usr/share/OVMF/OVMF_VARS_4M.fd \
     /usr/share/OVMF/OVMF_VARS.fd \
     /usr/share/ovmf/x64/OVMF_VARS.fd)} || die "OVMF vars template not found"
 
@@ -64,6 +67,14 @@ if [ -w /dev/kvm ]; then
 	ACCEL="-accel kvm -cpu host"
 fi
 
+# Console: interactive serial on the terminal, or (SERIAL_LOG=<file>) a
+# headless run that writes the serial console to a file, for boot-test.sh.
+if [ -n "${SERIAL_LOG:-}" ]; then
+	CONSOLE="-display none -monitor none -serial file:$SERIAL_LOG"
+else
+	CONSOLE="-nographic -serial mon:stdio"
+fi
+
 set -- \
     -machine q35 $ACCEL \
     -m "${MEM:-2G}" -smp "${SMP:-2}" \
@@ -71,7 +82,7 @@ set -- \
     -drive if=pflash,format=raw,file="$VARS" \
     -drive file=fat:"$ESP",format=raw,if=virtio,readonly=on \
     -netdev user,id=n0 -device virtio-net-pci,netdev=n0 \
-    -nographic -serial mon:stdio \
+    $CONSOLE \
     "$@"
 
 if [ -n "${ROOTDISK:-}" ]; then

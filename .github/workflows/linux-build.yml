@@ -1,0 +1,96 @@
+name: Linux build
+
+# Build the kernel and EFI loader from a Linux host with tools/linux and
+# try a kernel-only boot under QEMU.  See tools/linux/README.md.
+
+on:
+  push:
+    branches: [dev]
+  pull_request:
+    branches: [dev]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+env:
+  OBJDIR: /home/runner/foxynbsd-obj
+
+jobs:
+  kernel:
+    name: Kernel, loader and boot tree
+    runs-on: ubuntu-24.04
+    timeout-minutes: 60
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+
+      - name: Install host packages
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends \
+            build-essential flex bison libfl-dev libbsd-dev pkg-config \
+            qemu-system-x86 ovmf
+          gcc --version | head -n1
+
+      - name: Build host tools
+        run: tools/linux/build.sh tools
+
+      - name: Build kernel (X86_64_GENERIC)
+        run: tools/linux/build.sh kernel
+
+      - name: Build EFI loader
+        run: tools/linux/build.sh loader
+
+      - name: Assemble boot tree
+        run: tools/linux/build.sh esp
+
+      - name: Enable KVM
+        run: |
+          echo 'KERNEL=="kvm", GROUP="kvm", MODE="0666", OPTIONS+="static_node=kvm"' |
+            sudo tee /etc/udev/rules.d/99-kvm4all.rules
+          sudo udevadm control --reload-rules
+          sudo udevadm trigger --name-match=kvm || true
+
+      # The QEMU boot has not passed yet, so a failure here is reported
+      # but does not fail the workflow.  Make it blocking once it passes
+      # reliably.
+      - name: Boot test under QEMU
+        id: boot
+        continue-on-error: true
+        run: tools/linux/boot-test.sh
+
+      - name: Upload boot tree and logs
+        if: always()
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: foxynbsd-esp-X86_64_GENERIC
+          path: |
+            ${{ env.OBJDIR }}/esp/X86_64_GENERIC
+            ${{ env.OBJDIR }}/qemu/*.log
+            ${{ env.OBJDIR }}/qemu/*.stderr
+          if-no-files-found: warn
+          retention-days: 14
+
+  modules:
+    name: Kernel modules
+    runs-on: ubuntu-24.04
+    timeout-minutes: 90
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+
+      - name: Install host packages
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends \
+            build-essential flex bison libfl-dev libbsd-dev pkg-config
+
+      - name: Build kernel and modules
+        run: tools/linux/build.sh modules

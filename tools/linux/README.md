@@ -8,8 +8,11 @@ compiler and then runs the build in `sys/` directly.
 ## Host packages
 
     sudo pacman -S --needed base-devel flex bison libbsd
-    # for booting under QEMU (later steps):
+    # for booting under QEMU:
     sudo pacman -S --needed qemu-base edk2-ovmf
+
+On Debian/Ubuntu, the same set is
+`build-essential flex bison libfl-dev libbsd-dev pkg-config qemu-system-x86 ovmf`.
 
 ## Usage
 
@@ -21,6 +24,7 @@ compiler and then runs the build in `sys/` directly.
     tools/linux/build.sh loader             # stand/ -> loader.efi
     WITH_MODULES=1 tools/linux/build.sh esp # EFI boot tree: loader + kernel (+ stripped .ko)
     tools/linux/qemu.sh                     # boot it under QEMU/OVMF on the serial console
+    tools/linux/boot-test.sh                # headless boot, passes at the mountroot> prompt
     eval "$(tools/linux/build.sh env)"      # shell env for running make by hand
 
 Output goes to `$OBJDIR`, which defaults to `~/.cache/foxynbsd`:
@@ -61,7 +65,8 @@ Linux compiler act like DragonFly's base gcc for kernel code:
 | kernel modules (682 .ko)      | build      |
 | header sysroot               | staged     |
 | stand/ (loader.efi)           | builds; PE32+ EFI app, only R_X86_64_RELATIVE relocs |
-| ESP tree + `qemu.sh` runner   | written; not boot-tested yet (QEMU not installed on the dev box) |
+| ESP tree + `qemu.sh` runner   | written; boot not verified yet |
+| CI (`.github/workflows/linux-build.yml`) | kernel, loader, ESP and modules on Ubuntu; QEMU boot test is non-blocking until it passes |
 | world (userland)              | TODO: needs a cross toolchain targeting DragonFly |
 
 QEMU path: OVMF runs `EFI/BOOT/BOOTX64.EFI` (our `loader.efi`). The
