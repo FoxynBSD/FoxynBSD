@@ -258,6 +258,7 @@ exec "$xtool/bin/clang" --target=x86_64-unknown-dragonfly \\
 	-Wno-error=incompatible-function-pointer-types \\
 	-Qunused-arguments -Wno-unknown-warning-option "\$@"
 EOF
+	chmod 755 "$HOSTBIN/xcc"
 	# C++: clang's DragonFly driver finds the headers that
 	# gnu/lib/gcc80/libstdc++ installs in /usr/include/c++/8.0.
 	cat > "$HOSTBIN/xc++" <<'EOF'
