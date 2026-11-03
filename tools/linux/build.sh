@@ -493,7 +493,9 @@ do_rootfs() {
 	echo "foxynbsd" > "$root/etc/hostname"
 	if command -v xorriso >/dev/null 2>&1; then
 		# -R keeps modes and symlinks (Rock Ridge); the volume is read-only.
-		xorriso -as mkisofs -quiet -R -V FOXYNROOT -o "$iso" "$root"
+		# Record the files as root:wheel rather than the building user.
+		xorriso -as mkisofs -quiet -R -uid 0 -gid 0 -V FOXYNROOT \
+		    -o "$iso" "$root"
 		msg "root image: $iso (boot it with tools/linux/qemu.sh --root)"
 	else
 		msg "root tree: $root (install xorriso to pack root.iso)"

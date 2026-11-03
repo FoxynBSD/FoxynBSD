@@ -158,13 +158,13 @@ Linux compiler act like DragonFly's base gcc for kernel code:
 | kernel modules (682 .ko)      | build      |
 | stand/ (loader.efi)           | builds; PE32+ EFI app, only R_X86_64_RELATIVE relocs |
 | ESP tree + `qemu.sh` runner   | boots to `mountroot>` under QEMU + OVMF (verified in CI) |
-| CI (`.github/workflows/linux-build.yml`) | kernel, loader, ESP and modules on Ubuntu; QEMU boot test (to `mountroot>`) is blocking |
+| CI (`.github/workflows/linux-build.yml`) | kernel, loader, ESP and modules on Ubuntu; QEMU boot tests to `mountroot>` and, with the userland, to a shell; all blocking |
 | header sysroot via the tree's `includes` rules | works |
 | userland: `lib/csu`, `libc.a` | build with clang (`xcc`) |
 | userland: `libc.so.8`, linking programs | works (compiler-rt from the host); a test program links dynamically against `libc.so.8` with the DragonFly ELF note |
 | userland: `rtld` (`ld-elf.so.2`), init, sh, base utilities | build with clang |
-| root image (`root.iso`) and boot to a shell | builds; boot checked by the CI `userland` job |
-| rest of world, writable root, `/etc/rc.d` | TODO (issue #7) |
+| root image (`root.iso`) and boot to a shell | boots to `/bin/sh` under QEMU; dynamic programs run (verified in CI, blocking) |
+| rest of world, writable root, `/etc/rc.d`, terminfo | TODO (issue #7) |
 
 QEMU path: OVMF runs `EFI/BOOT/BOOTX64.EFI` (our `loader.efi`). The
 loader reads `boot/dloader.rc`, `boot/loader.conf` (serial console) and

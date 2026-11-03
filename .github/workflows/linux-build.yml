@@ -141,8 +141,6 @@ jobs:
     name: Userland and boot to a shell
     runs-on: ubuntu-24.04
     timeout-minutes: 90
-    # New and still settling: report, but do not fail the workflow yet.
-    continue-on-error: true
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
