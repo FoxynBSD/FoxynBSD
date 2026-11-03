@@ -364,10 +364,30 @@ build_bootstrap_tools() {
 	    "$db"/recno/rec_*.c
 
 	# Host programs that read console structures (share/syscons'
-	# mkscrfil) find DragonFly's <sys/consio.h> after the host headers.
-	mkdir -p "$OBJDIR/host/include/sys"
-	cp "$SRCDIR/sys/sys/consio.h" "$SRCDIR/sys/sys/ioccom.h" \
-	    "$OBJDIR/host/include/sys/"
+	# mkscrfil, kbdcontrol) find DragonFly's console headers after the
+	# host's own.
+	mkdir -p "$OBJDIR/host/include/sys" "$OBJDIR/host/include/machine"
+	for t in consio ioccom kbio fbio; do
+		cp "$SRCDIR/sys/sys/$t.h" "$OBJDIR/host/include/sys/"
+	done
+	cp "$SRCDIR/sys/platform/pc64/include/console.h" \
+	    "$OBJDIR/host/include/machine/"
+	printf '#include <stdint.h>\ntypedef uintptr_t vm_offset_t;\ntypedef uintptr_t vm_size_t;\n' \
+	    > "$OBJDIR/host/include/machine/types.h"
+
+	# kbdcontrol -L turns the kernel's built-in keymaps (LINT64's
+	# ATKBD_DFLT_KEYMAP, UKBD_DFLT_KEYMAP) into C, as KBDCONTROL.  A
+	# keymap name is looked up in the tree's share/syscons/keymaps.
+	d=$SRCDIR/usr.sbin/kbdcontrol
+	mkdir -p "$b/kbdcontrol"
+	flex -o "$b/kbdcontrol/lex.c" "$d/lex.l"
+	"$HOSTBIN/hostcc" $HOST_CFLAGS -I"$d" -o "$b/kbdcontrol/kbdcontrol" \
+	    "$d/kbdcontrol.c" "$b/kbdcontrol/lex.c" -lfl
+	cat > "$HOSTBIN/kbdcontrol" <<EOF
+#!/bin/sh
+cd "$SRCDIR/share/syscons/keymaps" && exec "$b/kbdcontrol/kbdcontrol" "\$@"
+EOF
+	chmod 755 "$HOSTBIN/kbdcontrol"
 }
 
 # Cross compiler for the world: host clang targeting DragonFly, against the
@@ -454,15 +474,16 @@ do_tools() {
 
 # Bump when the host tools or shims change, so an existing $OBJDIR gets
 # them rebuilt instead of failing with old ones (install -C/-B, chflags).
-TOOLS_STAMP=14
+TOOLS_STAMP=15
 
 kenv() {
 	[ "$(cat "$HOSTBIN/.done" 2>/dev/null)" = "$TOOLS_STAMP" ] || do_tools
 	PATH=$HOSTBIN:$PATH
 	MACHINE=x86_64 MACHINE_ARCH=x86_64 MACHINE_PLATFORM=pc64
 	CCVER=gcc120 HOST_CCVER=gcc120 HOST_BINUTILSVER=binutils234
+	KBDCONTROL=$HOSTBIN/kbdcontrol
 	export PATH MACHINE MACHINE_ARCH MACHINE_PLATFORM CCVER HOST_CCVER \
-	    HOST_BINUTILSVER
+	    HOST_BINUTILSVER KBDCONTROL
 }
 
 do_kernel() {
@@ -473,11 +494,32 @@ do_kernel() {
 	msg "configuring $conf in $kobj"
 	rm -rf "$kobj"; mkdir -p "$OBJDIR/sys"
 	( cd "$SRCDIR/sys/config" && config -d "$kobj" "$conf" )
+	# Modules get their dependencies in do_modules: configurations such
+	# as MINI64 (no INET) build a kernel but not the modules.
 	msg "make depend"
-	( cd "$kobj" && make KERNEL=kernel depend )
+	( cd "$kobj" && make NO_MODULES=1 KERNEL=kernel depend )
 	msg "make all (-j$JOBS)"
-	( cd "$kobj" && make -j"$JOBS" NO_MODULES=1 KERNEL=kernel all )
+	if grep -q '^platform[[:space:]]*vkernel' "$SRCDIR/sys/config/$conf"; then
+		# A virtual kernel is a DragonFly program: its objects are
+		# kernel code, but it links against libc and libpthread, so
+		# the link step uses xcc and the sysroot instead of the host's
+		# linker and glibc.
+		vkernel_libs
+		( cd "$kobj" && make -j"$JOBS" NO_MODULES=1 KERNEL=kernel \
+		    SYSTEM_LD='@xcc ${ELDFLAGS} ${DEBUG} -o ${.TARGET} ${SYSTEM_OBJS} vers.o -pthread' \
+		    all )
+	else
+		( cd "$kobj" && make -j"$JOBS" NO_MODULES=1 KERNEL=kernel all )
+	fi
 	msg "kernel: $kobj/kernel.debug"
+}
+
+# The libraries a virtual kernel links against, built if missing.
+vkernel_libs() {
+	[ -f "$SYSROOT/usr/lib/libc.so" ] || ( do_libc )
+	[ -f "$SYSROOT/usr/lib/libpthread.so" ] ||
+	    ( wenv; world_lib lib/libthread_xu && world_lib lib/libpthread )
+	kenv
 }
 
 do_modules() {
@@ -486,7 +528,8 @@ do_modules() {
 	kobj=$OBJDIR/sys/$conf
 	[ -f "$kobj/kernel.debug" ] || do_kernel "$conf"
 	msg "building modules (-j$JOBS)"
-	( cd "$kobj" && make -j"$JOBS" KERNEL=kernel modules )
+	( cd "$kobj" && make KERNEL=kernel modules-depend &&
+	  make -j"$JOBS" KERNEL=kernel modules )
 }
 
 # Stage the DragonFly headers the way include/Makefile's "copies" target

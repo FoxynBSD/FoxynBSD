@@ -29,6 +29,8 @@ M=	${MACHINE_ARCH}
 
 SIZE?=		size
 OBJCOPY?=	objcopy
+# Turns the built-in keymaps (ATKBD_DFLT_KEYMAP, UKBD_DFLT_KEYMAP) into C.
+KBDCONTROL?=	/usr/sbin/kbdcontrol
 
 COPTFLAGS?=-O2 -pipe
 #COPTFLAGS?=-O -pipe -flto -fno-fat-lto-objects

@@ -193,7 +193,12 @@ SYSCTL_DECL(_debug_ktr);
 			*(struct ktr_info_  ## name ## _args *)&entry->ktr_data[0] = \
 				(struct ktr_info_  ## name ## _args){ __VA_ARGS__}; \
 			if (ktr_finish_write_entry(&ktr_info_ ## name, entry)) { \
+				/* The stored format of an event with no \
+				 * arguments: not a format-security hole. */ \
+				_Pragma("GCC diagnostic push")		\
+				_Pragma("GCC diagnostic ignored \"-Wformat-security\"") \
 				kprintf(ktr_info_ ## name .kf_format, ##__VA_ARGS__); \
+				_Pragma("GCC diagnostic pop")		\
 				kprintf("\n");				\
 			}						\
 		}							\
@@ -214,7 +219,12 @@ SYSCTL_DECL(_debug_ktr);
 			*(struct ktr_info_  ## name ## _args *)&entry->ktr_data[0] = \
 				(struct ktr_info_  ## name ## _args){ __VA_ARGS__}; \
 			if (ktr_finish_write_entry(&ktr_info_ ## name, entry)) { \
+				/* The stored format of an event with no \
+				 * arguments: not a format-security hole. */ \
+				_Pragma("GCC diagnostic push")		\
+				_Pragma("GCC diagnostic ignored \"-Wformat-security\"") \
 				kprintf(ktr_info_ ## name .kf_format, ##__VA_ARGS__); \
+				_Pragma("GCC diagnostic pop")		\
 				kprintf("\n");				\
 			}						\
 		}							\

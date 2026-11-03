@@ -1074,7 +1074,7 @@ musycc_newhook(node_p node, hook_p hook, const char *name)
 		sch->sc = sc;
 		sch->state = DOWN;
 		sch->chan = chan;
-		ksprintf(sch->hookname, name);	/* XXX overflow ? */
+		strlcpy(sch->hookname, name, sizeof(sch->hookname));
 		sc->chan[chan] = sch;
 	} else if (sc->chan[chan]->state == UP) {
 		return (EBUSY);

@@ -23,7 +23,7 @@ the userland.
 
     tools/linux/build.sh tools              # bmake, config(8), mkdep, file2c, uudecode
     tools/linux/build.sh kernel             # X86_64_GENERIC, no modules
-    tools/linux/build.sh kernel MINI64
+    tools/linux/build.sh kernel MINI64      # also LINT64 and VKERNEL64 (see below)
     tools/linux/build.sh modules            # all kernel modules
     tools/linux/build.sh sysroot            # stage DragonFly headers (for stand/ and the world)
     tools/linux/build.sh libc               # userland: lib/csu and lib/libc with clang
@@ -80,6 +80,18 @@ host:
 and `srandomdev()` to those host tools, which also get libbsd and
 `_GNU_SOURCE`.  When they only preprocess (`-E`), they get neither:
 gcc builds `params.list` from cpp output.
+
+## Kernel configurations
+
+All four configurations in `sys/config` build: `X86_64_GENERIC`, `MINI64`
+(no `INET`, so `build.sh kernel` leaves the modules' `depend` to
+`build.sh modules`), `LINT64` and `VKERNEL64`. `LINT64`'s built-in
+keymaps (`ATKBD_DFLT_KEYMAP`, `UKBD_DFLT_KEYMAP`) are made by the
+tree's `kbdcontrol -L`, built for the host as `KBDCONTROL` (the kernel
+makefiles default to `/usr/sbin/kbdcontrol`). A virtual kernel is a
+DragonFly program, so `VKERNEL64` links with `xcc` against the
+sysroot's libc and libpthread; `build.sh kernel VKERNEL64` builds those
+first if they are missing.
 
 ## The userland (world)
 
