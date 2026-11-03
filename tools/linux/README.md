@@ -51,6 +51,9 @@ Linux compiler act like DragonFly's base gcc for kernel code:
 * `-U__linux__ ... -D__DragonFly__`: without this, ACPICA picks
   `aclinux.h`, and the headers that check `__DragonFly__` take the
   wrong branch.
+* `-Werror=format-security`: Debian and Ubuntu gcc turn this on by
+  default, so it is on everywhere and the Omarchy build fails on the same
+  format-string bugs as CI.
 * `-Wno-error=` for `dangling-pointer`, `enum-int-mismatch`,
   `maybe-uninitialized` and `array-bounds`: these are diagnostics from
   compilers newer than the in-tree gcc120. They are still printed but

@@ -49,7 +49,9 @@ need() {
 # Wrapper around the host gcc so it behaves like DragonFly's base
 # compiler for kernel purposes: no PIE/CET defaults, no Linux predefines,
 # __DragonFly__ defined.  Warnings introduced by compilers newer than the
-# in-tree gcc120 stay warnings instead of failing -Werror.
+# in-tree gcc120 stay warnings instead of failing -Werror.  Format strings
+# that are not literals are always an error, as with Debian/Ubuntu gcc, so
+# every Linux host catches the same problems as CI.
 write_cc_wrapper() {
 	local hostgcc
 	hostgcc=$(command -v "${HOST_GCC:-gcc}") || die "no host gcc"
@@ -61,6 +63,7 @@ exec "$hostgcc" \\
 	-U__linux__ -U__linux -Ulinux -U__gnu_linux__ -D__DragonFly__ \
 	-Wno-error=dangling-pointer -Wno-error=enum-int-mismatch \
 	-Wno-error=maybe-uninitialized -Wno-error=array-bounds \
+	-Wformat -Werror=format-security \
 	"\$@"
 EOF
 	chmod 755 "$HOSTBIN/cc"
