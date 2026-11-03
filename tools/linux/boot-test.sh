@@ -83,6 +83,28 @@ else
 		} > "$LOG.fault"
 		cat "$LOG.fault" >&2
 	fi
+	# User faults (machdep.print_user_faults, set by qemu.sh --root) inside
+	# the runtime linker: show the code there.  The base comes from the
+	# LD_DEBUG trace when there is one; else DragonFly's usual 0x800205000.
+	rtld=$OBJDIR/world$SRCDIR/libexec/rtld-elf/ld-elf.so.2
+	if [ -n "$ROOTARG" ] && [ -f "$rtld" ] &&
+	    grep -q ' rip [0-9a-f]* rsp ' "$LOG"; then
+		base=$(sed -n 's/.*ld-elf.so.2 is initialized, base address = 0x\([0-9a-f]*\).*/\1/p' "$LOG" | head -n 1)
+		base=$((0x${base:-800205000}))
+		size=$(stat -c %s "$rtld")
+		{
+			grep ' rip [0-9a-f]* rsp ' "$LOG" | sort -u | head -n 5
+			for rip in $(sed -n 's/.* rip \([0-9a-f]*\) rsp .*/\1/p' "$LOG" | sort -u | head -n 3); do
+				off=$((0x$rip - base))
+				[ "$off" -ge 0 ] && [ "$off" -lt $((size * 4)) ] || continue
+				printf 'rip %s = ld-elf.so.2+0x%x:\n' "$rip" "$off"
+				addr2line -f -i -e "$rtld" "$(printf 0x%x "$off")" || :
+				objdump -d --no-show-raw-insn "$rtld" 2>/dev/null |
+				    grep -B 12 -A 3 "^ *$(printf %x "$off"):" || :
+			done
+		} >> "$LOG.fault"
+		cat "$LOG.fault" >&2
+	fi
 	[ -s "$LOG.stderr" ] && { echo ">>> qemu stderr:" >&2; cat "$LOG.stderr" >&2; }
 fi
 exit "$result"

@@ -101,6 +101,8 @@ if [ "$GUI" = 1 ] || [ "$ROOT" = 1 ]; then
 		fi
 		# The ESP is the first virtio disk (vbd0), the image the second.
 		echo 'vfs.root.mountfrom="cd9660:vbd1"' >> "$VESP/boot/loader.conf"
+		# While the userland is young: report where programs fault.
+		echo 'machdep.print_user_faults="1"' >> "$VESP/boot/loader.conf"
 	fi
 	ESP=$VESP
 fi
