@@ -61,8 +61,11 @@ jobs:
         if: failure()
         run: |
           [ -f "$BUILD_LOG" ] || exit 0
-          msg=$(tail -n 40 "$BUILD_LOG" | sed 's/%/%25/g' | awk '{printf "%s%%0A", $0}')
-          echo "::error title=Build failed (last 40 lines)::${msg}"
+          # Compiler diagnostics first; fall back to the tail of the log.
+          errs=$(grep -E ': (fatal )?error:|\*\*\* \[|^Error|terminated|Abort' "$BUILD_LOG" | sort -u | head -n 30)
+          [ -n "$errs" ] || errs=$(tail -n 20 "$BUILD_LOG")
+          msg=$(printf '%s\n' "$errs" | cut -c1-400 | sed 's/%/%25/g' | awk '{printf "%s%%0A", $0}')
+          echo "::error title=Build failed::${msg}"
 
       - name: Enable KVM
         run: |
@@ -126,5 +129,8 @@ jobs:
         if: failure()
         run: |
           [ -f "$BUILD_LOG" ] || exit 0
-          msg=$(tail -n 40 "$BUILD_LOG" | sed 's/%/%25/g' | awk '{printf "%s%%0A", $0}')
-          echo "::error title=Build failed (last 40 lines)::${msg}"
+          # Compiler diagnostics first; fall back to the tail of the log.
+          errs=$(grep -E ': (fatal )?error:|\*\*\* \[|^Error|terminated|Abort' "$BUILD_LOG" | sort -u | head -n 30)
+          [ -n "$errs" ] || errs=$(tail -n 20 "$BUILD_LOG")
+          msg=$(printf '%s\n' "$errs" | cut -c1-400 | sed 's/%/%25/g' | awk '{printf "%s%%0A", $0}')
+          echo "::error title=Build failed::${msg}"
