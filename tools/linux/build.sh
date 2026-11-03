@@ -674,6 +674,9 @@ main() {
 	# before this one names the step).
 	trap 'rc=$?; [ "$rc" = 0 ] || echo "build.sh: $cmd failed (exit $rc)" >&2' EXIT
 	[ $# -gt 0 ] && shift
+	case ${1:-} in
+	-*)	die "unknown option: $1 (--gui and --root belong to qemu.sh)" ;;
+	esac
 	case $cmd in
 	tools)		do_tools ;;
 	kernel)		do_kernel "$@" ;;

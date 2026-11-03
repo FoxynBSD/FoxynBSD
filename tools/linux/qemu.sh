@@ -35,10 +35,19 @@ SRCDIR=$(cd "$(dirname "$0")/../.." && pwd)
 OBJDIR=${OBJDIR:-${XDG_CACHE_HOME:-$HOME/.cache}/foxynbsd}
 GUI=${GUI:-0}
 ROOT=0
+
+die() { echo "qemu.sh: $*" >&2; exit 1; }
+usage() {
+	die "usage: qemu.sh [--gui] [--root] [KERNCONF] [-- qemu args]"
+}
+
 while :; do
 	case ${1:-} in
 	--gui)	GUI=1; shift ;;
 	--root)	ROOT=1; shift ;;
+	--)	break ;;
+	-h|--help) usage ;;
+	-*)	echo "qemu.sh: unknown option: $1" >&2; usage ;;
 	*)	break ;;
 	esac
 done
@@ -47,8 +56,6 @@ ROOTISO=${ROOTISO:-$OBJDIR/root.iso}
 CONF=X86_64_GENERIC
 if [ $# -gt 0 ] && [ "$1" != "--" ]; then CONF=$1; shift; fi
 [ "${1:-}" = "--" ] && shift
-
-die() { echo "qemu.sh: $*" >&2; exit 1; }
 
 command -v qemu-system-x86_64 >/dev/null 2>&1 ||
     die "qemu-system-x86_64 not found (pacman -S qemu-base edk2-ovmf)"
