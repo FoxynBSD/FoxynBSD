@@ -482,9 +482,18 @@ spectre_check_support(void)
 		if (p[1] & CPUID_CAPEX_STIBP)
 			rv |= STIBP_SUPPORTED;
 
-		if (p[1] & CPUID_CAPEX_IBRS_ALWAYSON)
+		/*
+		 * The "always on" bits only describe how IBRS/STIBP behave
+		 * once enabled.  They do not mean SPEC_CTRL accepts those
+		 * bits: a CPU or hypervisor may report STIBP as always on
+		 * without enumerating STIBP itself (no software action is
+		 * needed then), and writing SPEC_CTRL_STIBP would fault.
+		 * Only honour them on top of the base feature.
+		 */
+		if ((p[1] & CPUID_CAPEX_IBRS_ALWAYSON) && (rv & IBRS_SUPPORTED))
 			rv |= IBRS_AUTO_SUPPORTED;
-		if (p[1] & CPUID_CAPEX_STIBP_ALWAYSON)
+		if ((p[1] & CPUID_CAPEX_STIBP_ALWAYSON) &&
+		    (rv & STIBP_SUPPORTED))
 			rv |= STIBP_AUTO_SUPPORTED;
 		if (p[1] & CPUID_CAPEX_PREFER_IBRS)
 			rv |= IBRS_PREFERRED_REQUEST;
