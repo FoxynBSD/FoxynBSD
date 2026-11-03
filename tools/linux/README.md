@@ -24,6 +24,7 @@ On Debian/Ubuntu, the same set is
     tools/linux/build.sh loader             # stand/ -> loader.efi
     WITH_MODULES=1 tools/linux/build.sh esp # EFI boot tree: loader + kernel (+ stripped .ko)
     tools/linux/qemu.sh                     # boot it under QEMU/OVMF on the serial console
+    tools/linux/qemu.sh --gui               # same, in a QEMU window on the video console
     tools/linux/boot-test.sh                # headless boot, passes at the mountroot> prompt
     eval "$(tools/linux/build.sh env)"      # shell env for running make by hand
 
@@ -72,8 +73,8 @@ Linux compiler act like DragonFly's base gcc for kernel code:
 | kernel modules (682 .ko)      | build      |
 | header sysroot               | staged     |
 | stand/ (loader.efi)           | builds; PE32+ EFI app, only R_X86_64_RELATIVE relocs |
-| ESP tree + `qemu.sh` runner   | written; boot not verified yet |
-| CI (`.github/workflows/linux-build.yml`) | kernel, loader, ESP and modules on Ubuntu; QEMU boot test is non-blocking until it passes |
+| ESP tree + `qemu.sh` runner   | boots to `mountroot>` under QEMU + OVMF (verified in CI) |
+| CI (`.github/workflows/linux-build.yml`) | kernel, loader, ESP and modules on Ubuntu; QEMU boot test (to `mountroot>`) is blocking |
 | world (userland)              | TODO: needs a cross toolchain targeting DragonFly |
 
 QEMU path: OVMF runs `EFI/BOOT/BOOTX64.EFI` (our `loader.efi`). The

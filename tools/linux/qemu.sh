@@ -3,7 +3,11 @@
 # Boot a FoxynBSD kernel built by tools/linux/build.sh under QEMU + OVMF.
 #
 # Usage:
-#	tools/linux/qemu.sh [KERNCONF] [-- extra qemu args]
+#	tools/linux/qemu.sh [--gui] [KERNCONF] [-- extra qemu args]
+#
+#	--gui	open a QEMU window and use the video console (EFI framebuffer,
+#		then the kernel's syscons) instead of the serial console.
+#		Serial output is still copied to the terminal.
 #
 # The ESP tree from `build.sh esp` is handed to QEMU as a virtual FAT disk,
 # so nothing needs root.  With no root filesystem attached yet the kernel
@@ -16,6 +20,8 @@
 #	MEM (default 2G), SMP (default 2)
 #	ROOTDISK	optional disk image to attach as a second virtio disk
 #	SERIAL_LOG	headless: write the serial console to this file
+#	GUI=1		same as --gui
+#	DISPLAY_BACKEND	QEMU -display backend for --gui (default gtk)
 #
 # Host packages: qemu-base (or qemu-full) edk2-ovmf
 
@@ -23,6 +29,8 @@ set -eu
 
 SRCDIR=$(cd "$(dirname "$0")/../.." && pwd)
 OBJDIR=${OBJDIR:-${XDG_CACHE_HOME:-$HOME/.cache}/foxynbsd}
+GUI=${GUI:-0}
+if [ "${1:-}" = "--gui" ]; then GUI=1; shift; fi
 CONF=X86_64_GENERIC
 if [ $# -gt 0 ] && [ "$1" != "--" ]; then CONF=$1; shift; fi
 [ "${1:-}" = "--" ] && shift
@@ -57,6 +65,22 @@ OVMF_VARS_TMPL=${OVMF_VARS:-$(find_fw \
     /usr/share/OVMF/OVMF_VARS.fd \
     /usr/share/ovmf/x64/OVMF_VARS.fd)} || die "OVMF vars template not found"
 
+# The ESP from build.sh boots on the serial console.  For --gui, boot a
+# hardlinked copy whose loader.conf selects the video console instead, so
+# the build output is left alone and no file contents are duplicated.
+if [ "$GUI" = 1 ]; then
+	GESP=$OBJDIR/qemu/esp-gui/$CONF
+	rm -rf "$GESP"
+	mkdir -p "$(dirname "$GESP")"
+	cp -al "$ESP" "$GESP" 2>/dev/null || cp -a "$ESP" "$GESP"
+	rm -f "$GESP/boot/loader.conf"
+	cat > "$GESP/boot/loader.conf" <<'EOF'
+console="efi"
+autoboot_delay="5"
+EOF
+	ESP=$GESP
+fi
+
 # Writable per-config copy of the UEFI variable store.
 VARS=$OBJDIR/qemu/$CONF.vars.fd
 mkdir -p "$OBJDIR/qemu"
@@ -71,6 +95,8 @@ fi
 # headless run that writes the serial console to a file, for boot-test.sh.
 if [ -n "${SERIAL_LOG:-}" ]; then
 	CONSOLE="-display none -monitor none -serial file:$SERIAL_LOG"
+elif [ "$GUI" = 1 ]; then
+	CONSOLE="-display ${DISPLAY_BACKEND:-gtk} -vga std -serial stdio"
 else
 	CONSOLE="-nographic -serial mon:stdio"
 fi
@@ -89,5 +115,9 @@ if [ -n "${ROOTDISK:-}" ]; then
 	set -- "$@" -drive file="$ROOTDISK",if=virtio,format=raw
 fi
 
-echo ">>> booting $CONF from $ESP (Ctrl-A X to quit)" >&2
+if [ "$GUI" = 1 ]; then
+	echo ">>> booting $CONF from $ESP in a QEMU window (close it to quit)" >&2
+else
+	echo ">>> booting $CONF from $ESP (Ctrl-A X to quit)" >&2
+fi
 exec qemu-system-x86_64 "$@"

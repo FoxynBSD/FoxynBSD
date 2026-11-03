@@ -19,7 +19,7 @@ system can be built from an ordinary Linux machine.
 > **FoxynBSD is at an early stage.** There is no installable image yet,
 > and the desktop experience is the goal, not something you can use today.
 > What works now is building the kernel, its modules and the EFI boot
-> loader on Linux. See [Status](#status) before you plan anything around it.
+> loader on Linux, and booting that kernel under QEMU. See [Status](#status) before you plan anything around it.
 
 ## Status
 
@@ -27,7 +27,7 @@ system can be built from an ordinary Linux machine.
 |------|-------|
 | Kernel (`X86_64_GENERIC`) and all modules | Build on Linux with GCC 16 |
 | EFI boot loader (`loader.efi`) | Builds on Linux |
-| Boot under QEMU | Boot tree and runner exist; boot not verified yet |
+| Boot under QEMU | Kernel boots to the root prompt (`mountroot>`), checked in CI on every push |
 | Userland (`world`) | Builds only on a DragonFly host; Linux build in progress |
 | Installable image / ISO | Not available yet |
 | Desktop defaults | Planned |
@@ -67,6 +67,9 @@ Other distributions should work if they provide the same tools.
 
    No root filesystem is attached yet, so a successful kernel-only boot
    ends at the `mountroot>` prompt. Quit with `Ctrl-A X`.
+
+   To watch the boot in a QEMU window on the video console instead of the
+   terminal, run `tools/linux/qemu.sh --gui`.
 
 Details, extra commands (`modules`, `sysroot`, `env`) and the reasons
 behind the compiler wrapper are in [`tools/linux/README.md`](tools/linux/README.md).
