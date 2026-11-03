@@ -54,6 +54,19 @@ if [ "$result" -eq 0 ]; then
 else
 	echo ">>> boot test FAILED after ${elapsed}s; last serial output:" >&2
 	tail -n 40 "$LOG" >&2
+	# On a kernel trap, resolve the faulting instruction to a source line
+	# and keep the result next to the log ($LOG.fault) for CI to report.
+	kdebug=$OBJDIR/sys/$CONF/kernel.debug
+	ip=$(sed -n 's/.*instruction pointer[[:space:]]*=[[:space:]]*0x[0-9a-f]*:0x\([0-9a-f]*\).*/\1/p' "$LOG" | head -n 1)
+	if [ -n "$ip" ] && [ -f "$kdebug" ] && command -v addr2line >/dev/null; then
+		{
+			echo "faulting instruction 0x$ip:"
+			addr2line -f -i -C -e "$kdebug" "0x$ip" || :
+			objdump -d --no-show-raw-insn "$kdebug" 2>/dev/null |
+			    grep -B 8 -A 2 "^ *$ip:" || :
+		} > "$LOG.fault"
+		cat "$LOG.fault" >&2
+	fi
 	[ -s "$LOG.stderr" ] && { echo ">>> qemu stderr:" >&2; cat "$LOG.stderr" >&2; }
 fi
 exit "$result"

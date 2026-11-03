@@ -85,6 +85,8 @@ jobs:
         run: |
           log="$OBJDIR/qemu/X86_64_GENERIC.boot.log"
           {
+            cat "$log.fault" 2>/dev/null
+            echo "--- serial tail ---"
             tail -n 40 "$log" 2>/dev/null
             echo "--- qemu stderr ---"
             cat "$log.stderr" 2>/dev/null
