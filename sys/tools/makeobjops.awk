@@ -224,7 +224,7 @@ function handle_method (static)
 		lineno++
 	}
 
-	default = "";
+	default_method = "";
 	if (!match(line, /\};?/)) {
 		warnsrc("Premature end of file");
 		error = 1;
@@ -232,9 +232,9 @@ function handle_method (static)
 	}
 	extra = substr(line, RSTART + RLENGTH);
 	if (extra ~ /[	 ]*DEFAULT[ 	]*[a-zA-Z_][a-zA-Z_0-9]*[ 	]*;/) {
-		default = extra;
-		sub(/.*DEFAULT[	 ]*/, "", default);
-		sub(/[; 	]+.*$/, "", default);
+		default_method = extra;
+		sub(/.*DEFAULT[	 ]*/, "", default_method);
+		sub(/[; 	]+.*$/, "", default_method);
 	}
 	else if (extra && opt_d) {
 		#   Warn about garbage at end of line.
@@ -278,8 +278,8 @@ function handle_method (static)
 
 	firstvar = varnames[1];
 
-	if (default == "")
-		default = "kobj_error_method";
+	if (default_method == "")
+		default_method = "kobj_error_method";
 
 	# the method description 
 	printh("extern struct kobjop_desc " mname "_desc;");
@@ -290,7 +290,7 @@ function handle_method (static)
 
 	# Print out the method desc
 	printc("struct kobjop_desc " mname "_desc = {");
-	printc("\t0, { &" mname "_desc, (kobjop_t)" default " }");
+	printc("\t0, { &" mname "_desc, (kobjop_t)" default_method " }");
 	printc("};\n");
 
 	# Print out the method itself
