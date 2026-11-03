@@ -1,0 +1,54 @@
+name: Bug report
+description: Something in FoxynBSD does not work as it should.
+labels: ["bug"]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Security problems should not be reported here; see SECURITY.md.
+  - type: textarea
+    id: what
+    attributes:
+      label: What happened
+      description: What you did, what you expected, and what happened instead.
+    validations:
+      required: true
+  - type: textarea
+    id: repro
+    attributes:
+      label: Steps to reproduce
+      placeholder: |
+        1. tools/linux/build.sh kernel
+        2. ...
+    validations:
+      required: true
+  - type: input
+    id: commit
+    attributes:
+      label: FoxynBSD commit or branch
+      placeholder: dev @ 9cb4738e59
+    validations:
+      required: true
+  - type: dropdown
+    id: where
+    attributes:
+      label: Where does it happen?
+      options:
+        - Building on Linux (tools/linux)
+        - Building on a DragonFly host
+        - Booting / running under QEMU
+        - Booting / running on real hardware
+        - Other
+    validations:
+      required: true
+  - type: textarea
+    id: env
+    attributes:
+      label: Environment
+      description: Host distribution and compiler version, or hardware / QEMU command line.
+  - type: textarea
+    id: logs
+    attributes:
+      label: Logs
+      description: Build output, console output or panic message.
+      render: text
