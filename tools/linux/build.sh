@@ -239,8 +239,12 @@ while [ "\$n" -gt 0 ]; do
 done
 # --undefined-version: like GNU ld, accept version scripts that name
 # symbols a given configuration does not build (e.g. hesiod in libc).
+# --apply-dynamic-relocs: like GNU ld, also store addends in the sections
+# (lld keeps them only in .rela.dyn).  ld-elf.so.2 reads its _DYNAMIC
+# through the GOT before relocating itself and would get 0.
 exec "$xtool/bin/clang" --target=x86_64-unknown-dragonfly \\
 	--sysroot="$SYSROOT" -fuse-ld=lld -Wl,--undefined-version \\
+	-Wl,--apply-dynamic-relocs \\
 	-Qunused-arguments -Wno-unknown-warning-option "\$@"
 EOF
 	chmod 755 "$HOSTBIN/xcc"
