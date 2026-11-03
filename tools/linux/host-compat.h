@@ -30,6 +30,11 @@
 #ifndef NELEM
 #define NELEM(ary)	(sizeof(ary) / sizeof((ary)[0]))
 #endif
+/* BSD errno "inappropriate file type or format"; older libbsd lacks it. */
+#include <errno.h>
+#ifndef EFTYPE
+#define EFTYPE		EINVAL
+#endif
 #ifndef roundup2
 #define roundup2(x, y)	(((x) + ((y) - 1)) & (~((y) - 1)))
 #endif

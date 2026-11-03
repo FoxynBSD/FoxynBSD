@@ -29,6 +29,8 @@ the userland.
     tools/linux/build.sh libc               # userland: lib/csu and lib/libc with clang
     tools/linux/build.sh base               # rtld, libs, init, sh and core utilities
     tools/linux/build.sh rootfs             # minimal root tree + root.iso (cd9660)
+    tools/linux/build.sh world              # the whole userland, buildworld's order
+    KEEP_GOING=1 tools/linux/build.sh world # same, listing every failed directory
     tools/linux/build.sh subdir bin/date    # build and install any world directory
     tools/linux/build.sh loader             # stand/ -> loader.efi
     WITH_MODULES=1 tools/linux/build.sh esp # EFI boot tree: loader + kernel (+ stripped .ko)
@@ -60,11 +62,24 @@ host:
 * shims for `install` (drops `-o`/`-g`/`-f`, which need root, and
   `-C`/`-b`/`-B`, which GNU reads differently), `ln` (BSD
   `-h` is GNU `-n`) and `sed` (BSD `sed -i ""`);
+* shims for `zic` (the host's, without the `-u`/`-g` owners that need
+  root) and `find` (BSD `find -s`, sorted);
+* buildworld's bootstrap tools for `share/`, built from the tree because
+  the glibc programs of the same name write other formats or do not
+  exist: `yacc` (byacc), `localedef`, `mkcsmapper`, `mkesdb`,
+  `cap_mkdb` (with the tree's `db(3)` and `getcap(3)`) and `uuencode`;
 * `xcc`, the userland compiler: host clang with
-  `--target=x86_64-unknown-dragonfly`, the staged sysroot and `ld.lld`.
+  `--target=x86_64-unknown-dragonfly`, the staged sysroot and `ld.lld`;
+* `hostcc` and `hostc++`, the compilers for the helpers that run during
+  the world build (ncurses' `make_keys`, gcc's generators, ...).
+  `NXENV` is `nxenv`, an `env(1)` that turns `xcc` into `hostcc` and
+  `xc++` into `hostc++`, so `share/mk`'s `${NXENV} ${CC}` and
+  `${NXENV} ${CXX}` reach them.
 
 `tools/linux/host-compat.h` supplies BSD macros (`__unused`, `NELEM`, ...)
-to those host tools.
+and `srandomdev()` to those host tools, which also get libbsd and
+`_GNU_SOURCE`.  When they only preprocess (`-E`), they get neither:
+gcc builds `params.list` from cpp output.
 
 ## The userland (world)
 
@@ -158,6 +173,40 @@ wrapper defines the `__LIBGCC_*` macros that gcc predefines for
 `-fbuilding-libgcc`. Until `base` runs, `libgcc_eh` is an empty
 archive, which is enough for C.
 
+## The whole world
+
+`build.sh world` builds everything buildworld builds into the sysroot, in
+the order of `Makefile.inc1`: the startup libraries, the compiler's
+unwinder and the `_prebuild_libs`, then every directory under `gnu/lib`,
+`lib`, `libexec`, `bin`, `sbin`, `usr.bin`, `usr.sbin`, `gnu/usr.bin`
+(binutils 2.27 and 2.34, gcc 8 and gcc 12), `games` and `share`. Each
+top-level directory is walked one `SUBDIR` level deep. The first failing
+directory stops the build; with `KEEP_GOING=1` the rest still builds and
+the failed directories are listed at the end.
+
+What differs from buildworld:
+
+* The compiler runtime comes from the host's compiler-rt (see above), so
+  `gnu/lib/gcc*/csu` and `libgcc` are not built, nor is
+  `gnu/lib/gcc120`. The C++ runtime is gcc 8's, as in `base`.
+* `libgcc_pic.a` is compiler-rt's builtins plus the unwinder built from
+  `libgcc_eh`'s sources with default visibility, which is what
+  `gnu/lib/gcc80/libgcc_pic` contains: dynamically linked C++ programs
+  (gold, ...) take `_Unwind_*` from it for `libstdc++.so`. `libgcc_eh`
+  is built in an object tree of its own (`$OBJDIR/world-libgcc`), so
+  the stand-in gcc headers it needs never reach `gnu/usr.bin/cc80`.
+* The sysroot doubles as `DESTDIR`; there is no separate installworld.
+
+A few tree files carry Linux-host conditions that change nothing on
+DragonFly: gcc 8's and 12's host configs (glibc declares `basename(3)`
+for C++ and has no `<sys/sysctl.h>`), ncurses' `HAVE_BSD_CGETENT` for
+`tic_next`, binutils' `genscripts.sh` (it takes its bash path only when
+`genscrba.sh` exists, which the vendor import leaves out) and mpfr,
+which leaves out its float128 functions when clang builds it. kdump's
+`mkioctls` preprocesses with `$CC` (gcc by default, as before), and
+`share/terminfo` builds its database in the object directory, which its
+install target reads.
+
 ## Why the host `cc` is wrapped
 
 The build calls `cc`, which is a wrapper around the host gcc. It makes the
@@ -198,6 +247,7 @@ Linux compiler act like DragonFly's base gcc for kernel code:
 | userland: `rtld` (`ld-elf.so.2`), init, sh, base utilities | build with clang |
 | root image (`root.iso`) and boot to `login:` | getty and login (PAM) under QEMU; CI logs in as root over the serial line and runs a command (blocking) |
 | terminfo, tmpfs `/tmp` and `/var`, `login.conf`, users and groups (`pwd_mkdb` at boot) | in the root image (checked in CI) |
+| the whole world (`build.sh world`): every library and program directory, binutils, gcc 8 and 12, `share/` data | builds |
 | `/etc/rc` and `rc.d` from the tree | run at boot, tmpfs `/etc` and `/var` (CI lists commands the scripts miss) |
 | C++ runtime (`libgcc_eh`, `libstdc++` from gcc 8) | builds with clang; `devd` links against it, and CI boots a test that throws and catches an exception |
 | `syslogd`, `newsyslog`, `cron`, `devd` | run at boot; CI checks that a `logger` message reaches `/var/log/messages` and, after logging in, that `syslogd`, `cron` and `devd` are running |

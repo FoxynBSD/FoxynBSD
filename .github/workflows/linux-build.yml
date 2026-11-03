@@ -330,3 +330,56 @@ jobs:
             ${{ env.OBJDIR }}/qemu/*.stderr
           if-no-files-found: warn
           retention-days: 14
+
+  # build.sh world: every library and program directory, the toolchain
+  # and share/, in buildworld's order.  KEEP_GOING=1 builds past a failed
+  # directory, so one run reports all of them (and the job still fails).
+  world:
+    name: Whole world
+    runs-on: ubuntu-24.04
+    timeout-minutes: 300
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+
+      - name: Install host packages
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends \
+            build-essential flex bison libfl-dev libbsd-dev libtirpc-dev \
+            pkg-config clang lld libclang-rt-18-dev ncurses-bin
+
+      - name: Build host tools and headers
+        run: |
+          set -o pipefail
+          { tools/linux/build.sh tools && tools/linux/build.sh sysroot; } 2>&1 |
+            tee -a "$BUILD_LOG"
+
+      # The full log is too large for the step output: keep it in a file,
+      # print the step names, and report the failures below.
+      - name: Build the world
+        run: |
+          set -o pipefail
+          KEEP_GOING=1 tools/linux/build.sh world >> "$BUILD_LOG" 2>&1 ||
+            { grep -A200 'these directories failed' "$BUILD_LOG"; exit 1; }
+          grep -c '^>>> building' "$BUILD_LOG"
+
+      - name: Report build failure
+        if: failure()
+        run: |
+          [ -f "$BUILD_LOG" ] || exit 0
+          failed=$(sed -n '/these directories failed/,$p' "$BUILD_LOG" || :)
+          errs=$(grep -E ': (fatal )?error:|\*\*\* \[|build.sh:' "$BUILD_LOG" | grep -v 'Wno-error' | sort -u | head -n 30 || :)
+          errs=$(printf '%s\n--- errors ---\n%s\n' "$failed" "$errs")
+          msg=$(printf '%s\n' "$errs" | cut -c1-400 | sed 's/%/%25/g' | awk '{printf "%s%%0A", $0}')
+          echo "::error title=World build failed::${msg}"
+
+      - name: Upload the build log
+        if: always()
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: foxynbsd-world-log
+          path: ${{ env.BUILD_LOG }}
+          if-no-files-found: warn
+          retention-days: 14
