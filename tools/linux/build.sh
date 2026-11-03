@@ -665,23 +665,30 @@ EOF
 	msg "ESP: $esp"
 }
 
-cmd=${1:-}
-# set -e exits quietly; say which command failed (the last ">>>" line
-# before this one names the step).
-trap 'rc=$?; [ "$rc" = 0 ] || echo "build.sh: $cmd failed (exit $rc)" >&2' EXIT
-[ $# -gt 0 ] && shift
-case $cmd in
-tools)		do_tools ;;
-kernel)		do_kernel "$@" ;;
-modules)	do_modules "$@" ;;
-sysroot)	do_sysroot ;;
-libc)		do_libc ;;
-base)		do_base ;;
-rootfs)		do_rootfs ;;
-subdir)		[ -f "$SYSROOT/usr/lib/libc.so" ] || do_libc
-		wenv; for d; do world_lib "$d"; done ;;
-loader)		do_loader ;;
-esp)		do_esp "$@" ;;
-env)		kenv; env | grep -E '^(PATH|MACHINE|MACHINE_ARCH|MACHINE_PLATFORM|CCVER|HOST_CCVER|HOST_BINUTILSVER)=' | sed 's/^/export /' ;;
-*)		sed -n '3,20p' "$0" | sed 's/^# \{0,1\}//'; exit 1 ;;
-esac
+# Everything runs from inside main, and the call shares its line with
+# exit: the shell reads a script piece by piece, so a build.sh rewritten
+# while a long build runs (git pull) must not be read again afterwards.
+main() {
+	cmd=${1:-}
+	# set -e exits quietly; say which command failed (the last ">>>" line
+	# before this one names the step).
+	trap 'rc=$?; [ "$rc" = 0 ] || echo "build.sh: $cmd failed (exit $rc)" >&2' EXIT
+	[ $# -gt 0 ] && shift
+	case $cmd in
+	tools)		do_tools ;;
+	kernel)		do_kernel "$@" ;;
+	modules)	do_modules "$@" ;;
+	sysroot)	do_sysroot ;;
+	libc)		do_libc ;;
+	base)		do_base ;;
+	rootfs)		do_rootfs ;;
+	subdir)		[ -f "$SYSROOT/usr/lib/libc.so" ] || do_libc
+			wenv; for d; do world_lib "$d"; done ;;
+	loader)		do_loader ;;
+	esp)		do_esp "$@" ;;
+	env)		kenv; env | grep -E '^(PATH|MACHINE|MACHINE_ARCH|MACHINE_PLATFORM|CCVER|HOST_CCVER|HOST_BINUTILSVER)=' | sed 's/^/export /' ;;
+	*)		sed -n '3,20p' "$0" | sed 's/^# \{0,1\}//'; exit 1 ;;
+	esac
+}
+
+main "$@"; exit
