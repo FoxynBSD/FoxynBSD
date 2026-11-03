@@ -152,6 +152,15 @@ SYSCTL_INT(_machdep, OID_AUTO, freeze_on_seg_fault, CTLFLAG_RW,
 static int panic_on_nmi = 1;
 SYSCTL_INT(_machdep, OID_AUTO, panic_on_nmi, CTLFLAG_RW,
 	&panic_on_nmi, 0, "Panic on NMI");
+/*
+ * Print the trap frame of user faults that raise a signal, so a program
+ * that crashes before anything else can report (e.g. in ld-elf.so.2
+ * during bring-up) still shows where.  Settable from loader.conf.
+ */
+static int print_user_faults = 0;
+TUNABLE_INT("machdep.print_user_faults", &print_user_faults);
+SYSCTL_INT(_machdep, OID_AUTO, print_user_faults, CTLFLAG_RW,
+	&print_user_faults, 0, "Print user faults that raise a signal");
 
 /*
  * System call debugging records the worst-case system call
@@ -804,6 +813,14 @@ trap(struct trapframe *frame)
 		i = (*p->p_sysent->sv_transtrap)(i, type);
 
 	gd->gd_cnt.v_trap++;
+	if (print_user_faults) {
+		kprintf("pid %d (%s): %s: signal %d code %d "
+			"addr %016lx rip %016lx rsp %016lx\n",
+			p->p_pid, p->p_comm,
+			type <= MAX_TRAP_MSG ? trap_msg[type] : "trap",
+			i, ucode, (long)frame->tf_addr,
+			(long)frame->tf_rip, (long)frame->tf_rsp);
+	}
 	trapsignal(lp, i, ucode);
 
 #ifdef DEBUG
