@@ -692,7 +692,8 @@ BASE_PROGS="sbin/init bin/sh bin/cat bin/chmod bin/cp bin/date bin/df
 	usr.bin/tr usr.bin/uname usr.bin/wc usr.bin/xargs usr.bin/xinstall
 	usr.sbin/chown usr.sbin/cron/cron usr.sbin/cron/crontab usr.sbin/newsyslog usr.sbin/pwd_mkdb usr.sbin/syslogd
 	usr.bin/diff usr.bin/lockf usr.bin/netstat usr.bin/sort usr.bin/tee
-	usr.bin/w gnu/usr.bin/grep/egrep gnu/usr.bin/grep/fgrep usr.sbin/periodic"
+	usr.bin/w gnu/usr.bin/grep/egrep gnu/usr.bin/grep/fgrep usr.sbin/chkgrp
+	usr.sbin/periodic"
 
 # PAM modules that /etc/pam.d/login and /etc/pam.d/system load.  login(1)
 # opens them with dlopen(3), so they are not in any NEEDED list.

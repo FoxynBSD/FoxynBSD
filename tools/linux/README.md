@@ -267,7 +267,7 @@ Linux compiler act like DragonFly's base gcc for kernel code:
 | `/etc/rc` and `rc.d` from the tree | run at boot, tmpfs `/etc` and `/var` (CI lists commands the scripts miss) |
 | C++ runtime (`libgcc_eh`, `libstdc++` from gcc 8) | builds with clang; `devd` links against it, and CI boots a test that throws and catches an exception |
 | `syslogd`, `newsyslog`, `cron`, `devd` | run at boot; CI checks that a `logger` message reaches `/var/log/messages` and, after logging in, that `syslogd`, `cron` and `devd` are running |
-| `periodic` | CI runs `periodic daily` after logging in and checks that the report in `/var/log/daily.log` is complete |
+| `periodic` | CI runs `periodic daily` after logging in and checks that the report in `/var/log/daily.log` is complete and that no script hit a missing command |
 | rest of world, writable root | TODO (issue #9) |
 
 QEMU path: OVMF runs `EFI/BOOT/BOOTX64.EFI` (our `loader.efi`). The

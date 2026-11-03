@@ -298,7 +298,7 @@ jobs:
           grep -aq '^daily| -- End of daily output --' "$log" ||
             { echo "::error title=periodic::daily.log has no end marker"; exit 1; }
           missing=$(grep -a '^daily| .*not found' "$log" | tr -d '\r' | sed 's/^daily| //' | sort -u | tr '\n' ';')
-          [ -z "$missing" ] || echo "::notice title=periodic::commands not found: $missing"
+          [ -z "$missing" ] || { echo "::error title=periodic::commands not found: $missing"; exit 1; }
 
       # libgcc_eh and libstdc++ are built with clang: a static C++ test
       # throws through two frames and catches.
