@@ -24,7 +24,7 @@
  * THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
  */
 
-#ifndef _RADEON_TRACE_H
+#ifndef _RADEON_TRACE_H_
 #define _RADEON_TRACE_H_
 
 #include <linux/stringify.h>
