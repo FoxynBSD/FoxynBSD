@@ -9,7 +9,8 @@
 #		then the kernel's syscons) instead of the serial console.
 #		Serial output is still copied to the terminal.
 #	--root	attach the root image from `build.sh rootfs` ($OBJDIR/root.iso)
-#		as a CD and mount it as the root filesystem: boots to a shell.
+#		as a second virtio disk and mount it as the root filesystem
+#		(cd9660): boots to a shell.
 #
 # The ESP tree from `build.sh esp` is handed to QEMU as a virtual FAT disk,
 # so nothing needs root.  Without --root the kernel is expected to stop at
@@ -98,8 +99,8 @@ if [ "$GUI" = 1 ] || [ "$ROOT" = 1 ]; then
 			rm -f "$VESP/boot/loader.conf"
 			cp "$ESP/boot/loader.conf" "$VESP/boot/loader.conf"
 		fi
-		# The CD below is the only ATAPI device on q35's AHCI: cd0.
-		echo 'vfs.root.mountfrom="cd9660:cd0"' >> "$VESP/boot/loader.conf"
+		# The ESP is the first virtio disk (vbd0), the image the second.
+		echo 'vfs.root.mountfrom="cd9660:vbd1"' >> "$VESP/boot/loader.conf"
 	fi
 	ESP=$VESP
 fi
@@ -134,8 +135,10 @@ set -- \
     $CONSOLE \
     "$@"
 
+# The ISO goes on virtio-blk rather than as an AHCI CD: QEMU's ATAPI
+# emulation times out with the ahci(4) driver ("Cannot copy rfis").
 if [ "$ROOT" = 1 ]; then
-	set -- "$@" -drive file="$ROOTISO",media=cdrom,readonly=on
+	set -- "$@" -drive file="$ROOTISO",if=virtio,format=raw,readonly=on
 fi
 if [ -n "${ROOTDISK:-}" ]; then
 	set -- "$@" -drive file="$ROOTDISK",if=virtio,format=raw

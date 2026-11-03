@@ -108,8 +108,9 @@ libkvm, then `init`, `sh` and a set of utilities (`ls`, `cat`, `ps`,
 programs and every shared library they load into `$OBJDIR/rootfs`, adds an
 `/etc/rc` that prints `uname -a` and opens `/bin/sh` on the console, and
 packs the tree as a Rock Ridge ISO with xorriso. `qemu.sh --root` attaches
-it as a CD and sets `vfs.root.mountfrom="cd9660:cd0"`, so no step needs
-root privileges and the root stays read-only.
+it as a second virtio disk and sets `vfs.root.mountfrom="cd9660:vbd1"`, so
+no step needs root privileges and the root stays read-only. (Not as a CD:
+QEMU's AHCI ATAPI emulation times out with the `ahci` driver.)
 
 The compiler runtime (`crtbegin*.o`, `crtend*.o` and the `libgcc` helpers)
 comes from the host's LLVM **compiler-rt** for now. The in-tree gcc
