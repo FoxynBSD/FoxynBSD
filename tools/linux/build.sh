@@ -454,7 +454,7 @@ BASE_PROGS="sbin/init bin/sh bin/cat bin/chmod bin/cp bin/date bin/df
 	gnu/usr.bin/grep/grep usr.bin/head usr.bin/id usr.bin/logger
 	usr.bin/login usr.bin/mktemp usr.bin/sed usr.bin/tail usr.bin/touch
 	usr.bin/tr usr.bin/uname usr.bin/wc usr.bin/xargs usr.bin/xinstall
-	usr.sbin/chown usr.sbin/pwd_mkdb"
+	usr.sbin/chown usr.sbin/newsyslog usr.sbin/pwd_mkdb usr.sbin/syslogd"
 
 # PAM modules that /etc/pam.d/login and /etc/pam.d/system load.  login(1)
 # opens them with dlopen(3), so they are not in any NEEDED list.
@@ -660,7 +660,21 @@ EOF
 write_etc() {
 	local root=$1
 	cp "$SRCDIR/etc/rc" "$SRCDIR/etc/rc.subr" "$SRCDIR/etc/rc.shutdown" \
-	    "$SRCDIR/etc/network.subr" "$SRCDIR/etc/motd" "$root/etc/"
+	    "$SRCDIR/etc/network.subr" "$SRCDIR/etc/motd" \
+	    "$SRCDIR/etc/syslog.conf" "$SRCDIR/etc/newsyslog.conf" "$root/etc/"
+	# The empty log files that etc/Makefile's distribution target
+	# installs: syslogd(8) only writes to files that exist.
+	install -m 600 /dev/null "$root/var/log/auth.log"
+	install -m 600 /dev/null "$root/var/log/cron"
+	install -m 640 /dev/null "$root/var/log/daemon"
+	install -m 644 /dev/null "$root/var/log/lpd-errs"
+	install -m 640 /dev/null "$root/var/log/maillog"
+	install -m 644 /dev/null "$root/var/log/lastlogx"
+	install -m 644 /dev/null "$root/var/log/messages"
+	install -m 600 /dev/null "$root/var/log/security"
+	install -m 640 /dev/null "$root/var/log/slip.log"
+	install -m 640 /dev/null "$root/var/log/ppp.log"
+	install -m 644 /dev/null "$root/var/log/wtmpx"
 	mkdir -p "$root/etc/defaults" "$root/etc/rc.d" "$root/etc/rc.local.d"
 	cp "$SRCDIR/etc/defaults/rc.conf" "$SRCDIR/etc/defaults/devfs.conf" \
 	    "$root/etc/defaults/"
@@ -678,7 +692,8 @@ EOF
 # whose programs the image does not have yet are off.
 hostname="foxynbsd"
 root_rw_mount="NO"	# The root is a read-only cd9660 image.
-syslogd_enable="NO"
+syslogd_enable="YES"
+newsyslog_enable="YES"
 dntpd_enable="NO"
 cron_enable="NO"
 devd_enable="NO"
@@ -742,6 +757,12 @@ fi
 for b in /root/tests/brand-*; do
 	"$b" || echo "rc: $b failed with status $?"
 done
+# syslogd: a message sent with logger(1) must reach /var/log/messages.
+logger -p user.notice "rc.local: syslog test $$"
+sleep 1
+if grep -qF "syslog test $$" /var/log/messages; then
+	echo "rc: syslogd wrote to /var/log/messages"
+fi
 EOF
 }
 

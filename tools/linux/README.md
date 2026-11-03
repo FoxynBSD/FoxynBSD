@@ -121,7 +121,9 @@ from the tree's `terminfo.src` with the host's `tic`, copies
 live CD's (`nrelease/root/etc`): the root stays read-only
 (`root_rw_mount="NO"`), and `rc.d/mountcritlocal` mounts tmpfs with
 `-C` (copy the CD's files in) over `/var`, `/tmp` and `/root`.
-Services whose programs the image lacks are off in `rc.conf`. One
+`syslogd` and `newsyslog` run, with the tree's `syslog.conf` and the
+empty `/var/log` files that `etc/Makefile` installs; the other services
+whose programs the image lacks are off in `rc.conf`. One
 image-only script, `/etc/rc.local.d/imagedb`, runs first: it mounts the
 `/etc` tmpfs and builds the password database with `pwd_mkdb`, before
 the devfs rules look up `root`. `/etc/rc.local`
@@ -185,6 +187,7 @@ Linux compiler act like DragonFly's base gcc for kernel code:
 | root image (`root.iso`) and boot to `login:` | getty and login (PAM) under QEMU; CI logs in as root over the serial line and runs a command (blocking) |
 | terminfo, tmpfs `/tmp` and `/var`, `login.conf`, users and groups (`pwd_mkdb` at boot) | in the root image (checked in CI) |
 | `/etc/rc` and `rc.d` from the tree | run at boot, tmpfs `/etc` and `/var` (CI lists commands the scripts miss) |
+| `syslogd`, `newsyslog` | run at boot; CI checks that a `logger` message reaches `/var/log/messages` |
 | rest of world, writable root | TODO (issue #9) |
 
 QEMU path: OVMF runs `EFI/BOOT/BOOTX64.EFI` (our `loader.efi`). The
