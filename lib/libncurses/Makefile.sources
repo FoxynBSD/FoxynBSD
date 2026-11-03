@@ -84,8 +84,11 @@ make_hash: make_hash.c hashsize.h ncurses_def.h ${HEADERS}
 expanded.c: MKexpanded.sh ${GENHDRS_NWP}
 	${NXENV} sh ${NCURSESSERIALDIR}/MKexpanded.sh "${CC}" -E ${NXCFLAGS:N-W*} > ${.TARGET}
 
+# MKfallback.sh takes the tic and infocmp paths too; they are only run
+# when fallback terminal types follow, and none do.  Pass them so a strict
+# sh (dash) does not stop at "shift: can't shift that many".
 fallback.c: MKfallback.sh
-	sh ${NCURSESTINFODIR}/MKfallback.sh /usr/share/terminfo ${NCURSESDIR}/misc/terminfo.src > ${.TARGET}
+	sh ${NCURSESTINFODIR}/MKfallback.sh /usr/share/terminfo ${NCURSESDIR}/misc/terminfo.src tic infocmp > ${.TARGET}
 
 lib_gen.c: MKlib_gen.sh curses.h ncurses_def.h term.h
 	${NXENV} sh ${NCURSESBASEDIR}/MKlib_gen.sh "${CC} -E ${NXCFLAGS:N-W*}" awk generated <curses.h > ${.TARGET}
