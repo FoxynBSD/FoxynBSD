@@ -20,6 +20,7 @@
 # Environment:
 #	OBJDIR	output directory (default ${XDG_CACHE_HOME:-~/.cache}/foxynbsd)
 #	JOBS	parallel jobs (default: nproc)
+#	HOST_CC, HOST_CFLAGS	compiler and flags for the host tools (gcc, -O2)
 #
 # Host packages needed (Arch/Omarchy):
 #	base-devel flex bison libbsd
@@ -31,6 +32,9 @@ OBJDIR=${OBJDIR:-${XDG_CACHE_HOME:-$HOME/.cache}/foxynbsd}
 JOBS=${JOBS:-$(nproc 2>/dev/null || echo 4)}
 HOSTBIN=$OBJDIR/host/bin
 HOSTOBJ=$OBJDIR/host/obj
+# Compiler and flags for the host tools themselves (not the kernel).
+HOST_CC=${HOST_CC:-gcc}
+HOST_CFLAGS=${HOST_CFLAGS:--O2}
 SYSROOT=$OBJDIR/sysroot
 
 die() { echo "build.sh: $*" >&2; exit 1; }
@@ -76,7 +80,7 @@ build_bmake() {
 	    stresep; do
 		srcs="$srcs $SRCDIR/contrib/bmake/$f.c"
 	done
-	/usr/bin/gcc -O2 -w -I"$o" -I"$SRCDIR/contrib/bmake" \
+	$HOST_CC $HOST_CFLAGS -w -I"$o" -I"$SRCDIR/contrib/bmake" \
 	    -DHAVE_CONFIG_H -DNO_PWD_OVERRIDE -DUSE_META \
 	    -DMAKE_VERSION="\"$v\"" \
 	    -D_PATH_DEFSYSPATH="\"$SRCDIR/share/mk\"" \
@@ -93,7 +97,7 @@ build_config() {
 	( cd "$o" &&
 	  bison -y -d config.y &&
 	  flex lang.l &&
-	  /usr/bin/gcc -O2 -I. y.tab.c lex.yy.c main.c mkioconf.c \
+	  $HOST_CC $HOST_CFLAGS -I. y.tab.c lex.yy.c main.c mkioconf.c \
 	      mkmakefile.c mkheaders.c mkoptions.c -lfl -o "$HOSTBIN/config" )
 }
 
@@ -101,9 +105,9 @@ build_small_tools() {
 	local bsd
 	bsd=$(pkg-config --cflags --libs libbsd-overlay) ||
 	    die "libbsd not found (pacman -S libbsd)"
-	/usr/bin/gcc -O2 -o "$HOSTBIN/file2c" \
+	$HOST_CC $HOST_CFLAGS -o "$HOSTBIN/file2c" \
 	    "$SRCDIR/usr.bin/file2c/file2c.c" $bsd
-	/usr/bin/gcc -O2 -o "$HOSTBIN/uudecode" \
+	$HOST_CC $HOST_CFLAGS -o "$HOSTBIN/uudecode" \
 	    "$SRCDIR/usr.bin/uudecode/uudecode.c" $bsd -lresolv
 	install -m 755 "$SRCDIR/usr.bin/mkdep/mkdep.sh" "$HOSTBIN/mkdep"
 	# bsd.lib.mk orders archives with `lorder ... | tsort -q`; GNU tsort

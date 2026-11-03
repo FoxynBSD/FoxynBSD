@@ -19,6 +19,11 @@ concurrency:
 
 env:
   OBJDIR: /home/runner/foxynbsd-obj
+  BUILD_LOG: /home/runner/foxynbsd-build.log
+
+defaults:
+  run:
+    shell: bash
 
 jobs:
   kernel:
@@ -39,16 +44,25 @@ jobs:
           gcc --version | head -n1
 
       - name: Build host tools
-        run: tools/linux/build.sh tools
+        run: set -o pipefail; tools/linux/build.sh tools 2>&1 | tee -a "$BUILD_LOG"
 
       - name: Build kernel (X86_64_GENERIC)
-        run: tools/linux/build.sh kernel
+        run: set -o pipefail; tools/linux/build.sh kernel 2>&1 | tee -a "$BUILD_LOG"
 
       - name: Build EFI loader
-        run: tools/linux/build.sh loader
+        run: set -o pipefail; tools/linux/build.sh loader 2>&1 | tee -a "$BUILD_LOG"
 
       - name: Assemble boot tree
-        run: tools/linux/build.sh esp
+        run: set -o pipefail; tools/linux/build.sh esp 2>&1 | tee -a "$BUILD_LOG"
+
+      # Surface the end of the build log as an annotation, so the cause is
+      # visible on the run page and through the API without the full log.
+      - name: Report build failure
+        if: failure()
+        run: |
+          [ -f "$BUILD_LOG" ] || exit 0
+          msg=$(tail -n 40 "$BUILD_LOG" | sed 's/%/%25/g' | awk '{printf "%s%%0A", $0}')
+          echo "::error title=Build failed (last 40 lines)::${msg}"
 
       - name: Enable KVM
         run: |
@@ -64,6 +78,17 @@ jobs:
         id: boot
         continue-on-error: true
         run: tools/linux/boot-test.sh
+
+      - name: Report boot test result
+        if: steps.boot.outcome == 'failure'
+        run: |
+          log="$OBJDIR/qemu/X86_64_GENERIC.boot.log"
+          {
+            tail -n 40 "$log" 2>/dev/null
+            echo "--- qemu stderr ---"
+            cat "$log.stderr" 2>/dev/null
+          } | sed 's/%/%25/g; s/\r//g' | awk '{printf "%s%%0A", $0}' > /tmp/boot-tail
+          echo "::warning title=QEMU boot test failed (serial tail)::$(cat /tmp/boot-tail)"
 
       - name: Upload boot tree and logs
         if: always()
@@ -93,4 +118,13 @@ jobs:
             build-essential flex bison libfl-dev libbsd-dev pkg-config
 
       - name: Build kernel and modules
-        run: tools/linux/build.sh modules
+        run: set -o pipefail; tools/linux/build.sh modules 2>&1 | tee -a "$BUILD_LOG"
+
+      # Surface the end of the build log as an annotation, so the cause is
+      # visible on the run page and through the API without the full log.
+      - name: Report build failure
+        if: failure()
+        run: |
+          [ -f "$BUILD_LOG" ] || exit 0
+          msg=$(tail -n 40 "$BUILD_LOG" | sed 's/%/%25/g' | awk '{printf "%s%%0A", $0}')
+          echo "::error title=Build failed (last 40 lines)::${msg}"
