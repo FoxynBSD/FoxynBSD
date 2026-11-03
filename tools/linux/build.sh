@@ -256,11 +256,15 @@ do_tools() {
 	build_small_tools
 	build_world_tools
 	write_xcc_wrapper
-	touch "$HOSTBIN/.done"
+	echo "$TOOLS_STAMP" > "$HOSTBIN/.done"
 }
 
+# Bump when the host tools or shims change, so an existing $OBJDIR gets
+# them rebuilt instead of failing with old ones (install -C/-B, chflags).
+TOOLS_STAMP=2
+
 kenv() {
-	[ -f "$HOSTBIN/.done" ] || do_tools
+	[ "$(cat "$HOSTBIN/.done" 2>/dev/null)" = "$TOOLS_STAMP" ] || do_tools
 	PATH=$HOSTBIN:$PATH
 	MACHINE=x86_64 MACHINE_ARCH=x86_64 MACHINE_PLATFORM=pc64
 	CCVER=gcc120 HOST_CCVER=gcc120 HOST_BINUTILSVER=binutils234
