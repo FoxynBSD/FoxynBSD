@@ -224,7 +224,7 @@ _create_workqueue_common(const char *name, int flags)
 				    &worker->worker_thread, NULL, TDF_NOSTART, i, "%s/%d", name, i);
 		} else {
 			error = lwkt_create(wq_worker_thread, worker,
-				    &worker->worker_thread, NULL, TDF_NOSTART, -1, name);
+				    &worker->worker_thread, NULL, TDF_NOSTART, -1, "%s", name);
 		}
 		if (error) {
 			kprintf("%s: lwkt_create(%s/%d): error %d",

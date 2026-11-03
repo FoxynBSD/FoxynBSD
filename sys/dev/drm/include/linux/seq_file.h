@@ -41,6 +41,6 @@ struct seq_file {
 
 void seq_printf(struct seq_file *m, const char *f, ...);
 
-#define seq_puts(m, str)	ksnprintf((m)->buf, (m)->size, str)
+#define seq_puts(m, str)	ksnprintf((m)->buf, (m)->size, "%s", str)
 
 #endif	/* _LINUX_SEQ_FILE_H_ */
