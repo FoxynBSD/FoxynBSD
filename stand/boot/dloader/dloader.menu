@@ -41,7 +41,7 @@ else
     set default_kernel=kernel
 endif
 
-menuitem 1 "Boot DragonFly [${default_kernel}]"
+menuitem 1 "Boot FoxynBSD [${default_kernel}]"
 menuadd cd ${base}${default_kernel}
 menuadd optinclude loader.conf
 menuadd optinclude loader.conf.local
@@ -52,7 +52,7 @@ menuadd lunsetif xhci_load hint.xhci.0.disabled
 menuadd loadall
 menuadd boot
 
-menuitem 2 "Boot DragonFly in Safe Mode"
+menuitem 2 "Boot FoxynBSD in Safe Mode"
 menuadd cd ${base}${default_kernel}
 menuadd optinclude loader.conf
 menuadd optinclude loader.conf.local
@@ -74,7 +74,7 @@ menuadd loadall
 menuadd boot
 menuadd set autoboot_delay=NO
 
-menuitem 3 "Boot DragonFly without AHCI driver"
+menuitem 3 "Boot FoxynBSD without AHCI driver"
 menuadd cd ${base}${default_kernel}
 menuadd optinclude loader.conf
 menuadd optinclude loader.conf.local
@@ -87,7 +87,7 @@ menuadd loadall
 menuadd boot
 menuadd set autoboot_delay=NO
 
-menuitem 4 "Boot DragonFly without ACPI driver"
+menuitem 4 "Boot FoxynBSD without ACPI driver"
 menuadd cd ${base}${default_kernel}
 menuadd optinclude loader.conf
 menuadd optinclude loader.conf.local
@@ -134,7 +134,7 @@ menuadd set autoboot_delay=NO
 endif
 
 ifexists kernel.old
-menuitem o "Boot DragonFly using kernel.old"
+menuitem o "Boot FoxynBSD using kernel.old"
 menuadd cd ${base}kernel.old
 menuadd optinclude loader.conf
 menuadd optinclude loader.conf.local
@@ -147,7 +147,7 @@ menuadd boot
 menuadd set autoboot_delay=NO
 endif
 
-menuitem r "Boot DragonFly to a rescue ramdisk"
+menuitem r "Boot FoxynBSD to a rescue ramdisk"
 menuadd cd ${base}${default_kernel}
 menuadd optinclude loader.conf
 menuadd optinclude loader.conf.local
@@ -164,7 +164,7 @@ menuadd loadall
 menuadd boot
 menuadd set autoboot_delay=NO
 
-menuitem s "Boot DragonFly in single user mode"
+menuitem s "Boot FoxynBSD in single user mode"
 menuadd cd ${base}${default_kernel}
 menuadd optinclude loader.conf
 menuadd optinclude loader.conf.local
@@ -177,7 +177,7 @@ menuadd loadall
 menuadd boot
 menuadd set autoboot_delay=NO
 
-menuitem v "Boot DragonFly with verbose logging"
+menuitem v "Boot FoxynBSD with verbose logging"
 menuadd cd ${base}${default_kernel}
 menuadd optinclude loader.conf
 menuadd optinclude loader.conf.local

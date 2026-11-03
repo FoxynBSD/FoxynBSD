@@ -39,7 +39,7 @@ t=`date`
 #r=`head -n 6 $1 | tail -n 1 | awk -F: ' { print $1 } '`
 r=`awk -F: ' /^[0-9]\.[0-9]+:/ { print $1; exit }' $1`
 
-echo "char bootprog_name[] = \"DragonFly/${3} ${2}\";" > vers.c
+echo "char bootprog_name[] = \"FoxynBSD/${3} ${2}\";" > vers.c
 echo "char bootprog_rev[] = \"${r}\";" >> vers.c
 echo "char bootprog_date[] = \"${t}\";" >> vers.c
 echo "char bootprog_maker[] = \"${u}@${h}\";" >> vers.c
