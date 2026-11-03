@@ -433,7 +433,8 @@ BASE_LIBS="lib/libc_rtld libexec/rtld-elf lib/libutil lib/libcrypt
 	lib/libncurses lib/libedit lib/libm lib/libkvm"
 BASE_PROGS="sbin/init bin/sh bin/cat bin/cp bin/echo bin/hostname bin/kill
 	bin/ln bin/ls bin/mkdir bin/mv bin/ps bin/pwd bin/rm bin/sleep
-	sbin/dmesg sbin/mount sbin/reboot sbin/sysctl usr.bin/uname"
+	sbin/dmesg sbin/mount sbin/mount_tmpfs sbin/reboot sbin/sysctl
+	usr.bin/uname"
 
 do_base() {
 	local d
@@ -502,6 +503,7 @@ do_rootfs() {
 		done
 	done
 	write_brand_tests "$root/root/tests"
+	write_terminfo "$root/usr/share/terminfo"
 	write_rc "$root/etc/rc"
 	echo "foxynbsd" > "$root/etc/hostname"
 	if command -v xorriso >/dev/null 2>&1; then
@@ -568,13 +570,32 @@ EOF
 	rm -f "$src"
 }
 
+# Compile the console terminal types from the tree's terminfo.src with the
+# host's tic.  The image's ncurses reads the same directory-tree format
+# (both the 16- and the 32-bit entries).
+TERMINFO_TYPES="xterm,xterm-256color,vt100,vt220,cons25,dumb"
+write_terminfo() {
+	if ! command -v tic >/dev/null 2>&1; then
+		msg "tic not found (ncurses): the image gets no terminfo"
+		return 0
+	fi
+	mkdir -p "$1"
+	tic -o "$1" -e "$TERMINFO_TYPES" \
+	    "$SRCDIR/contrib/ncurses/misc/terminfo.src" 2>/dev/null
+}
+
 # /etc/rc for the minimal image: init(8) runs it on the console.  It prints
 # a marker the boot test waits for, then hands the console to a shell.
 write_rc() {
 	cat > "$1" <<'EOF'
 #!/bin/sh
 PATH=/sbin:/bin:/usr/sbin:/usr/bin
-export PATH
+TERM=${TERM:-xterm}
+export PATH TERM
+# The root is a read-only CD image; /tmp lives in memory.
+if mount -t tmpfs tmpfs /tmp && echo ok > /tmp/.rc-test; then
+	echo "rc: /tmp is writable (tmpfs)"
+fi
 hostname "$(cat /etc/hostname)"
 echo
 # The marker below is what boot-test.sh --root waits for: print it only

@@ -231,6 +231,16 @@ jobs:
           grep -E '^FoxynBSD foxynbsd [^ ]+ FoxynBSD ' "$log" ||
             { echo "::error title=Identity::uname -a does not report FoxynBSD"; exit 1; }
 
+      # Issue #9: a terminal database and a writable /tmp.
+      - name: Check terminfo and /tmp
+        run: |
+          log="$OBJDIR/qemu/X86_64_GENERIC.boot-root.log"
+          if grep -aF 'Cannot read termcap database' "$log"; then
+            echo "::error title=terminfo::sh found no terminal database"; exit 1
+          fi
+          grep -aF 'rc: /tmp is writable (tmpfs)' "$log" ||
+            { echo "::error title=tmpfs::/tmp was not mounted writable"; exit 1; }
+
       # Issue #5: the kernel runs binaries by either ABI note.
       - name: Check both ELF ABI notes
         run: |

@@ -10,7 +10,7 @@ compiler and then runs the build in `sys/` directly.
     sudo pacman -S --needed base-devel flex bison libbsd libtirpc
     # for the userland (sysroot is fine without them, libc needs them),
     # and xorriso to pack the root image:
-    sudo pacman -S --needed clang lld compiler-rt libisoburn
+    sudo pacman -S --needed clang lld compiler-rt libisoburn ncurses
     # for booting under QEMU:
     sudo pacman -S --needed qemu-base edk2-ovmf
 
@@ -110,8 +110,11 @@ build (ncurses' `make_keys`) use the host compiler through `NXCC`, and
 `lib/libc_rtld`), libutil, libcrypt, the private ncurses, libedit, libm and
 libkvm, then `init`, `sh` and a set of utilities (`ls`, `cat`, `ps`,
 `mount`, `sysctl`, `dmesg`, `reboot`, ...). `build.sh rootfs` copies those
-programs and every shared library they load into `$OBJDIR/rootfs`, adds an
-`/etc/rc` that prints `uname -a` and opens `/bin/sh` on the console, and
+programs and every shared library they load into `$OBJDIR/rootfs`, compiles
+a few console terminal types (`xterm`, `vt100`, `vt220`, `cons25`, ...)
+from the tree's `terminfo.src` with the host's `tic`, adds an `/etc/rc`
+that mounts a tmpfs on `/tmp`, prints `uname -a` and opens `/bin/sh` on
+the console, and
 packs the tree as a Rock Ridge ISO with xorriso. `qemu.sh --root` attaches
 it as a second virtio disk and sets `vfs.root.mountfrom="cd9660:vbd1"`, so
 no step needs root privileges and the root stays read-only. (Not as a CD:
