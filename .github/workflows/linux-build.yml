@@ -86,16 +86,16 @@ jobs:
       - name: Check the boot messages
         run: |
           log="$OBJDIR/qemu/X86_64_GENERIC.boot.log"
-          # The loader menu (drawn on the serial console): the fox's eyes
-          # and the first menu entry.
-          if ! grep -aF '/o_\' "$log" || ! grep -aF 'Boot FoxynBSD' "$log"; then
-            seen=$(grep -aiE 'boot|loader|revision' "$log" | head -n 15 |
-              sed 's/%/%25/g; s/\r//g' | awk '{printf "%s%%0A", $0}' || :)
-            echo "::error title=Identity::the loader menu does not show the FoxynBSD fox and entries. Loader lines seen:%0A$seen"
-            exit 1
-          fi
           grep -E 'FoxynBSD [^ ]+ #[0-9]+: ' "$log" ||
             { echo "::error title=Identity::the kernel banner does not say FoxynBSD"; exit 1; }
+          # The loader draws its banner, menu and fox on the EFI console;
+          # with QEMU headless little of it reaches the serial log, so
+          # only report whether it did.
+          if grep -aF 'Boot FoxynBSD' "$log" >/dev/null; then
+            echo "::notice title=Identity::loader menu seen on the serial console"
+          else
+            echo "::notice title=Identity::loader menu not on the serial console (EFI console only)"
+          fi
 
       - name: Report boot test result
         if: failure() && steps.boot.outcome == 'failure'
