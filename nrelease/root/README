@@ -1,20 +1,20 @@
-			    DRAGONFLY 'Live CD' README FILE
+			    FOXYNBSD 'Live CD' README FILE
 
-    This CD/DVD/USB stick boots DragonFly BSD.  Basically what you get is a
+    This CD/DVD/USB stick boots FoxynBSD.  Basically what you get is a
     full base system on the media with certain critical directories, such as
     /tmp, remounted read-write using TMPFS.  Your existing hard drive is not
     affected by booting this media.
 
-    DragonFly 'Live CD' can be used from either CD, DVD or USB stick, in the
+    FoxynBSD 'Live CD' can be used from either CD, DVD or USB stick, in the
     following the media is called 'CD' for brevity (nothing is specific to the
-    CD media).  The DragonFly 'Live CD' is used for both trying out DragonFly,
-    installing DragonFly and for emergency repair of DragonFly systems.
+    CD media).  The FoxynBSD 'Live CD' is used for both trying out FoxynBSD,
+    installing FoxynBSD and for emergency repair of FoxynBSD systems.
 
-    NOTE!!! DRAGONFLY IS UNDERGOING DEVELOPMENT AND IS CONSIDERED
+    NOTE!!! FOXYNBSD IS UNDERGOING DEVELOPMENT AND IS CONSIDERED
     EXPERIMENTAL!  BSD RELATED EXPERIENCE IS RECOMMENDED WHEN USING
     THIS CD.
 
-    If you just want to play with DragonFly and not mess with your hard disk,
+    If you just want to play with FoxynBSD and not mess with your hard disk,
     this CD boots into a fully operational console-based system, though
     without swap it should be noted that you are limited by available memory.
     It is a good idea to test your hardware for compatibility from a CD boot
@@ -28,7 +28,7 @@
 
     The installer can be run with a text-based (curses) user interface
     from the serial console or a VTY, and provides a straightforward method
-    for installing DragonFly on your HD.  To start it, just login with the
+    for installing FoxynBSD on your HD.  To start it, just login with the
     username 'installer'.
 
     The installer can also be run with a web-based (CGI) user interface.
@@ -72,16 +72,16 @@
 
 				MANUAL INSTALLATION
 
-    Manual installation of DragonFly onto an HD involves the following sequence
+    Manual installation of FoxynBSD onto an HD involves the following sequence
     of commands.  You must be familiar with BSD style UNIX systems to do
     installations manually.  The primary IDE hard drive is typically 'ad0',
     if using AHCI, SILI or SCSI HD controller it is typically 'da0', and if
     using USB HD controller it is typically 'da8'.
-    DragonFly is typically installed onto the first free slice (ad0s1 if disk
+    FoxynBSD is typically installed onto the first free slice (ad0s1 if disk
     is empty, ad0s2 if your first slice contains another OS, etc).  Be careful
     to substitute the correct disk and partition name in the steps below.
 
-    You need to decide which file system to use for DragonFly install: UFS or
+    You need to decide which file system to use for FoxynBSD install: UFS or
     HAMMER.  UFS is the classical BSD file system and HAMMER is a newer and
     more feature rich file system, HAMMER needs 50GB space at minimum, see
     'man HAMMER'.  The installation is somewhat different depending on the
@@ -89,7 +89,7 @@
 
 	# OPTIONAL STEP: If your disk is already partitioned and you
 	# have a spare primary partition on which you want to install
-	# DragonFly, skip this step.  However, sometimes old boot
+	# FoxynBSD, skip this step.  However, sometimes old boot
 	# blocks or cruft in the boot area can interfere with the
 	# initialization process.  A cure is to zero out the start of
 	# the disk before running fdisk.  Replace 'ad0' with the chosen disk.
@@ -309,10 +309,11 @@
 
 	    USING GIT TO OBTAIN A SOURCE TREE AND DOING BUILDWORLDS
 
-    Instructions on how to obtain and maintain DragonFly source code using
-    git are in the development(7) manual page.
+    The FoxynBSD source code is at https://github.com/FoxynBSD/FoxynBSD.
+    How to obtain and maintain a source tree with git is described in the
+    development(7) manual page.
 
-    To upgrade a DragonFly system from sources you run the following
+    To upgrade a FoxynBSD system from sources you run the following
     sequence:
 
     cd /usr/src
@@ -323,7 +324,8 @@
 
     You will also want to run the 'upgrade' target to upgrade your /etc
     and the rest of your system.  The upgrade target is aware of stale
-    files created by older DragonFly installations and should delete them
+    files created by older FoxynBSD or DragonFly installations and should
+    delete them
     automatically.
 
     make upgrade
@@ -365,7 +367,7 @@
     using USB HD controller it is typically 'da8'.  Steps below will use 'ad0',
     be careful to substitute the correct disk name below.
 
-    DragonFly is typically on the first slice, which is /dev/ad0s1.  For UFS
+    FoxynBSD is typically on the first slice, which is /dev/ad0s1.  For UFS
     setup the root partition is always in partition 'a', which is /dev/ad0s1a.
     For HAMMER setup the typical setup is that boot partition is partition 'a',
     and root partition is partition 'd'.

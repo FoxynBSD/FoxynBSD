@@ -31,16 +31,16 @@ GITREV!=	sh ${SRCDIR}/tools/gitrev.sh
 .endif
 
 # The label/name of the disklabel64(5) slice in the ".img" file.  This is
-# used to identify the USB device with DragonFly installation image, avoiding
+# used to identify the USB device with the FoxynBSD installation image, avoiding
 # hardcoding the USB device name (e.g., "da8").
 #
 # Also fix the label for use as the volume ID of the ".iso" file, which has
 # a maximum length of 32 characters and must contain only A-Z, 0-9, and _.
 #
-LABEL?=		DRAGONFLY_${GITREV:S/./_/g:C/_g.*$//:tu}
+LABEL?=		FOXYNBSD_${GITREV:S/./_/g:C/_g.*$//:tu}
 
 # The publisher ID of the ".iso" file.
-PUBLISHER?=	The DragonFly Project
+PUBLISHER?=	FoxynBSD
 
 CHROOT_CMD?=	/usr/sbin/chroot ${ISOROOT} sh -c
 
@@ -292,7 +292,7 @@ customizeiso:
 .endfor
 
 	pw -V ${ISOROOT}/etc useradd installer -o -u 0 -g 0 \
-		-c "DragonFly Installer" -d /root -s /usr/sbin/installer
+		-c "FoxynBSD Installer" -d /root -s /usr/sbin/installer
 	${CHROOT_CMD} "chpass -p '' root"
 	${CHROOT_CMD} "chpass -p '' installer"
 

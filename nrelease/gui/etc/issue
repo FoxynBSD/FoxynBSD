@@ -1,4 +1,4 @@
-Welcome to DragonFly!
+Welcome to FoxynBSD!
 
 To start the installer, login as 'installer'.  To just get a shell prompt,
 login as 'root'.  To start a root gui, login as 'root' and run 'startx'.

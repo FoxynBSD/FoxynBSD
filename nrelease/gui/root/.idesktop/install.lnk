@@ -1,6 +1,6 @@
 table Icon
   Caption: Install 
-  Command: /usr/pkg/bin/urxvt -e ~/installDragonFly.sh
+  Command: /usr/pkg/bin/urxvt -e ~/installFoxynBSD.sh
   Icon: /root/.idesktop/install.png
   Width: 64
   Height: 64

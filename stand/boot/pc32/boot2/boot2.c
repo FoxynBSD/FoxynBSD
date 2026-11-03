@@ -337,7 +337,7 @@ main(void)
     /* Present the user with the boot2 prompt. */
 
     for (;;) {
-	printf("\nDragonFly boot\n"
+	printf("\nFoxynBSD boot\n"
 	       "%u:%s(%u,%c)%s: ",
 	       dsk.drive & DRV_MASK, dev_nm[dsk.type], dsk.unit,
 	       'a' + dsk.part, kname);

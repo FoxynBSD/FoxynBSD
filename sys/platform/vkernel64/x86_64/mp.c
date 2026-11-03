@@ -189,7 +189,7 @@ mp_announce(void)
 {
 	int x;
 
-	kprintf("DragonFly/MP: Multiprocessor\n");
+	kprintf("FoxynBSD/MP: Multiprocessor\n");
 	kprintf(" cpu0 (BSP)\n");
 
 	for (x = 1; x <= naps; ++x)

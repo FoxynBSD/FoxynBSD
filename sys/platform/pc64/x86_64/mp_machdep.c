@@ -228,7 +228,7 @@ mp_announce(void)
 
 	POSTCODE(MP_ANNOUNCE_POST);
 
-	kprintf("DragonFly/MP: Multiprocessor motherboard\n");
+	kprintf("FoxynBSD/MP: Multiprocessor motherboard\n");
 	kprintf(" cpu0 (BSP): apic id: %2d\n", CPUID_TO_APICID(0));
 	for (x = 1; x <= naps; ++x)
 		kprintf(" cpu%d (AP):  apic id: %2d\n", x, CPUID_TO_APICID(x));
