@@ -245,9 +245,12 @@ done
 # the system ones, which pull in <sys/cdefs.h> (__unused, __dead2).
 # --undefined-version: like GNU ld, accept version scripts that name
 # symbols a given configuration does not build (e.g. hesiod in libc).
+# incompatible-function-pointer-types is an error since clang 16 but a
+# warning in the tree's gcc 12 (GNU grep's obstack.c trips it).
 exec "$xtool/bin/clang" --target=x86_64-unknown-dragonfly \\
 	--sysroot="$SYSROOT" -nobuiltininc -idirafter "$res" \\
 	-fuse-ld=lld -Wl,--undefined-version \\
+	-Wno-error=incompatible-function-pointer-types \\
 	-Qunused-arguments -Wno-unknown-warning-option "\$@"
 EOF
 	chmod 755 "$HOSTBIN/xcc"
@@ -268,7 +271,7 @@ do_tools() {
 
 # Bump when the host tools or shims change, so an existing $OBJDIR gets
 # them rebuilt instead of failing with old ones (install -C/-B, chflags).
-TOOLS_STAMP=3
+TOOLS_STAMP=4
 
 kenv() {
 	[ "$(cat "$HOSTBIN/.done" 2>/dev/null)" = "$TOOLS_STAMP" ] || do_tools
@@ -434,15 +437,24 @@ do_libc() {
 	world_lib lib/libc
 }
 
-# The smallest userland that boots to a shell, in build order: the runtime
-# linker and the libraries first, then init, sh and a few utilities.
+# The smallest userland that boots to a login prompt through the tree's
+# /etc/rc, in build order: the runtime linker and the libraries first,
+# then init, sh, login and the utilities rc.subr and rc.d call.
 BASE_LIBS="lib/libc_rtld libexec/rtld-elf lib/libutil lib/libcrypt
 	lib/libncurses lib/libedit lib/libm lib/libkvm lib/libypclnt
-	lib/libpam/libpam lib/libpam/modules"
-BASE_PROGS="sbin/init bin/sh bin/cat bin/chmod bin/cp bin/echo bin/hostname bin/kill
-	bin/ln bin/ls bin/mkdir bin/mv bin/ps bin/pwd bin/rm bin/sleep
-	sbin/dmesg sbin/mount sbin/mount_tmpfs sbin/reboot sbin/sysctl
-	libexec/getty usr.bin/id usr.bin/login usr.bin/uname usr.sbin/pwd_mkdb"
+	lib/libpam/libpam lib/libpam/modules lib/libexpat lib/libsbuf
+	gnu/usr.bin/grep/libgreputils usr.bin/awk/maketab"
+BASE_PROGS="sbin/init bin/sh bin/cat bin/chmod bin/cp bin/date bin/df
+	bin/echo bin/expr bin/hostname bin/kill bin/ln bin/ls bin/mkdir bin/mv
+	bin/ps bin/pwd bin/rm bin/rmdir bin/sleep bin/stty bin/test bin/varsym
+	sbin/devfsctl sbin/dmesg sbin/fsck sbin/ifconfig sbin/kldload sbin/kldstat
+	sbin/ldconfig sbin/mount sbin/mount_tmpfs sbin/rcorder sbin/reboot
+	sbin/route sbin/swapon sbin/sysctl sbin/umount
+	libexec/getty usr.bin/awk/awk usr.bin/basename usr.bin/cmp usr.bin/find
+	gnu/usr.bin/grep/grep usr.bin/head usr.bin/id usr.bin/logger
+	usr.bin/login usr.bin/mktemp usr.bin/sed usr.bin/tail usr.bin/touch
+	usr.bin/tr usr.bin/uname usr.bin/wc usr.bin/xargs usr.bin/xinstall
+	usr.sbin/chown usr.sbin/pwd_mkdb"
 
 # PAM modules that /etc/pam.d/login and /etc/pam.d/system load.  login(1)
 # opens them with dlopen(3), so they are not in any NEEDED list.
@@ -477,13 +489,15 @@ do_rootfs() {
 	rm -rf "$root"
 	mkdir -p "$root"
 	for d in bin sbin lib/priv libexec usr/bin usr/lib usr/libexec usr/sbin dev etc \
-	    root tmp var/run; do
+	    root tmp var/db var/log var/run var/tmp; do
 		mkdir -p "$root/$d"
 	done
+	chmod 1777 "$root/tmp" "$root/var/tmp"
 	cp -p "$SYSROOT/libexec/ld-elf.so.2" "$root/libexec/"
 	ln -s ../../libexec/ld-elf.so.2 "$root/usr/libexec/ld-elf.so.2"
 	for d in $BASE_PROGS; do
-		prog=$(cd "$SRCDIR/$d" && make -V PROG)
+		# PROGNAME: xinstall installs as "install".
+		prog=$(cd "$SRCDIR/$d" && make -V '${PROGNAME:U${PROG}}')
 		f=$(cd "$SYSROOT" && ls -d */"$prog" usr/*/"$prog" 2>/dev/null |
 		    head -n 1) || :
 		[ -n "$f" ] || die "$d: $prog not installed in the sysroot"
@@ -493,6 +507,8 @@ do_rootfs() {
 	ln -s reboot "$root/sbin/halt"
 	ln -s id "$root/usr/bin/whoami"
 	ln -s id "$root/usr/bin/groups"
+	ln -s test "$root/bin/["
+	ln -s chown "$root/usr/sbin/chgrp"
 	mkdir -p "$root/usr/lib/security"
 	for f in $PAM_MODULES; do
 		cp -pL "$SYSROOT/usr/lib/security/$f.so" "$root/usr/lib/security/"
@@ -523,16 +539,15 @@ do_rootfs() {
 	done
 	write_brand_tests "$root/root/tests"
 	write_terminfo "$root/usr/share/terminfo"
-	write_rc "$root/etc/rc"
-	echo "foxynbsd" > "$root/etc/hostname"
+	write_etc "$root"
 	# Login classes: init(8) looks up class "daemon" for /etc/rc.  With
 	# no login.conf.db, getcap(3) reads the text file directly, so no
 	# cap_mkdb run is needed on the build host.
 	cp "$SRCDIR/etc/login.conf" "$root/etc/login.conf"
 	# Users and groups.  getgrent(3) reads /etc/group as text, but the
 	# password functions only read the hashed pwd.db and spwd.db, which
-	# pwd_mkdb(8) cannot make on a Linux host.  /etc/rc builds them in the
-	# tmpfs /var at boot; these links point the fixed /etc paths there.
+	# pwd_mkdb(8) cannot make on a Linux host: the image's rc.local.d
+	# script builds them at boot, once /etc is a writable tmpfs.
 	cp "$SRCDIR/etc/group" "$root/etc/group"
 	# csh needs libcrypto, which the image does not have yet: root logs
 	# in to sh.
@@ -546,9 +561,6 @@ do_rootfs() {
 	cp "$SRCDIR/etc/pam.d/login" "$SRCDIR/etc/pam.d/system" \
 	    "$SRCDIR/etc/pam.d/other" "$root/etc/pam.d/"
 	write_ttys "$root/etc/ttys"
-	for f in passwd pwd.db spwd.db; do
-		ln -s ../var/db/$f "$root/etc/$f"
-	done
 	if command -v xorriso >/dev/null 2>&1; then
 		# -R keeps modes and symlinks (Rock Ridge); the volume is read-only.
 		# Record the files as root:wheel rather than the building user.
@@ -640,35 +652,83 @@ ttyd0	"/usr/libexec/getty std.115200"	vt100	on  secure ifconsole
 EOF
 }
 
-# /etc/rc for the minimal image: init(8) runs it on the console.  It prints
-# a marker and runs a few checks; when it exits, init starts getty and the
-# console shows a login prompt.
-write_rc() {
-	cat > "$1" <<'EOF'
+# /etc for the image: the tree's rc, rc.subr and rc.d scripts, with an
+# fstab and rc.conf modelled on the live CD's (nrelease/root/etc).  The
+# root stays a read-only cd9660; mountcritlocal mounts tmpfs over /etc,
+# /var, /tmp and /root, and -C copies the CD's files into each.
+write_etc() {
+	local root=$1
+	cp "$SRCDIR/etc/rc" "$SRCDIR/etc/rc.subr" "$SRCDIR/etc/rc.shutdown" \
+	    "$SRCDIR/etc/motd" "$root/etc/"
+	mkdir -p "$root/etc/defaults" "$root/etc/rc.d" "$root/etc/rc.local.d"
+	cp "$SRCDIR/etc/defaults/rc.conf" "$SRCDIR/etc/defaults/devfs.conf" \
+	    "$root/etc/defaults/"
+	(cd "$SRCDIR/etc/rc.d" && ls | grep -vx Makefile |
+	    while read -r f; do cp "$f" "$root/etc/rc.d/$f"; done)
+	chmod 755 "$root/etc/rc.d/"*
+	cat > "$root/etc/fstab" <<'EOF'
+# Device	Mountpoint	FStype	Options		Dump	Pass#
+dummy		/etc		tmpfs	rw,-C		0	0
+dummy		/var		tmpfs	rw,-C		0	0
+dummy		/tmp		tmpfs	rw,-C		0	0
+dummy		/root		tmpfs	rw,-C		0	0
+EOF
+	cat > "$root/etc/rc.conf" <<'EOF'
+# rc.conf for the root image from tools/linux/build.sh rootfs.  Services
+# whose programs the image does not have yet are off.
+hostname="foxynbsd"
+root_rw_mount="NO"	# The root is a read-only cd9660 image.
+syslogd_enable="NO"
+dntpd_enable="NO"
+cron_enable="NO"
+devd_enable="NO"
+mixer_enable="NO"
+crashinfo_enable="NO"
+check_quotas="NO"
+rpc_umntall_enable="NO"
+moused_nondefault_enable="NO"
+ip6addrctl_enable="NO"
+sendmail_submit_enable="NO"
+sendmail_outbound_enable="NO"
+sendmail_msp_queue_enable="NO"
+sendmail_rebuild_aliases="NO"
+EOF
+	# Runs from rc.subr right after the tmpfs mounts: /etc is writable
+	# now, so build the password databases there.
+	cat > "$root/etc/rc.local.d/imagedb" <<'EOF'
 #!/bin/sh
-PATH=/sbin:/bin:/usr/sbin:/usr/bin
-TERM=${TERM:-xterm}
-export PATH TERM
-# The root is a read-only CD image; /tmp lives in memory.
-if mount -t tmpfs tmpfs /tmp && echo ok > /tmp/.rc-test; then
-	echo "rc: /tmp is writable (tmpfs)"
-fi
-# /var too, and the password database in it (see do_rootfs).
-if mount -t tmpfs tmpfs /var; then
-	mkdir -p /var/db /var/log /var/run /var/tmp
-	chmod 1777 /var/tmp
-	cp -p /etc/master.passwd /var/db/master.passwd
-	pwd_mkdb -p -d /var/db /var/db/master.passwd &&
-	    id root && echo "rc: user database ready ($(whoami))"
-fi
-hostname "$(cat /etc/hostname)"
+#
+# PROVIDE: imagedb
+# REQUIRE: mountcritlocal
+# BEFORE:  FILESYSTEMS
+
+. /etc/rc.subr
+
+name="imagedb"
+start_cmd="imagedb_start"
+stop_cmd=":"
+
+imagedb_start()
+{
+	if echo ok > /tmp/.rc-test; then
+		echo "rc: /tmp is writable (tmpfs)"
+	fi
+	pwd_mkdb -p /etc/master.passwd && id root &&
+	    echo "rc: user database ready ($(whoami))"
+}
+
+load_rc_config $name
+run_rc_command "$1"
+EOF
+	chmod 755 "$root/etc/rc.local.d/imagedb"
+	# rc.d/local sources this just before the LOGIN stage.
+	cat > "$root/etc/rc.local" <<'EOF'
 echo
-# The marker below is what boot-test.sh --root waits for: print it only
-# if dynamically linked programs (rtld + libc + libutil + ncurses) ran.
-# sh and init are static, so this is the first use of ld-elf.so.2.
+# CI looks for the marker below: print it only if dynamically linked
+# programs (rtld + libc + libutil + ncurses) ran.
 if uname -a && ls -l /bin/sh; then
 	echo
-	echo "FoxynBSD userland is up (minimal read-only root on cd9660)."
+	echo "FoxynBSD userland is up (read-only root on cd9660, /etc/rc and rc.d)."
 	echo "Log in as root (no password); 'halt -p' powers the machine off."
 else
 	echo "rc: dynamically linked programs fail; ld-elf.so.2 trace follows"
@@ -679,10 +739,7 @@ fi
 for b in /root/tests/brand-*; do
 	"$b" || echo "rc: $b failed with status $?"
 done
-echo
-exit 0
 EOF
-	chmod 755 "$1"
 }
 
 # world_lib DIR [VAR=value ...]: build one userland directory with xcc and

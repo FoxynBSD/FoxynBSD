@@ -232,6 +232,16 @@ jobs:
           grep -aF 'FoxynBSD userland is up' "$log" ||
             { echo "::error title=rtld::/etc/rc saw dynamically linked programs fail"; exit 1; }
 
+      # Issue #9: the image runs the tree's /etc/rc and rc.d.  Commands
+      # the scripts call but the image lacks are reported, not fatal.
+      - name: Report commands rc.d could not find
+        run: |
+          log="$OBJDIR/qemu/X86_64_GENERIC.boot-root.log"
+          missing=$(grep -aoE '[^ :]+: not found' "$log" | sort -u | tr '\n' ' ') || :
+          if [ -n "$missing" ]; then
+            echo "::notice title=rc.d::missing in the image: $missing"
+          fi
+
       # Identity (issue #3): the running system reports itself as FoxynBSD.
       - name: Check the reported OS name
         run: |

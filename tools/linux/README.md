@@ -109,16 +109,23 @@ build (ncurses' `make_keys`) use the host compiler through `NXCC`, and
 `build.sh base` builds the runtime linker (`libexec/rtld-elf`, on top of
 `lib/libc_rtld`), libutil, libcrypt, the private ncurses, libedit, libm and
 libkvm, libpam and its modules, then `init`, `sh`, `getty`, `login` and
-a set of utilities (`ls`, `cat`, `ps`,
-`mount`, `sysctl`, `dmesg`, `reboot`, ...). `build.sh rootfs` copies those
+the utilities that `rc.subr` and the `rc.d` scripts call (`rcorder`,
+`awk`, `sed`, `grep`, `mount`, `fsck`, `ifconfig`, `sysctl`, ...).
+`build.sh rootfs` copies those
 programs and every shared library they load into `$OBJDIR/rootfs`, compiles
 a few console terminal types (`xterm`, `vt100`, `vt220`, `cons25`, ...)
 from the tree's `terminfo.src` with the host's `tic`, copies
 `etc/login.conf` (read as text; no `cap_mkdb` needed), `etc/group` and
-`etc/master.passwd`, adds an `/etc/rc` that mounts tmpfs on `/tmp` and
-`/var`, builds the password database in `/var/db` with `pwd_mkdb` (the
-`/etc/pwd.db`, `spwd.db` and `passwd` links point there), prints
-`uname -a` and exits. init then starts `getty` on the console from a
+`etc/master.passwd`, and installs the tree's `/etc/rc`, `rc.subr`,
+`rc.shutdown` and `rc.d` scripts. Its `fstab` and `rc.conf` follow the
+live CD's (`nrelease/root/etc`): the root stays read-only
+(`root_rw_mount="NO"`), and `rc.d/mountcritlocal` mounts tmpfs with
+`-C` (copy the CD's files in) over `/etc`, `/var`, `/tmp` and `/root`.
+Services whose programs the image lacks are off in `rc.conf`. One
+image-only script, `/etc/rc.local.d/imagedb`, builds the password
+database with `pwd_mkdb` right after those mounts, and `/etc/rc.local`
+prints `uname -a` and runs the ABI note tests. When `/etc/rc` exits,
+init starts `getty` on the console from a
 small `/etc/ttys` (serial `ttyd0`, or `ttyv0` with `--gui`), and `login`
 checks passwords through PAM (`/etc/pam.d`, `pam_unix` and friends).
 Root has no password and logs in to `/bin/sh`, since `csh` needs
@@ -176,7 +183,8 @@ Linux compiler act like DragonFly's base gcc for kernel code:
 | userland: `rtld` (`ld-elf.so.2`), init, sh, base utilities | build with clang |
 | root image (`root.iso`) and boot to `login:` | getty and login (PAM) under QEMU; CI logs in as root over the serial line and runs a command (blocking) |
 | terminfo, tmpfs `/tmp` and `/var`, `login.conf`, users and groups (`pwd_mkdb` at boot) | in the root image (checked in CI) |
-| rest of world, writable root, `/etc/rc.d` | TODO (issue #9) |
+| `/etc/rc` and `rc.d` from the tree | run at boot, tmpfs `/etc` and `/var` (CI lists commands the scripts miss) |
+| rest of world, writable root | TODO (issue #9) |
 
 QEMU path: OVMF runs `EFI/BOOT/BOOTX64.EFI` (our `loader.efi`). The
 loader reads `boot/dloader.rc`, `boot/loader.conf` (serial console) and
