@@ -44,6 +44,10 @@ also go into `host/bin`, because `bsd.lib.mk` orders archives with them.
 The build calls `cc`, which is a wrapper around the host gcc. It makes the
 Linux compiler act like DragonFly's base gcc for kernel code:
 
+* `-Wl,--no-as-needed -Wl,-z,lazy -Wl,-z,norelro`: undo Debian/Ubuntu
+  linker defaults. `--as-needed` drops
+  the kernel's dynamic section, and the in-kernel module linker needs
+  `_DYNAMIC` (`sys/kern/link_elf.c`).
 * `-fno-pie -fno-pic -no-pie`: Arch builds PIE by default, which clashes
   with `-mcmodel=kernel`.
 * `-fcf-protection=none -fno-stack-clash-protection -U_FORTIFY_SOURCE`:

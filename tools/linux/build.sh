@@ -59,6 +59,7 @@ write_cc_wrapper() {
 #!/bin/sh
 exec "$hostgcc" \\
 	-fno-pie -fno-pic -no-pie \
+	-Wl,--no-as-needed -Wl,-z,lazy -Wl,-z,norelro \
 	-fcf-protection=none -fno-stack-clash-protection -U_FORTIFY_SOURCE \
 	-U__linux__ -U__linux -Ulinux -U__gnu_linux__ -D__DragonFly__ \
 	-Wno-error=dangling-pointer -Wno-error=enum-int-mismatch \
