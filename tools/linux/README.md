@@ -120,10 +120,11 @@ from the tree's `terminfo.src` with the host's `tic`, copies
 `rc.shutdown` and `rc.d` scripts. Its `fstab` and `rc.conf` follow the
 live CD's (`nrelease/root/etc`): the root stays read-only
 (`root_rw_mount="NO"`), and `rc.d/mountcritlocal` mounts tmpfs with
-`-C` (copy the CD's files in) over `/etc`, `/var`, `/tmp` and `/root`.
+`-C` (copy the CD's files in) over `/var`, `/tmp` and `/root`.
 Services whose programs the image lacks are off in `rc.conf`. One
-image-only script, `/etc/rc.local.d/imagedb`, builds the password
-database with `pwd_mkdb` right after those mounts, and `/etc/rc.local`
+image-only script, `/etc/rc.local.d/imagedb`, runs first: it mounts the
+`/etc` tmpfs and builds the password database with `pwd_mkdb`, before
+the devfs rules look up `root`. `/etc/rc.local`
 prints `uname -a` and runs the ABI note tests. When `/etc/rc` exits,
 init starts `getty` on the console from a
 small `/etc/ttys` (serial `ttyd0`, or `ttyv0` with `--gui`), and `login`

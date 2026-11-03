@@ -447,7 +447,7 @@ BASE_LIBS="lib/libc_rtld libexec/rtld-elf lib/libutil lib/libcrypt
 BASE_PROGS="sbin/init bin/sh bin/cat bin/chmod bin/cp bin/date bin/df
 	bin/echo bin/expr bin/hostname bin/kill bin/ln bin/ls bin/mkdir bin/mv
 	bin/ps bin/pwd bin/rm bin/rmdir bin/sleep bin/stty bin/test bin/varsym
-	sbin/devfsctl sbin/dmesg sbin/fsck sbin/ifconfig sbin/kldload sbin/kldstat
+	sbin/adjkerntz sbin/devfsctl sbin/dmesg sbin/fsck sbin/ifconfig sbin/kldload sbin/kldstat
 	sbin/ldconfig sbin/mount sbin/mount_tmpfs sbin/rcorder sbin/reboot
 	sbin/route sbin/swapon sbin/sysctl sbin/umount
 	libexec/getty usr.bin/awk/awk usr.bin/basename usr.bin/cmp usr.bin/find
@@ -492,6 +492,7 @@ do_rootfs() {
 	    root tmp var/db var/log var/run var/tmp; do
 		mkdir -p "$root/$d"
 	done
+	mtree_dirs "$SRCDIR/etc/mtree/BSD.var.dist" "$root/var"
 	chmod 1777 "$root/tmp" "$root/var/tmp"
 	cp -p "$SYSROOT/libexec/ld-elf.so.2" "$root/libexec/"
 	ln -s ../../libexec/ld-elf.so.2 "$root/usr/libexec/ld-elf.so.2"
@@ -654,12 +655,12 @@ EOF
 
 # /etc for the image: the tree's rc, rc.subr and rc.d scripts, with an
 # fstab and rc.conf modelled on the live CD's (nrelease/root/etc).  The
-# root stays a read-only cd9660; mountcritlocal mounts tmpfs over /etc,
-# /var, /tmp and /root, and -C copies the CD's files into each.
+# root stays a read-only cd9660; tmpfs mounts over /etc, /var, /tmp and
+# /root make them writable, and -C copies the CD's files into each.
 write_etc() {
 	local root=$1
 	cp "$SRCDIR/etc/rc" "$SRCDIR/etc/rc.subr" "$SRCDIR/etc/rc.shutdown" \
-	    "$SRCDIR/etc/motd" "$root/etc/"
+	    "$SRCDIR/etc/network.subr" "$SRCDIR/etc/motd" "$root/etc/"
 	mkdir -p "$root/etc/defaults" "$root/etc/rc.d" "$root/etc/rc.local.d"
 	cp "$SRCDIR/etc/defaults/rc.conf" "$SRCDIR/etc/defaults/devfs.conf" \
 	    "$root/etc/defaults/"
@@ -668,7 +669,6 @@ write_etc() {
 	chmod 755 "$root/etc/rc.d/"*
 	cat > "$root/etc/fstab" <<'EOF'
 # Device	Mountpoint	FStype	Options		Dump	Pass#
-dummy		/etc		tmpfs	rw,-C		0	0
 dummy		/var		tmpfs	rw,-C		0	0
 dummy		/tmp		tmpfs	rw,-C		0	0
 dummy		/root		tmpfs	rw,-C		0	0
@@ -692,15 +692,17 @@ sendmail_submit_enable="NO"
 sendmail_outbound_enable="NO"
 sendmail_msp_queue_enable="NO"
 sendmail_rebuild_aliases="NO"
+blanktime="NO"		# Without --gui there is no ttyv0 to blank.
 EOF
-	# Runs from rc.subr right after the tmpfs mounts: /etc is writable
-	# now, so build the password databases there.
+	# The first rc.d step: make /etc a writable copy and build the
+	# password databases in it, before devfs(8) rules look up users.
+	# (Not in fstab: mountcritlocal comes after devfs.)
 	cat > "$root/etc/rc.local.d/imagedb" <<'EOF'
 #!/bin/sh
 #
 # PROVIDE: imagedb
-# REQUIRE: mountcritlocal
-# BEFORE:  FILESYSTEMS
+# REQUIRE: rcconf
+# BEFORE:  devfs
 
 . /etc/rc.subr
 
@@ -710,10 +712,8 @@ stop_cmd=":"
 
 imagedb_start()
 {
-	if echo ok > /tmp/.rc-test; then
-		echo "rc: /tmp is writable (tmpfs)"
-	fi
-	pwd_mkdb -p /etc/master.passwd && id root &&
+	mount_tmpfs -C tmpfs /etc &&
+	    pwd_mkdb -p /etc/master.passwd && id root &&
 	    echo "rc: user database ready ($(whoami))"
 }
 
@@ -724,6 +724,9 @@ EOF
 	# rc.d/local sources this just before the LOGIN stage.
 	cat > "$root/etc/rc.local" <<'EOF'
 echo
+if echo ok > /tmp/.rc-test; then
+	echo "rc: /tmp is writable (tmpfs)"
+fi
 # CI looks for the marker below: print it only if dynamically linked
 # programs (rtld + libc + libutil + ncurses) ran.
 if uname -a && ls -l /bin/sh; then

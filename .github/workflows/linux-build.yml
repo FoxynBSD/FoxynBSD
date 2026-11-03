@@ -262,6 +262,9 @@ jobs:
           if grep -aF 'login_getclass: unknown class' "$log"; then
             echo "::error title=login.conf::init found no login class for /etc/rc"; exit 1
           fi
+          if grep -aE 'devfsctl: .*invalid (user|group) name' "$log"; then
+            echo "::error title=devfs::devfs rules ran before the password database"; exit 1
+          fi
           grep -aF 'rc: user database ready (root)' "$log" ||
             { echo "::error title=pwd_mkdb::no password database was built in /var"; exit 1; }
 
