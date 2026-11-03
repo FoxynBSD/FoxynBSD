@@ -824,7 +824,12 @@
 /* Define to 1 if you have the declaration of `basename(const char*)', and to
    0 if you don't. */
 #ifndef USED_FOR_TARGET
+/* glibc declares basename(3) in <string.h> for C++ (tools/linux) */
+#if defined(__GLIBC__) && defined(__cplusplus)
+#define HAVE_DECL_BASENAME 1
+#else
 #define HAVE_DECL_BASENAME 0
+#endif
 #endif
 
 

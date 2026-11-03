@@ -118,5 +118,11 @@ CLEANFILES+=	get_patches.c
 get_patches.c: ${SRCDIR}/tools/get_patches.sh ${SRCDIR}/PATCHES
 	sh ${SRCDIR}/tools/get_patches.sh ${SRCDIR}/PATCHES > ${.TARGET}
 
+# clang (the tools/linux world build) has neither the _Float128 type nor
+# its f128 constants; gcc does not use mpfr's float128 functions.
+.if ${CCVER:Mclang*}
+CFLAGS:=	${CFLAGS:N-DMPFR_WANT_FLOAT128=1}
+.endif
+
 .include <bsd.lib.mk>
 .endif

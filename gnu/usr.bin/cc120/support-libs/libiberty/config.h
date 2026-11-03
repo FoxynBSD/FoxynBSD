@@ -47,7 +47,12 @@
 
 /* Define to 1 if you have the declaration of `basename(char *)', and to 0 if
    you don't. */
+/* glibc declares basename(3) in <string.h> for C++ (tools/linux) */
+#if defined(__GLIBC__) && defined(__cplusplus)
+#define HAVE_DECL_BASENAME 1
+#else
 #define HAVE_DECL_BASENAME 0
+#endif
 
 /* Define to 1 if you have the declaration of `calloc', and to 0 if you don't.
    */
@@ -359,7 +364,10 @@
 #define HAVE_SYS_STAT_H 1
 
 /* Define to 1 if you have the <sys/sysctl.h> header file. */
+/* glibc has no <sys/sysctl.h> (tools/linux host build) */
+#ifndef __GLIBC__
 #define HAVE_SYS_SYSCTL_H 1
+#endif
 
 /* Define to 1 if you have the <sys/sysinfo.h> header file. */
 /* #undef HAVE_SYS_SYSINFO_H */

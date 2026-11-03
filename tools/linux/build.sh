@@ -41,6 +41,7 @@ HOSTBIN=$OBJDIR/host/bin
 HOSTOBJ=$OBJDIR/host/obj
 # Compiler and flags for the host tools themselves (not the kernel).
 HOST_CC=${HOST_CC:-gcc}
+HOST_CXX=${HOST_CXX:-g++}
 HOST_CFLAGS=${HOST_CFLAGS:--O2}
 SYSROOT=$OBJDIR/sysroot
 
@@ -180,19 +181,51 @@ build_world_tools() {
 	# <xlocale.h> that includes it.
 	mkdir -p "$OBJDIR/host/include"
 	echo '#include <locale.h>' > "$OBJDIR/host/include/xlocale.h"
-	# They also get libbsd and the BSD macros, like the tools above.
+	# They also get libbsd and the BSD macros, like the tools above,
+	# except when only preprocessing (-E): gcc's params.list and the
+	# like are made from cpp output, which must stay free of them.
 	# bsd.hostprog.mk links them -static; distributions ship libbsd
 	# only as a shared library, and these programs never leave the host.
-	cat > "$HOSTBIN/hostcc" <<EOF
+	local c
+	# gcc 12 and the other C++ host code predate C++20 (char8_t), the
+	# default of recent g++; a -std the makefiles pass still wins.
+	for c in "$HOST_CC:hostcc" "$HOST_CXX -std=gnu++14:hostc++"; do
+		cat > "$HOSTBIN/${c#*:}" <<EOF
 #!/bin/sh
-n=\$#
+n=\$# pre=
 while [ "\$n" -gt 0 ]; do
 	a=\$1; shift; n=\$((n - 1))
-	[ "\$a" = -static ] || set -- "\$@" "\$a"
+	case \$a in
+	-static) continue ;;
+	-E) pre=1 ;;
+	esac
+	set -- "\$@" "\$a"
 done
-exec $HOST_CC $compat -idirafter "$OBJDIR/host/include" "\$@" $bsd
+[ -n "\$pre" ] && exec ${c%%:*} -idirafter "$OBJDIR/host/include" "\$@"
+exec ${c%%:*} $compat -idirafter "$OBJDIR/host/include" "\$@" $bsd
 EOF
-	chmod 755 "$HOSTBIN/hostcc"
+		chmod 755 "$HOSTBIN/${c#*:}"
+	done
+	cat > "$HOSTBIN/nxenv" <<'EOF'
+#!/bin/sh
+# NXENV for the world build: like env(1), run a command after optional
+# VAR=value settings, with the target compilers replaced by the host's.
+n=$# cmd=
+while [ "$n" -gt 0 ]; do
+	a=$1; shift; n=$((n - 1))
+	if [ -z "$cmd" ]; then
+		case $a in
+		*=*)	;;
+		xcc)	a=hostcc cmd=1 ;;
+		xc++)	a=hostc++ cmd=1 ;;
+		*)	cmd=1 ;;
+		esac
+	fi
+	set -- "$@" "$a"
+done
+exec env "$@"
+EOF
+	chmod 755 "$HOSTBIN/nxenv"
 
 	# The zoneinfo build runs zic as root with -u root -g wheel; the
 	# host's zic (same tzcode) does the rest without them.
@@ -421,7 +454,7 @@ do_tools() {
 
 # Bump when the host tools or shims change, so an existing $OBJDIR gets
 # them rebuilt instead of failing with old ones (install -C/-B, chflags).
-TOOLS_STAMP=10
+TOOLS_STAMP=14
 
 kenv() {
 	[ "$(cat "$HOSTBIN/.done" 2>/dev/null)" = "$TOOLS_STAMP" ] || do_tools
@@ -565,19 +598,20 @@ wenv() {
 	CC=xcc
 	CXX=xc++
 	MAKEOBJDIRPREFIX=$OBJDIR/world
-	# Build-time helpers (ncurses' make_keys, ...) run on this host, so
-	# the "native" compiler is the host's; its default NXENV would also
-	# reset PATH and drop the shims.
-	NXENV=
-	NXCC=hostcc
-	NXCC_LINK=hostcc
+	# Build-time helpers (ncurses' make_keys, gcc's generators, ...) run
+	# on this host.  share/mk builds them with ${NXENV} ${CC} (or ${CXX},
+	# and makefiles such as cc80's libcpp switch CC to CXX), so NXENV
+	# turns xcc into hostcc and xc++ into hostc++.  Its default would
+	# also reset PATH and drop the shims.
+	NXENV=nxenv
+	unset NXCC NXCC_LINK NXCXX NXCXX_LINK
 	# Where buildworld's makefiles look for already-installed libraries
 	# and private headers (e.g. usr/include/priv/ncurses).
 	_SHLIBDIRPREFIX=$SYSROOT
 	# Scripts that sort or compare file lists (kdump's mkioctls, ...)
 	# expect the C collation of a BSD host.
 	LC_ALL=C
-	export CCVER CC CXX MAKEOBJDIRPREFIX NXENV NXCC NXCC_LINK _SHLIBDIRPREFIX
+	export CCVER CC CXX MAKEOBJDIRPREFIX NXENV _SHLIBDIRPREFIX
 	export LC_ALL
 	mkdir -p "$MAKEOBJDIRPREFIX"
 }
@@ -638,7 +672,13 @@ world_dir() {
 	# Static like init, so the image always gets a working shell
 	# (and its /etc/rc runs) even if dynamic linking is broken.
 	bin/sh)		world_lib "$1" NOSHARED=yes ;;
-	gnu/lib/gcc80/libgcc_eh) gcc_prep; world_lib "$1" ;;
+	# In an object tree of its own: gcc_prep's stand-in gcc headers
+	# must not reach the real gcc build (gnu/usr.bin/cc80).
+	gnu/lib/gcc80/libgcc_eh)
+		( MAKEOBJDIRPREFIX=$OBJDIR/world-libgcc
+		  export MAKEOBJDIRPREFIX; mkdir -p "$MAKEOBJDIRPREFIX"
+		  gcc_prep; world_lib "$1" ) && gcc_pic_unwind ;;
+	gnu/usr.bin/cc80) gcc_prep_clean; world_lib "$1" ;;
 	*)		world_lib "$1" ;;
 	esac
 }
@@ -693,12 +733,53 @@ world_subdirs() {
 	(cd "$SRCDIR/$1" && make CCVER=clang -V SUBDIR)
 }
 
+# Dynamically linked C++ programs link -lgcc_pic (clang's DragonFly
+# driver, like base gcc), and libstdc++.so leaves the unwinder
+# (_Unwind_*) to it: gnu/lib/gcc80/libgcc_pic is libgcc plus the
+# unwinder with default visibility.  libgcc's C parts need gcc's machine
+# modes and do not build with clang, so take compiler-rt's builtins
+# (libgcc.a, see install_compiler_rt) and add the unwinder built from
+# libgcc_eh's sources the way libgcc_pic builds them (-DSHARED, exported).
+# It is built in its own object tree, next to the hidden libgcc_eh one.
+gcc_pic_unwind() {
+	local o=$OBJDIR/world-pic dst=$SYSROOT/usr/lib/gcc80 eh
+	cat > "$HOSTBIN/xcc-pic" <<'EOF'
+#!/bin/sh
+exec xcc "$@" -fvisibility=default -UHIDE_EXPORTS -DSHARED -D_AVOID_WEAKREF
+EOF
+	chmod 755 "$HOSTBIN/xcc-pic"
+	msg "building the exported unwinder for libgcc_pic"
+	( MAKEOBJDIRPREFIX=$o; export MAKEOBJDIRPREFIX; mkdir -p "$o"
+	  gcc_prep
+	  cd "$SRCDIR/gnu/lib/gcc80/libgcc_eh" && make obj >/dev/null &&
+	  make CCVER=clang CC=xcc-pic depend >/dev/null &&
+	  make -j"$JOBS" CCVER=clang CC=xcc-pic ) || return
+	eh=$o$SRCDIR/gnu/lib/gcc80/libgcc_eh/libgcc_eh.a
+	rm -f "$dst/libgcc_pic.a"
+	printf 'create %s\naddlib %s\naddlib %s\nsave\nend\n' \
+	    "$dst/libgcc_pic.a" "$dst/libgcc.a" "$eh" | ar -M
+	ranlib "$dst/libgcc_pic.a"
+}
+
 # The exception unwinder (libgcc_eh) that C++ programs such as devd(8)
 # need.  It includes gcc's target headers, which in a real gcc build come
 # from gnu/usr.bin/cc80: make the ones that are plain shell and awk
 # output (tm.h, options.h) and write the few that gcc's generator
 # programs would make.  libgcc_eh only uses FIRST_PSEUDO_REG from them,
 # for array sizes in i386.h.
+# An $OBJDIR made by an older build.sh has gcc_prep's stand-ins in the
+# main object tree, where gnu/usr.bin/cc80 would use them.
+gcc_prep_clean() {
+	local d=$MAKEOBJDIRPREFIX$SRCDIR/gnu/usr.bin/cc80/cc_prep f
+	for f in insn-modes.h libgcc_tm.h; do
+		[ -s "$d/$f" ] || rm -f "$d/$f"
+	done
+	if [ "$(wc -l < "$d/insn-constants.h" 2>/dev/null)" = 1 ] &&
+	    grep -q '^#define FIRST_PSEUDO_REG' "$d/insn-constants.h"; then
+		rm -f "$d/insn-constants.h"
+	fi
+}
+
 gcc_prep() {
 	local d=$MAKEOBJDIRPREFIX$SRCDIR/gnu/usr.bin/cc80/cc_prep n
 	( cd "$SRCDIR/gnu/usr.bin/cc80/cc_prep" && make obj >/dev/null &&
@@ -1203,7 +1284,7 @@ main() {
 	world)		do_world ;;
 	rootfs)		do_rootfs ;;
 	subdir)		[ -f "$SYSROOT/usr/lib/libc.so" ] || do_libc
-			wenv; for d; do world_lib "$d"; done ;;
+			wenv; for d; do world_dir "$d"; done ;;
 	loader)		do_loader ;;
 	esp)		do_esp "$@" ;;
 	env)		kenv; env | grep -E '^(PATH|MACHINE|MACHINE_ARCH|MACHINE_PLATFORM|CCVER|HOST_CCVER|HOST_BINUTILSVER)=' | sed 's/^/export /' ;;

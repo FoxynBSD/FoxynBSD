@@ -7,6 +7,11 @@
 #ifndef _FOXYN_HOST_COMPAT_H_
 #define _FOXYN_HOST_COMPAT_H_
 
+/* All of glibc, as a BSD libc shows everything (pipe2, mkostemp, ...). */
+#ifndef _GNU_SOURCE
+#define _GNU_SOURCE 1
+#endif
+
 #include <sys/cdefs.h>
 #include <sys/param.h>
 

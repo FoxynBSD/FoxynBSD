@@ -416,7 +416,9 @@ esac
 # When it is the case, it is only available inside functions.
 has_lineno()
 {
-  test "x$BASH_LINENO" != "x"
+  # genscrba.sh is not in the vendor import: a bash /bin/sh (Linux) uses
+  # the plain shell path too.
+  test "x$BASH_LINENO" != "x" && test -f "${srcdir}/genscrba.sh"
 }
 
 # Enable accruate error source in the compiler error messages, if possible.
