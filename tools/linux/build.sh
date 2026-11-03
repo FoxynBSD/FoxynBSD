@@ -363,7 +363,15 @@ do_sysroot() {
 		  make DESTDIR="$SYSROOT" installincludes )
 	done
 	)
-	touch "$SYSROOT/.headers_done"
+	echo "$HEADERS_STAMP" > "$SYSROOT/.headers_done"
+}
+
+# Bump when do_sysroot stages headers differently, so sysroots made by an
+# older build.sh are restaged instead of silently missing files (e.g. the
+# rpcsvc/*.x that libc's `make depend` needs).
+HEADERS_STAMP=2
+headers_ok() {
+	[ "$(cat "$SYSROOT/.headers_done" 2>/dev/null)" = "$HEADERS_STAMP" ]
 }
 
 # Create the directories listed in an mtree(8) specification.
@@ -406,7 +414,7 @@ wenv() {
 
 # Userland libraries, starting from the bottom: csu, then libc.
 do_libc() {
-	[ -f "$SYSROOT/.headers_done" ] || do_sysroot
+	headers_ok || do_sysroot
 	wenv
 	[ -x "$HOSTBIN/xcc" ] ||
 	    die "xcc missing: install clang and lld, then run build.sh tools"
@@ -604,7 +612,7 @@ STANDOBJ=$OBJDIR/stand
 do_loader() {
 	local d xcc
 	kenv
-	[ -f "$SYSROOT/.headers_done" ] || do_sysroot
+	headers_ok || do_sysroot
 	xcc="cc -nostdinc -isystem $SYSROOT/usr/include"
 	MAKEOBJDIRPREFIX=$STANDOBJ; export MAKEOBJDIRPREFIX
 	mkdir -p "$STANDOBJ"
