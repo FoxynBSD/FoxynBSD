@@ -86,11 +86,11 @@ jobs:
         run: |
           log="$OBJDIR/qemu/X86_64_GENERIC.boot.log"
           {
-            cat "$log.fault" 2>/dev/null
+            cat "$log.fault" 2>/dev/null || :
             echo "--- serial tail ---"
-            tail -n 40 "$log" 2>/dev/null
+            tail -n 60 "$log" 2>/dev/null || :
             echo "--- qemu stderr ---"
-            cat "$log.stderr" 2>/dev/null
+            cat "$log.stderr" 2>/dev/null || :
           } | sed 's/%/%25/g; s/\r//g' | awk '{printf "%s%%0A", $0}' > /tmp/boot-tail
           echo "::warning title=QEMU boot test failed (serial tail)::$(cat /tmp/boot-tail)"
 
@@ -203,11 +203,11 @@ jobs:
         run: |
           log="$OBJDIR/qemu/X86_64_GENERIC.boot-root.log"
           {
-            cat "$log.fault" 2>/dev/null
+            cat "$log.fault" 2>/dev/null || :
             echo "--- serial tail ---"
-            tail -n 40 "$log" 2>/dev/null
+            tail -n 60 "$log" 2>/dev/null || :
             echo "--- qemu stderr ---"
-            cat "$log.stderr" 2>/dev/null
+            cat "$log.stderr" 2>/dev/null || :
           } | sed 's/%/%25/g; s/\r//g' | awk '{printf "%s%%0A", $0}' > /tmp/boot-tail
           echo "::notice title=Boot to a shell (${{ steps.boot.outcome }}), serial tail::$(cat /tmp/boot-tail)"
 
