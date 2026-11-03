@@ -86,8 +86,14 @@ jobs:
       - name: Check the boot messages
         run: |
           log="$OBJDIR/qemu/X86_64_GENERIC.boot.log"
-          grep -E 'FoxynBSD/[^ ]+ .*, Revision' "$log" ||
-            { echo "::error title=Identity::the loader banner does not say FoxynBSD"; exit 1; }
+          # The loader menu (drawn on the serial console): the fox's eyes
+          # and the first menu entry.
+          if ! grep -aF '/o_\' "$log" || ! grep -aF 'Boot FoxynBSD' "$log"; then
+            seen=$(grep -aiE 'boot|loader|revision' "$log" | head -n 15 |
+              sed 's/%/%25/g; s/\r//g' | awk '{printf "%s%%0A", $0}' || :)
+            echo "::error title=Identity::the loader menu does not show the FoxynBSD fox and entries. Loader lines seen:%0A$seen"
+            exit 1
+          fi
           grep -E 'FoxynBSD [^ ]+ #[0-9]+: ' "$log" ||
             { echo "::error title=Identity::the kernel banner does not say FoxynBSD"; exit 1; }
 
