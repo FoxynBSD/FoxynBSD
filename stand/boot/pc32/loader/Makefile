@@ -57,6 +57,9 @@ CLEANFILES+=	vers.c vers.o ${PROG}.list ${PROG}.bin ${PROG}.sym ${PROG}.help
 CFLAGS+=		-Wall
 COMPILER_LDFLAGS=	-nostdlib -static
 COMPILER_LDFLAGS+=	-Wl,--script,${.CURDIR}/loader.ldscript
+# BTX starts the client at its ELF entry: _start must stay at 0, so no
+# build-id note in front of it (Linux compilers ask ld for one).
+COMPILER_LDFLAGS+=	-Wl,--build-id=none
 
 # i386 standalone support library
 LIBI386=	${.OBJDIR}/../libi386/libi386.a
