@@ -22,11 +22,14 @@
 #	tools/linux/build.sh esp [KERNCONF]	(boot tree for QEMU;
 #					 WITH_MODULES=1 to add .ko)
 #	tools/linux/build.sh env		(print an env for manual make runs)
+#	tools/linux/build.sh doctor		(check the host's tools and packages)
 #
 # Environment:
 #	OBJDIR	output directory (default ${XDG_CACHE_HOME:-~/.cache}/foxynbsd)
 #	JOBS	parallel jobs (default: nproc)
 #	HOST_CC, HOST_CFLAGS	compiler and flags for the host tools (gcc, -O2)
+#	KERNCC	kernel and module compiler: gcc (default, the host gcc
+#		through the cc wrapper) or clang (kcc, DragonFly target)
 #
 # Host packages needed (Arch/Omarchy):
 #	base-devel flex bison libbsd
@@ -54,25 +57,75 @@ need() {
 	done
 }
 
+# The absolute path of a host program, for the shims in $HOSTBIN that
+# wrap it: searched in $PATH without $HOSTBIN itself (so a shim never
+# finds itself), then in the sbin directories that Debian keeps out of a
+# user's $PATH.  Distributions put the same tool in different places.
+host_path() {
+	local d IFS=:
+	for d in $PATH /usr/sbin /sbin; do
+		[ "$d" = "$HOSTBIN" ] && continue
+		[ -f "$d/$1" ] && [ -x "$d/$1" ] && { echo "$d/$1"; return 0; }
+	done
+	die "missing host tool: $1"
+}
+
+# Point the shims $HOSTBIN/<name>... at the host programs they wrap: each
+# was written with @NAME@ in place of the program's path.
+shim_target() {
+	local t p sed
+	sed=$(host_path sed)	# not the sed shim, which may be one of them
+	for t in "$@"; do
+		p=$(host_path "$t")
+		"$sed" -i "s|@$(echo "$t" | tr a-z A-Z)@|$p|g" "$HOSTBIN/$t"
+		chmod 755 "$HOSTBIN/$t"
+	done
+}
+
 # Wrapper around the host gcc so it behaves like DragonFly's base
-# compiler for kernel purposes: no PIE/CET defaults, no Linux predefines,
-# __DragonFly__ defined.  Warnings introduced by compilers newer than the
-# in-tree gcc120 stay warnings instead of failing -Werror.  Format strings
-# that are not literals are always an error, as with Debian/Ubuntu gcc, so
-# every Linux host catches the same problems as CI.
+# compiler for kernel purposes.  Two kinds of flags:
+#
+# Target requirements (what the DragonFly kernel ABI needs, whatever the
+# host defaults are):
+#	-fno-pie -fno-pic -no-pie	the kernel is linked at a fixed address
+#				with -mcmodel=kernel; Arch, Debian and Ubuntu
+#				gcc default to PIE.
+#	-U__linux__ ... -D__DragonFly__	the predefines of DragonFly's gcc
+#				(ACPICA would pick aclinux.h).
+#	-Wl,--no-as-needed	the kernel keeps its dynamic section, which the
+#				module linker needs (Debian/Ubuntu default
+#				to --as-needed).
+# Host hardening defaults that a kernel cannot use (it provides none of
+# the runtime they rely on: no CET setup, no stack-clash probing support,
+# no fortify library):
+#	-fcf-protection=none -fno-stack-clash-protection -U_FORTIFY_SOURCE
+#	-Wl,-z,lazy -Wl,-z,norelro	(Ubuntu's -z now / relro: meaningless for
+#				a kernel, and they change its layout)
+# The kernel makefiles choose stack protection themselves
+# (-fno-stack-protector), so that is not touched here.
+#
+# Warnings introduced by compilers newer than the in-tree gcc120 stay
+# warnings instead of failing -Werror; only the ones this gcc knows are
+# passed, since gcc rejects a -Wno-error= for a warning it does not have.
+# Format strings that are not literals are always an error, as with
+# Debian/Ubuntu gcc, so every Linux host catches the same problems as CI.
 write_cc_wrapper() {
-	local hostgcc
+	local hostgcc w noerr=
 	hostgcc=$(command -v "${HOST_GCC:-gcc}") || die "no host gcc"
+	for w in dangling-pointer enum-int-mismatch maybe-uninitialized \
+	    array-bounds; do
+		echo 'int x;' | "$hostgcc" -Werror -Wno-error=$w -x c -c \
+		    -o /dev/null - 2>/dev/null && noerr="$noerr -Wno-error=$w"
+	done
 	cat > "$HOSTBIN/cc" <<EOF
 #!/bin/sh
 exec "$hostgcc" \\
-	-fno-pie -fno-pic -no-pie \
-	-Wl,--no-as-needed -Wl,-z,lazy -Wl,-z,norelro \
-	-fcf-protection=none -fno-stack-clash-protection -U_FORTIFY_SOURCE \
-	-U__linux__ -U__linux -Ulinux -U__gnu_linux__ -D__DragonFly__ \
-	-Wno-error=dangling-pointer -Wno-error=enum-int-mismatch \
-	-Wno-error=maybe-uninitialized -Wno-error=array-bounds \
-	-Wformat -Werror=format-security \
+	-fno-pie -fno-pic -no-pie \\
+	-Wl,--no-as-needed -Wl,-z,lazy -Wl,-z,norelro \\
+	-fcf-protection=none -fno-stack-clash-protection -U_FORTIFY_SOURCE \\
+	-U__linux__ -U__linux -Ulinux -U__gnu_linux__ -D__DragonFly__ \\
+	$noerr \\
+	-Wformat -Werror=format-security \\
 	"\$@"
 EOF
 	chmod 755 "$HOSTBIN/cc"
@@ -134,21 +187,20 @@ build_small_tools() {
 	cat > "$HOSTBIN/tsort" <<'EOF'
 #!/bin/sh
 [ "${1:-}" = "-q" ] && shift
-exec /usr/bin/tsort "$@" 2>/dev/null
+exec @TSORT@ "$@" 2>/dev/null
 EOF
-	chmod 755 "$HOSTBIN/tsort"
 	# BSD `find -s` walks each directory in sorted order (kdump's
 	# mkioctls lists headers that way); GNU find has no -s, so sort.
 	cat > "$HOSTBIN/find" <<'EOF'
 #!/bin/sh
 if [ "${1:-}" = -s ]; then
 	shift
-	/usr/bin/find "$@" | LC_ALL=C sort
+	@FIND@ "$@" | LC_ALL=C sort
 else
-	exec /usr/bin/find "$@"
+	exec @FIND@ "$@"
 fi
 EOF
-	chmod 755 "$HOSTBIN/find"
+	shim_target tsort find
 }
 
 # Tools that only the world (userland) build needs, plus BSD-compatible
@@ -227,8 +279,15 @@ exec env "$@"
 EOF
 	chmod 755 "$HOSTBIN/nxenv"
 
-	# The zoneinfo build runs zic as root with -u root -g wheel; the
-	# host's zic (same tzcode) does the rest without them.
+	# zic(8) for share/zoneinfo, built from the tree like buildworld's
+	# bootstrap tools: the hosts' own zic is in other places (/usr/sbin
+	# on Debian) and comes from other tzcode releases, whose options
+	# differ (DragonFly's -D: do not create directories).  The zoneinfo
+	# build runs it as root with -u root -g wheel; the wrapper drops them.
+	mkdir -p "$HOSTOBJ/zic"
+	$HOST_CC $HOST_CFLAGS $compat -I"$SRCDIR/lib/libc/stdtime" \
+	    -o "$HOSTOBJ/zic/zic" "$SRCDIR/usr.sbin/zic/zic.c" \
+	    "$SRCDIR/usr.sbin/zic/ialloc.c" "$SRCDIR/usr.sbin/zic/scheck.c" $bsd
 	cat > "$HOSTBIN/zic" <<'EOF'
 #!/bin/sh
 n=$#
@@ -239,8 +298,9 @@ while [ "$n" -gt 0 ]; do
 	*)	set -- "$@" "$a" ;;
 	esac
 done
-exec /usr/bin/zic "$@"
+exec @ZIC@ "$@"
 EOF
+	"$(host_path sed)" -i "s|@ZIC@|$HOSTOBJ/zic/zic|" "$HOSTBIN/zic"
 	chmod 755 "$HOSTBIN/zic"
 
 	# buildworld's bootstrap yacc (byacc): bison differs in the
@@ -266,18 +326,17 @@ while [ "$n" -gt 0 ]; do
 	set -- "$@" "$a"
 done
 while [ "$n" -gt 0 ]; do a=$1; shift; n=$((n - 1)); set -- "$@" "$a"; done
-exec /usr/bin/ln "$@"
+exec @LN@ "$@"
 EOF
-	chmod 755 "$HOSTBIN/ln"
 
 	# BSD `sed -i ""` means "in place, no backup"; GNU sed would take ""
 	# as a file name.
 	cat > "$HOSTBIN/sed" <<'EOF'
 #!/bin/sh
 if [ "${1:-}" = "-i" ] && [ "${2+x}" = x ] && [ -z "$2" ]; then
-	shift 2; exec /usr/bin/sed -i "$@"
+	shift 2; exec @SED@ -i "$@"
 fi
-exec /usr/bin/sed "$@"
+exec @SED@ "$@"
 EOF
 	# BSD install(1) for unprivileged staging: drop owner, group and
 	# file-flag options (they need root or do not exist in GNU install),
@@ -294,11 +353,12 @@ while [ "$n" -gt 0 ]; do
 	*)		set -- "$@" "$a" ;;
 	esac
 done
-exec /usr/bin/install "$@"
+exec @INSTALL@ "$@"
 EOF
 	# File flags (schg, ...) do not exist here and need root anyway.
 	printf '#!/bin/sh\nexit 0\n' > "$HOSTBIN/chflags"
-	chmod 755 "$HOSTBIN/sed" "$HOSTBIN/install" "$HOSTBIN/chflags"
+	chmod 755 "$HOSTBIN/chflags"
+	shim_target ln sed install
 }
 
 # The generators that buildworld's bootstrap-tools stage builds for the
@@ -438,8 +498,12 @@ done
 # tree's gcc 12: incompatible (function) pointer types (GNU grep's
 # obstack.c, K&R code in tcp_wrappers), int-conversion, implicit int and
 # implicit function declarations.
+# -ffile-prefix-map: __FILE__ (assert messages) and debug info name the
+# sources as a native build does (/usr/src, /usr/obj), not this host's
+# checkout and object tree.
 exec "$xtool/bin/clang" --target=x86_64-unknown-dragonfly \\
 	--sysroot="$SYSROOT" -nobuiltininc -idirafter "$res" \\
+	-ffile-prefix-map="$SRCDIR"=/usr/src -ffile-prefix-map="$OBJDIR"=/usr/obj \\
 	-fuse-ld=lld -Wl,--undefined-version \\
 	-Wno-error=incompatible-function-pointer-types \\
 	-Wno-error=incompatible-pointer-types -Wno-error=int-conversion \\
@@ -458,6 +522,43 @@ EOF
 	chmod 755 "$HOSTBIN/xc++"
 }
 
+# The kernel compiler for KERNCC=clang: host clang for the DragonFly
+# target, so the predefines (__DragonFly__, no __linux__) and the defaults
+# (no PIE, no host hardening specs) are the target's own rather than
+# undone flag by flag as in the gcc wrapper.  The kernel makefiles'
+# clang settings (CCVER=clang) are used as they are, except:
+#	-no-integrated-as	kern.pre.mk asks old clang for the external as;
+#				the integrated assembler is the one that knows
+#				the target, the host's GNU as does not.
+#	-mindirect-branch=thunk-inline	gcc's retpoline flag (Spectre v2);
+#				clang's equivalent is -mretpoline, with the
+#				thunks in COMDAT sections of each object.
+# The kernel and modules link through this driver with the host's GNU ld
+# (ld.bfd) as with gcc: the kernel's linker script and program headers
+# are what GNU ld makes of them (lld lays out the PHDRS differently).
+write_kcc_wrapper() {
+	local clang
+	if ! clang=$(command -v "${HOST_CLANG:-clang}"); then
+		rm -f "$HOSTBIN/kcc"
+		return 0
+	fi
+	cat > "$HOSTBIN/kcc" <<EOF
+#!/bin/sh
+n=\$#
+while [ "\$n" -gt 0 ]; do
+	a=\$1; shift; n=\$((n - 1))
+	case \$a in
+	-no-integrated-as) continue ;;
+	-mindirect-branch=thunk-inline) a=-mretpoline ;;
+	esac
+	set -- "\$@" "\$a"
+done
+exec "$clang" --target=x86_64-unknown-dragonfly -fno-pie -fuse-ld=bfd \\
+	-Qunused-arguments "\$@"
+EOF
+	chmod 755 "$HOSTBIN/kcc"
+}
+
 do_tools() {
 	need gcc flex bison awk pkg-config objcopy ld nm
 	mkdir -p "$HOSTBIN" "$HOSTOBJ"
@@ -469,12 +570,13 @@ do_tools() {
 	build_world_tools
 	build_bootstrap_tools
 	write_xcc_wrapper
+	write_kcc_wrapper
 	echo "$TOOLS_STAMP" > "$HOSTBIN/.done"
 }
 
 # Bump when the host tools or shims change, so an existing $OBJDIR gets
 # them rebuilt instead of failing with old ones (install -C/-B, chflags).
-TOOLS_STAMP=15
+TOOLS_STAMP=18
 
 kenv() {
 	[ "$(cat "$HOSTBIN/.done" 2>/dev/null)" = "$TOOLS_STAMP" ] || do_tools
@@ -484,6 +586,20 @@ kenv() {
 	KBDCONTROL=$HOSTBIN/kbdcontrol
 	export PATH MACHINE MACHINE_ARCH MACHINE_PLATFORM CCVER HOST_CCVER \
 	    HOST_BINUTILSVER KBDCONTROL
+	# Make variables for the kernel and module builds.  kmod.mk falls
+	# back to ${DESTDIR}/usr/include for standard headers until the
+	# module's "dragonfly" link exists (during depend): on this host that
+	# must be the sysroot's DragonFly headers, never the Linux
+	# /usr/include.  Nothing is installed, so DESTDIR has no other
+	# effect.  KERNCC=clang compiles with kcc (see write_kcc_wrapper).
+	KMAKE="DESTDIR=$SYSROOT"
+	case ${KERNCC:-gcc} in
+	gcc)	;;
+	clang)	[ -x "$HOSTBIN/kcc" ] ||
+		    die "KERNCC=clang: no kcc (install clang, then run build.sh tools)"
+		KMAKE="$KMAKE CCVER=clang CC=kcc" ;;
+	*)	die "KERNCC must be gcc or clang, not $KERNCC" ;;
+	esac
 }
 
 do_kernel() {
@@ -494,10 +610,16 @@ do_kernel() {
 	msg "configuring $conf in $kobj"
 	rm -rf "$kobj"; mkdir -p "$OBJDIR/sys"
 	( cd "$SRCDIR/sys/config" && config -d "$kobj" "$conf" )
-	# Modules get their dependencies in do_modules: configurations such
-	# as MINI64 (no INET) build a kernel but not the modules.
+	# depend also covers the modules, before the kernel is built: once
+	# the kernel's objdir has the generated *_if.c, kmod.mk no longer
+	# makes them for the modules.  A configuration without INET (MINI64)
+	# builds a kernel but no modules.
 	msg "make depend"
-	( cd "$kobj" && make NO_MODULES=1 KERNEL=kernel depend )
+	if kconf_modules "$conf"; then
+		( cd "$kobj" && make $KMAKE KERNEL=kernel depend )
+	else
+		( cd "$kobj" && make $KMAKE NO_MODULES=1 KERNEL=kernel depend )
+	fi
 	msg "make all (-j$JOBS)"
 	if grep -q '^platform[[:space:]]*vkernel' "$SRCDIR/sys/config/$conf"; then
 		# A virtual kernel is a DragonFly program: its objects are
@@ -505,13 +627,18 @@ do_kernel() {
 		# the link step uses xcc and the sysroot instead of the host's
 		# linker and glibc.
 		vkernel_libs
-		( cd "$kobj" && make -j"$JOBS" NO_MODULES=1 KERNEL=kernel \
+		( cd "$kobj" && make -j"$JOBS" $KMAKE NO_MODULES=1 KERNEL=kernel \
 		    SYSTEM_LD='@xcc ${ELDFLAGS} ${DEBUG} -o ${.TARGET} ${SYSTEM_OBJS} vers.o -pthread' \
 		    all )
 	else
-		( cd "$kobj" && make -j"$JOBS" NO_MODULES=1 KERNEL=kernel all )
+		( cd "$kobj" && make -j"$JOBS" $KMAKE NO_MODULES=1 KERNEL=kernel all )
 	fi
 	msg "kernel: $kobj/kernel.debug"
+}
+
+# Whether a kernel configuration can build the modules (MINI64 cannot).
+kconf_modules() {
+	grep -q '^options[[:space:]]*INET\b' "$SRCDIR/sys/config/$1"
 }
 
 # The libraries a virtual kernel links against, built if missing.
@@ -528,8 +655,8 @@ do_modules() {
 	kobj=$OBJDIR/sys/$conf
 	[ -f "$kobj/kernel.debug" ] || do_kernel "$conf"
 	msg "building modules (-j$JOBS)"
-	( cd "$kobj" && make KERNEL=kernel modules-depend &&
-	  make -j"$JOBS" KERNEL=kernel modules )
+	kconf_modules "$conf" || die "$conf builds no modules (no INET)"
+	( cd "$kobj" && make -j"$JOBS" $KMAKE KERNEL=kernel modules )
 }
 
 # Stage the DragonFly headers the way include/Makefile's "copies" target
@@ -684,6 +811,7 @@ BASE_PROGS="sbin/init bin/sh bin/cat bin/chmod bin/cp bin/date bin/df
 	bin/echo bin/expr bin/hostname bin/kill bin/ln bin/ls bin/mkdir bin/mv
 	bin/ps bin/pwd bin/rm bin/rmdir bin/sleep bin/stty bin/test bin/varsym
 	sbin/adjkerntz sbin/devd sbin/devfsctl sbin/dmesg sbin/fsck sbin/ifconfig sbin/kldload sbin/kldstat
+	sbin/kldunload
 	sbin/ldconfig sbin/mount sbin/mount_tmpfs sbin/rcorder sbin/reboot
 	sbin/route sbin/swapon sbin/sysctl sbin/umount
 	libexec/getty usr.bin/awk/awk usr.bin/basename usr.bin/cmp usr.bin/find
@@ -694,6 +822,9 @@ BASE_PROGS="sbin/init bin/sh bin/cat bin/chmod bin/cp bin/date bin/df
 	usr.bin/diff usr.bin/lockf usr.bin/netstat usr.bin/sort usr.bin/tee
 	usr.bin/w gnu/usr.bin/grep/egrep gnu/usr.bin/grep/fgrep usr.sbin/chkgrp
 	usr.sbin/periodic"
+
+# Modules rc.local loads and unloads to test the kernel linker.
+KLD_TESTS="udf ext2fs"
 
 # PAM modules that /etc/pam.d/login and /etc/pam.d/system load.  login(1)
 # opens them with dlopen(3), so they are not in any NEEDED list.
@@ -737,7 +868,7 @@ world_dir() {
 # is recorded and the rest still builds; the failures are listed at the
 # end (and the command fails).  Without it the first failure stops.
 #
-# Left out: the gcc runtimes' csu and libgcc (the host's compiler-rt
+# Left out: the gcc runtimes' csu and libgcc (lib/libcompiler_rt
 # stands in, see install_compiler_rt) and gnu/lib/gcc120, which needs
 # gcc internals that do not build with clang; the C++ runtime is gcc 8's,
 # as in `base`.
@@ -824,7 +955,8 @@ gcc_prep_clean() {
 	for f in insn-modes.h libgcc_tm.h; do
 		[ -s "$d/$f" ] || rm -f "$d/$f"
 	done
-	if [ "$(wc -l < "$d/insn-constants.h" 2>/dev/null)" = 1 ] &&
+	if [ -f "$d/insn-constants.h" ] &&
+	    [ "$(wc -l < "$d/insn-constants.h")" = 1 ] &&
 	    grep -q '^#define FIRST_PSEUDO_REG' "$d/insn-constants.h"; then
 		rm -f "$d/insn-constants.h"
 	fi
@@ -881,19 +1013,40 @@ do_rootfs() {
 	for f in $PAM_MODULES; do
 		cp -pL "$SYSROOT/usr/lib/security/$f.so" "$root/usr/lib/security/"
 	done
+	# The tests run at boot go in first: their libraries are copied too.
+	write_brand_tests "$root/root/tests"
+	write_cxx_test "$root/root/tests"
+	write_runtime_tests "$root/root/tests"
+	# Kernel modules for the kldload test in rc.local, when `build.sh
+	# modules` built them (MODULES_OVERRIDE="vfs/udf vfs/ext2fs" builds
+	# only these): filesystems the GENERIC kernel does not have built in.
+	local ko
+	for f in $KLD_TESTS; do
+		ko=$(find "$OBJDIR/sys/X86_64_GENERIC$SRCDIR/sys" -name "$f.ko" 2>/dev/null | head -n 1)
+		[ -n "$ko" ] || continue
+		mkdir -p "$root/boot/kernel"
+		objcopy --strip-debug "$ko" "$root/boot/kernel/$f.ko"
+	done
 	# Copy the shared libraries, following NEEDED entries to a fixpoint.
-	local added=1 found
+	# They are looked up where rtld looks: the standard directories and
+	# the file's RUNPATH (/usr/lib/gcc80 for libstdc++, which clang's
+	# DragonFly driver adds to every dynamic link).
+	local added=1 found dirs
 	while [ "$added" = 1 ]; do
 		added=0
 		for f in $(find "$root" -type f); do
+			dirs="lib lib/priv usr/lib usr/lib/priv $(readelf -d "$f" 2>/dev/null |
+			    sed -n 's/.*(R[UN]*PATH).*\[\(.*\)\]/\1/p' | tr ':' ' ')"
 			for lib in $(readelf -d "$f" 2>/dev/null |
 			    sed -n 's/.*(NEEDED).*\[\(.*\)\]/\1/p'); do
 				found=
-				for d in lib lib/priv usr/lib usr/lib/priv; do
+				for d in $dirs; do
+					d=${d#/}
 					[ -e "$root/$d/$lib" ] && { found=1; break; }
 				done
 				[ -n "$found" ] && continue
-				for d in lib lib/priv usr/lib usr/lib/priv; do
+				for d in $dirs; do
+					d=${d#/}
 					[ -e "$SYSROOT/$d/$lib" ] || continue
 					mkdir -p "$root/$d"
 					cp -pL "$SYSROOT/$d/$lib" "$root/$d/$lib"
@@ -905,8 +1058,6 @@ do_rootfs() {
 			done
 		done
 	done
-	write_brand_tests "$root/root/tests"
-	write_cxx_test "$root/root/tests"
 	write_terminfo "$root/usr/share/terminfo"
 	write_etc "$root"
 	# Login classes: init(8) looks up class "daemon" for /etc/rc.  With
@@ -1041,6 +1192,28 @@ main()
 EOF
 	xc++ -static -O2 -o "$1/cxx-eh" "$src"
 	rm -f "$src"
+}
+
+# The compiler runtime and dynamic linking tests (tools/linux/tests),
+# built with xcc/xc++ against the sysroot and run by /etc/rc.local:
+#	rt-builtins, rt-builtins-static	compiler-rt builtins (lib/libcompiler_rt)
+#	rt-cxx + librtcxx.so	C++ constructors and destructors in a program
+#				and a shared library, an exception thrown
+#				across the library boundary, atexit order
+#	rt-dlopen + rt-dlmod.so	dlopen(3), dlsym(3), dlclose(3) and a module's
+#				constructor and destructor
+# Each prints "<name>: ok" or "<name>: FAIL <what>".
+write_runtime_tests() {
+	local dir=$1 t=$SRCDIR/tools/linux/tests
+	mkdir -p "$dir"
+	xcc -O2 -o "$dir/rt-builtins" "$t/rt-builtins.c"
+	xcc -O2 -static -o "$dir/rt-builtins-static" "$t/rt-builtins.c"
+	xc++ -O2 -fPIC -shared -Wl,-soname,librtcxx.so -o "$dir/librtcxx.so" \
+	    "$t/rt-cxxlib.cc"
+	xc++ -O2 -o "$dir/rt-cxx" "$t/rt-cxx.cc" -L"$dir" -lrtcxx \
+	    -Wl,-rpath,/root/tests
+	xcc -O2 -fPIC -shared -o "$dir/rt-dlmod.so" "$t/rt-dlmod.c"
+	xcc -O2 -Wl,-E -o "$dir/rt-dlopen" "$t/rt-dlopen.c"
 }
 
 # Compile the console terminal types from the tree's terminfo.src with the
@@ -1218,6 +1391,49 @@ fi
 for b in /root/tests/brand-*; do
 	"$b" || echo "rc: $b failed with status $?"
 done
+# The compiler runtime and dynamic linking tests (build.sh
+# write_runtime_tests): each prints "<name>: ok" or a FAIL line.
+for t in rt-builtins rt-builtins-static rt-cxx rt-dlopen; do
+	/root/tests/$t || echo "rc: /root/tests/$t failed with status $?"
+done
+# Kernel modules (build.sh rootfs copies them in when they were built):
+# load, find and unload each one.
+if [ -d /boot/kernel ]; then
+	kld=ok
+	for m in /boot/kernel/*.ko; do
+		n=${m##*/}
+		if kldload $m && kldstat -n $n | sed "s/^/kld-check: /" &&
+		    kldunload $n && ! kldstat -n $n >/dev/null 2>&1; then
+			echo "kld-check: $n loaded and unloaded"
+		else
+			kld=fail; echo "kld-check: FAIL $n"
+		fi
+	done
+	echo "kld-check: $kld"
+else
+	echo "kld-check: skipped (no modules in the image)"
+fi
+# Permissions and the writable runtime directories of the live image:
+# the root stays read-only, the tmpfs mounts are writable, the
+# temporary directories are sticky and the password databases private.
+fs=ok
+for d in /tmp /var/tmp; do
+	[ -d $d ] && [ -w $d ] && [ -k $d ] || { fs=fail; echo "fs-check: FAIL $d is not a sticky writable directory"; }
+done
+for d in /etc /var/run /var/log /var/db /root; do
+	if touch $d/.fs-check 2>/dev/null; then rm -f $d/.fs-check
+	else fs=fail; echo "fs-check: FAIL $d is not writable"; fi
+done
+if touch /.fs-check 2>/dev/null; then
+	fs=fail; echo "fs-check: FAIL / is writable (expected the read-only image)"
+fi
+for f in /etc/master.passwd /etc/spwd.db; do
+	case $(ls -l $f 2>/dev/null) in
+	-rw-------*) ;;
+	*) fs=fail; echo "fs-check: FAIL $f is not mode 600: $(ls -l $f 2>&1)" ;;
+	esac
+done
+[ $fs = ok ] && echo "fs-check: ok"
 # syslogd: a message sent with logger(1) must reach /var/log/messages.
 logger -p user.notice "rc.local: syslog test $$"
 sleep 1
@@ -1260,40 +1476,17 @@ fix_sysroot_links() {
 
 # The compiler runtime (crtbegin/crtend and the libgcc helpers).  The
 # in-tree gcc runtime (gnu/lib/gcc120) depends on gcc internals and does
-# not build with clang, so use the host's LLVM compiler-rt instead.  Its
-# objects are OS-independent and position-independent.  They go where
-# clang's DragonFly driver looks: /usr/lib/gcc80.
-# Stopgap until compiler-rt is built from source in the tree.
+# not build with clang, so lib/libcompiler_rt builds LLVM's compiler-rt
+# from contrib/compiler-rt instead, into /usr/lib/gcc80 where clang's
+# DragonFly driver looks.  Nothing comes from the host's clang install.
 install_compiler_rt() {
-	local res rt sfx dst=$SYSROOT/usr/lib/gcc80 f
-	res=$("$OBJDIR/xtool/bin/clang" -print-resource-dir)/lib
-	# Per-target layout (LLVM >= 19 default, Arch) or the older
-	# lib/linux/*-x86_64 one (Ubuntu's LLVM 18).
-	if [ -f "$res/x86_64-pc-linux-gnu/clang_rt.crtbegin.o" ]; then
-		rt=$res/x86_64-pc-linux-gnu sfx=
-	else
-		rt=$res/linux sfx=-x86_64
-	fi
-	for f in clang_rt.crtbegin$sfx.o clang_rt.crtend$sfx.o \
-	    libclang_rt.builtins$sfx.a; do
-		[ -f "$rt/$f" ] ||
-		    die "compiler-rt not found ($rt/$f); install compiler-rt"
-	done
-	msg "installing compiler-rt from $rt into $dst"
+	local dst=$SYSROOT/usr/lib/gcc80
 	mkdir -p "$dst"
-	for f in crtbegin crtbeginS crtbeginT; do
-		cp "$rt/clang_rt.crtbegin$sfx.o" "$dst/$f.o"
-	done
-	for f in crtend crtendS; do
-		cp "$rt/clang_rt.crtend$sfx.o" "$dst/$f.o"
-	done
-	cp "$rt/libclang_rt.builtins$sfx.a" "$dst/libgcc.a"
-	cp "$rt/libclang_rt.builtins$sfx.a" "$dst/libgcc_pic.a"
+	world_lib lib/libcompiler_rt
 	# libgcc_eh is the exception unwinder; C needs none, but the driver
 	# asks for it in static links.  An empty archive satisfies -lgcc_eh
 	# until `base` builds the real one from gnu/lib/gcc80/libgcc_eh.
-	rm -f "$dst/libgcc_eh.a"
-	ar rc "$dst/libgcc_eh.a"
+	[ -f "$dst/libgcc_eh.a" ] || ar rc "$dst/libgcc_eh.a"
 }
 
 # EFI boot loader: stand/lib -> dloader -> libefi -> loader.efi, compiled
@@ -1351,6 +1544,74 @@ EOF
 	msg "ESP: $esp"
 }
 
+# What this host has and lacks for each part of the build, with the
+# package that provides it.  Only reports; nothing is changed.
+do_doctor() {
+	local id=unknown pm=pacman missing= t pkg pkgp pkga why probe
+	[ -r /etc/os-release ] && id=$(. /etc/os-release; echo "${ID:-unknown} ${ID_LIKE:-}")
+	case " $id " in
+	*" debian "*|*" ubuntu "*) pm=apt ;;
+	esac
+	echo "host: $(. /etc/os-release 2>/dev/null; echo "${PRETTY_NAME:-unknown}")," \
+	    "packages via $pm"
+	echo "/bin/sh: $(readlink -f /bin/sh), awk: $(readlink -f "$(command -v awk)")"
+	# tool  pacman-package  apt-package  what-needs-it
+	while read -r t pkgp pkga why; do
+		if command -v "$t" >/dev/null 2>&1; then
+			continue
+		fi
+		[ $pm = apt ] && pkg=$pkga || pkg=$pkgp
+		echo "missing: $t ($why) -> $pkg"
+		missing="$missing $pkg"
+	done <<'EOF'
+gcc base-devel build-essential tools,kernel
+make base-devel build-essential tools
+flex flex flex tools,kernel
+bison bison bison tools,kernel
+pkg-config pkgconf pkg-config tools
+readelf binutils binutils rootfs,audit
+clang clang clang userland
+ld.lld lld lld userland
+tic ncurses ncurses-bin rootfs(terminfo)
+xorriso libisoburn xorriso rootfs(root.iso)
+qemu-system-x86_64 qemu-base qemu-system-x86 boot
+EOF
+	for probe in libbsd-overlay:libbsd:libbsd-dev libtirpc:libtirpc:libtirpc-dev; do
+		pkg-config --exists "${probe%%:*}" 2>/dev/null && continue
+		t=${probe#*:}
+		[ $pm = apt ] && pkg=${t#*:} || pkg=${t%%:*}
+		echo "missing: ${probe%%:*} (tools) -> $pkg"
+		missing="$missing $pkg"
+	done
+	# -lfl: Debian ships flex's library separately.
+	echo 'int yylex(void){return 0;}' | ${HOST_CC} -x c - -lfl -o /dev/null \
+	    2>/dev/null || {
+		[ $pm = apt ] && pkg=libfl-dev || pkg=flex
+		echo "missing: libfl (tools) -> $pkg"; missing="$missing $pkg"; }
+	if command -v "$HOST_CC" >/dev/null 2>&1; then
+		echo "host gcc: $($HOST_CC -dumpfullversion 2>/dev/null)," \
+		    "default PIE: $(echo | $HOST_CC -dM -E - | grep -q '__PIE__' && echo yes || echo no)," \
+		    "default SSP: $(echo | $HOST_CC -dM -E - | grep -q '__SSP' && echo yes || echo no)" \
+		    "(the kernel build turns both off: cc wrapper, kern.mk)"
+	fi
+	command -v clang >/dev/null 2>&1 &&
+	    echo "clang: $(clang -dumpversion), resource dir $(clang -print-resource-dir)"
+	if command -v qemu-system-x86_64 >/dev/null 2>&1; then
+		"$SRCDIR/tools/linux/qemu.sh" --firmware 2>&1 | sed 's/^/firmware: /' ||
+		    { [ $pm = apt ] && pkg=ovmf || pkg=edk2-ovmf; missing="$missing $pkg"; }
+		[ -w /dev/kvm ] && echo "kvm: usable" ||
+		    echo "kvm: not usable (QEMU falls back to TCG, much slower)"
+	fi
+	if [ -n "$missing" ]; then
+		case $pm in
+		apt)	echo "install: sudo apt-get install$missing" ;;
+		*)	echo "install: sudo pacman -S --needed$missing" ;;
+		esac
+		return 1
+	fi
+	echo "everything the build and the boot test use is installed"
+}
+
 # Everything runs from inside main, and the call shares its line with
 # exit: the shell reads a script piece by piece, so a build.sh rewritten
 # while a long build runs (git pull) must not be read again afterwards.
@@ -1376,8 +1637,9 @@ main() {
 			wenv; for d; do world_dir "$d"; done ;;
 	loader)		do_loader ;;
 	esp)		do_esp "$@" ;;
+	doctor)		do_doctor ;;
 	env)		kenv; env | grep -E '^(PATH|MACHINE|MACHINE_ARCH|MACHINE_PLATFORM|CCVER|HOST_CCVER|HOST_BINUTILSVER)=' | sed 's/^/export /' ;;
-	*)		sed -n '3,22p' "$0" | sed 's/^# \{0,1\}//'; exit 1 ;;
+	*)		sed -n '3,25p' "$0" | sed 's/^# \{0,1\}//'; exit 1 ;;
 	esac
 }
 

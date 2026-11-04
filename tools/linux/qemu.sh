@@ -8,6 +8,7 @@
 #	--gui	open a QEMU window and use the video console (EFI framebuffer,
 #		then the kernel's syscons) instead of the serial console.
 #		Serial output is still copied to the terminal.
+#	--firmware	print the OVMF images that would be used, and exit.
 #	--root	attach the root image from `build.sh rootfs` ($OBJDIR/root.iso)
 #		as a second virtio disk and mount it as the root filesystem
 #		(cd9660): boots to a login prompt (root, no password).
@@ -19,7 +20,9 @@
 #
 # Environment:
 #	OBJDIR	same as build.sh
-#	OVMF_CODE / OVMF_VARS	firmware images (auto-detected)
+#	OVMF_CODE / OVMF_VARS	firmware images (default: what QEMU's firmware
+#			descriptors in /usr/share/qemu/firmware name, else the
+#			usual Arch, Debian/Ubuntu and Fedora paths)
 #	MEM (default 2G), SMP (default 2)
 #	ROOTISO		root image for --root (default $OBJDIR/root.iso)
 #	ROOTDISK	optional disk image to attach as a second virtio disk
@@ -38,16 +41,18 @@ SRCDIR=$(cd "$(dirname "$0")/../.." && pwd)
 OBJDIR=${OBJDIR:-${XDG_CACHE_HOME:-$HOME/.cache}/foxynbsd}
 GUI=${GUI:-0}
 ROOT=0
+FWONLY=0
 
 die() { echo "qemu.sh: $*" >&2; exit 1; }
 usage() {
-	die "usage: qemu.sh [--gui] [--root] [KERNCONF] [-- qemu args]"
+	die "usage: qemu.sh [--gui] [--root] [--firmware] [KERNCONF] [-- qemu args]"
 }
 
 while :; do
 	case ${1:-} in
 	--gui)	GUI=1; shift ;;
 	--root)	ROOT=1; shift ;;
+	--firmware) FWONLY=1; shift ;;
 	--)	break ;;
 	-h|--help) usage ;;
 	-*)	echo "qemu.sh: unknown option: $1" >&2; usage ;;
@@ -64,7 +69,7 @@ command -v qemu-system-x86_64 >/dev/null 2>&1 ||
     die "qemu-system-x86_64 not found (pacman -S qemu-base edk2-ovmf)"
 
 ESP=$OBJDIR/esp/$CONF
-[ -f "$ESP/EFI/BOOT/BOOTX64.EFI" ] ||
+[ "$FWONLY" = 1 ] || [ -f "$ESP/EFI/BOOT/BOOTX64.EFI" ] ||
     die "no ESP at $ESP; run tools/linux/build.sh esp $CONF"
 
 find_fw() {
@@ -73,20 +78,64 @@ find_fw() {
 	done
 	return 1
 }
+
+# The firmware QEMU itself would pick: the JSON firmware descriptors
+# (docs/interop/firmware.json) that edk2/ovmf packages install, read in
+# QEMU's order (/etc first, then by file name).  Wanted: x86_64 UEFI for
+# q35 in raw flash images, without Secure Boot, enrolled keys or SMM
+# (which needs -machine smm=on and a secure pflash).  Prints
+# "<code> <vars>".
+fw_descriptor() {
+	for f in $(ls /etc/qemu/firmware/*.json /usr/share/qemu/firmware/*.json \
+	    2>/dev/null | awk -F/ '!seen[$NF]++'); do
+		awk '
+		/"executable"/ { ctx = "code" }
+		/"nvram-template"/ { ctx = "vars" }
+		/"filename"/ { v = $0; sub(/.*"filename" *: *"/, "", v); sub(/".*/, "", v); file[ctx] = v }
+		/"format"/ && !/"raw"/ { bad = 1 }
+		/"device"/ && !/"flash"/ { bad = 1 }
+		/"uefi"/ { uefi = 1 }
+		/"architecture"/ && /"x86_64"/ { x86 = 1 }
+		/"pc-q35-/ { q35 = 1 }
+		/"secure-boot"|"enrolled-keys"|"requires-smm"|"intel-tdx"|"amd-sev-snp"/ { bad = 1 }
+		END {
+			if (!bad && uefi && x86 && q35 && file["code"] != "" && file["vars"] != "")
+				print file["code"], file["vars"]
+		}' "$f" | while read -r code vars; do
+			[ -f "$code" ] && [ -f "$vars" ] && echo "$code $vars"
+		done
+	done | head -n 1
+}
+
+if [ -z "${OVMF_CODE:-}" ] || [ -z "${OVMF_VARS:-}" ]; then
+	set -- $(fw_descriptor) "$@"
+	if [ -n "${1:-}" ] && [ -n "${2:-}" ] && [ -f "$1" ]; then
+		OVMF_CODE=${OVMF_CODE:-$1} OVMF_VARS=${OVMF_VARS:-$2}
+		shift 2
+	fi
+fi
+# Without descriptors: the usual places (Arch, Debian/Ubuntu, Fedora).
 OVMF_CODE=${OVMF_CODE:-$(find_fw \
     /usr/share/edk2/x64/OVMF_CODE.4m.fd \
     /usr/share/edk2/OVMF_CODE_4M.fd \
     /usr/share/edk2-ovmf/x64/OVMF_CODE.fd \
     /usr/share/OVMF/OVMF_CODE_4M.fd \
     /usr/share/OVMF/OVMF_CODE.fd \
-    /usr/share/ovmf/x64/OVMF_CODE.fd)} || die "OVMF firmware not found (pacman -S edk2-ovmf)"
+    /usr/share/ovmf/x64/OVMF_CODE.fd)} ||
+    die "OVMF firmware not found (pacman -S edk2-ovmf / apt install ovmf), or set OVMF_CODE and OVMF_VARS"
 OVMF_VARS_TMPL=${OVMF_VARS:-$(find_fw \
     /usr/share/edk2/x64/OVMF_VARS.4m.fd \
     /usr/share/edk2/OVMF_VARS_4M.fd \
     /usr/share/edk2-ovmf/x64/OVMF_VARS.fd \
     /usr/share/OVMF/OVMF_VARS_4M.fd \
     /usr/share/OVMF/OVMF_VARS.fd \
-    /usr/share/ovmf/x64/OVMF_VARS.fd)} || die "OVMF vars template not found"
+    /usr/share/ovmf/x64/OVMF_VARS.fd)} || die "OVMF vars template not found (set OVMF_VARS)"
+
+if [ "$FWONLY" = 1 ]; then
+	echo "OVMF_CODE=$OVMF_CODE"
+	echo "OVMF_VARS=$OVMF_VARS_TMPL"
+	exit 0
+fi
 
 [ "$ROOT" = 0 ] || [ -f "$ROOTISO" ] ||
     die "no root image at $ROOTISO; run tools/linux/build.sh rootfs"

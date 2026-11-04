@@ -167,18 +167,24 @@ jobs:
           sudo apt-get update
           sudo apt-get install -y --no-install-recommends \
             build-essential flex bison libfl-dev libbsd-dev libtirpc-dev \
-            pkg-config clang lld libclang-rt-18-dev xorriso \
+            pkg-config clang lld xorriso \
             qemu-system-x86 ovmf
           clang --version | head -n1
 
       - name: Build host tools
         run: set -o pipefail; tools/linux/build.sh tools 2>&1 | tee -a "$BUILD_LOG"
 
-      - name: Build kernel, loader and boot tree
+      # Two filesystem modules that GENERIC does not have built in, for
+      # the kldload test in the root image (the Kernel modules job builds
+      # them all).
+      - name: Build kernel, test modules, loader and boot tree
+        env:
+          MODULES_OVERRIDE: vfs/udf vfs/ext2fs
         run: |
           set -o pipefail
-          { tools/linux/build.sh kernel && tools/linux/build.sh loader &&
-            tools/linux/build.sh esp; } 2>&1 | tee -a "$BUILD_LOG"
+          { tools/linux/build.sh kernel && tools/linux/build.sh modules &&
+            tools/linux/build.sh loader && tools/linux/build.sh esp; } 2>&1 |
+            tee -a "$BUILD_LOG"
 
       - name: Build headers, libc and the base userland
         run: |
@@ -200,6 +206,15 @@ jobs:
 
       - name: Build the root image
         run: set -o pipefail; tools/linux/build.sh rootfs 2>&1 | tee -a "$BUILD_LOG"
+
+      # Host contamination: nothing in the image or the sysroot may be a
+      # Linux object (ld-linux, glibc sonames or symbol versions, the
+      # Linux ABI note).  The full report is in the artifact.
+      - name: Audit the target ELF files
+        run: |
+          tools/linux/elf-audit.sh -o "$OBJDIR/elf-audit.txt" \
+            "$OBJDIR/rootfs" "$OBJDIR/sysroot" ||
+            { echo "::error title=ELF audit::$(grep '^ERROR' "$OBJDIR/elf-audit.txt" | head -n 20 | tr '\n' ';')"; exit 1; }
 
       - name: Report build failure
         if: failure()
@@ -225,97 +240,58 @@ jobs:
         id: boot
         run: tools/linux/boot-test.sh --root
 
+      # The checks of the boot log live in tools/linux/check-boot-log.sh,
+      # shared with the other host distributions (linux-hosts.yml).
       # /etc/rc prints this only after dynamically linked programs ran.
       - name: Check that dynamically linked programs ran
-        run: |
-          log="$OBJDIR/qemu/X86_64_GENERIC.boot-root.log"
-          grep -aF 'FoxynBSD userland is up' "$log" ||
-            { echo "::error title=rtld::/etc/rc saw dynamically linked programs fail"; exit 1; }
+        run: tools/linux/check-boot-log.sh rtld
 
       # Issue #9: the image runs the tree's /etc/rc and rc.d.  Commands
       # the scripts call but the image lacks are reported, not fatal.
       - name: Report commands rc.d could not find
-        run: |
-          log="$OBJDIR/qemu/X86_64_GENERIC.boot-root.log"
-          missing=$(grep -aoE '[^ :]+: not found' "$log" | sort -u | tr '\n' ' ') || :
-          if [ -n "$missing" ]; then
-            echo "::notice title=rc.d::missing in the image: $missing"
-          fi
+        run: tools/linux/check-boot-log.sh rcd
 
       # Identity (issue #3): the running system reports itself as FoxynBSD.
       - name: Check the reported OS name
-        run: |
-          log="$OBJDIR/qemu/X86_64_GENERIC.boot-root.log"
-          grep -E '^FoxynBSD foxynbsd [^ ]+ FoxynBSD ' "$log" ||
-            { echo "::error title=Identity::uname -a does not report FoxynBSD"; exit 1; }
+        run: tools/linux/check-boot-log.sh identity
 
       # Issue #9: a terminal database, a writable /tmp, login classes and
       # a password database.
       - name: Check terminfo, /tmp, login classes and users
-        run: |
-          log="$OBJDIR/qemu/X86_64_GENERIC.boot-root.log"
-          if grep -aF 'Cannot read termcap database' "$log"; then
-            echo "::error title=terminfo::sh found no terminal database"; exit 1
-          fi
-          grep -aF 'rc: /tmp is writable (tmpfs)' "$log" ||
-            { echo "::error title=tmpfs::/tmp was not mounted writable"; exit 1; }
-          if grep -aF 'login_getclass: unknown class' "$log"; then
-            echo "::error title=login.conf::init found no login class for /etc/rc"; exit 1
-          fi
-          if grep -aE 'devfsctl: .*invalid (user|group) name' "$log"; then
-            echo "::error title=devfs::devfs rules ran before the password database"; exit 1
-          fi
-          grep -aF 'rc: user database ready (root)' "$log" ||
-            { echo "::error title=pwd_mkdb::no password database was built in /var"; exit 1; }
+        run: tools/linux/check-boot-log.sh basics
 
       # Issue #9: syslogd runs and logs what logger(1) sends it.
       - name: Check syslogd
-        run: |
-          log="$OBJDIR/qemu/X86_64_GENERIC.boot-root.log"
-          grep -aF 'rc: syslogd wrote to /var/log/messages' "$log" ||
-            { echo "::error title=syslogd::a logger(1) message did not reach /var/log/messages"; exit 1; }
+        run: tools/linux/check-boot-log.sh syslogd
 
       # Issue #9: the daemons rc.d starts are still running after login.
       - name: Check running daemons
-        run: |
-          log="$OBJDIR/qemu/X86_64_GENERIC.boot-root.log"
-          line=$(grep -a '^daemons-42:' "$log" | tail -n 1) ||
-            { echo "::error title=daemons::the boot test got no process list"; exit 1; }
-          echo "$line"
-          for d in syslogd cron devd; do
-            case " $line " in
-            *" $d "*) ;;
-            *) echo "::error title=daemons::$d is not running"; exit 1 ;;
-            esac
-          done
+        run: tools/linux/check-boot-log.sh daemons
 
       - name: Check periodic daily
-        run: |
-          log="$OBJDIR/qemu/X86_64_GENERIC.boot-root.log"
-          grep -aq '^periodic-42:' "$log" ||
-            { echo "::error title=periodic::the boot test got no periodic report"; exit 1; }
-          grep -a '^daily| ' "$log" | tr -d '\r'
-          grep -aq '^daily| -- End of daily output --' "$log" ||
-            { echo "::error title=periodic::daily.log has no end marker"; exit 1; }
-          missing=$(grep -a '^daily| .*not found' "$log" | tr -d '\r' | sed 's/^daily| //' | sort -u | tr '\n' ';')
-          [ -z "$missing" ] || { echo "::error title=periodic::commands not found: $missing"; exit 1; }
+        run: tools/linux/check-boot-log.sh periodic
 
       # libgcc_eh and libstdc++ are built with clang: a static C++ test
       # throws through two frames and catches.
       - name: Check C++ exceptions
-        run: |
-          log="$OBJDIR/qemu/X86_64_GENERIC.boot-root.log"
-          grep -aF "c++ exceptions: ok" "$log" ||
-            { echo "::error title=C++::the exception test did not unwind"; grep -a 'c++ exceptions\|cxx-eh' "$log"; exit 1; }
+        run: tools/linux/check-boot-log.sh cxx
+
+      # The compiler runtime is built from contrib/compiler-rt
+      # (lib/libcompiler_rt): builtins in static and dynamic programs,
+      # C++ constructors, destructors and exceptions across a shared
+      # library, dlopen(3).
+      - name: Check the compiler runtime and dynamic linking
+        run: tools/linux/check-boot-log.sh runtime
+
+      - name: Check permissions and writable directories
+        run: tools/linux/check-boot-log.sh fs
 
       # Issue #5: the kernel runs binaries by either ABI note.
       - name: Check both ELF ABI notes
-        run: |
-          log="$OBJDIR/qemu/X86_64_GENERIC.boot-root.log"
-          for b in FoxynBSD DragonFly; do
-            grep -F "brand $b: ok" "$log" ||
-              { echo "::error title=ABI note::a binary with the $b note did not run"; exit 1; }
-          done
+        run: tools/linux/check-boot-log.sh abi
+
+      - name: Check loading kernel modules
+        run: tools/linux/check-boot-log.sh kld
 
       - name: Report boot result
         if: always() && (steps.boot.outcome == 'failure' || steps.boot.outcome == 'success')
@@ -337,6 +313,7 @@ jobs:
           name: foxynbsd-root-X86_64_GENERIC
           path: |
             ${{ env.OBJDIR }}/root.iso
+            ${{ env.OBJDIR }}/elf-audit.txt
             ${{ env.OBJDIR }}/qemu/*.log
             ${{ env.OBJDIR }}/qemu/*.stderr
           if-no-files-found: warn
@@ -359,7 +336,7 @@ jobs:
           sudo apt-get update
           sudo apt-get install -y --no-install-recommends \
             build-essential flex bison libfl-dev libbsd-dev libtirpc-dev \
-            pkg-config clang lld libclang-rt-18-dev ncurses-bin
+            pkg-config clang lld ncurses-bin
 
       - name: Build host tools and headers
         run: |
@@ -376,6 +353,11 @@ jobs:
             { grep -A200 'these directories failed' "$BUILD_LOG"; exit 1; }
           grep -c '^>>> building' "$BUILD_LOG"
 
+      - name: Audit the target ELF files
+        run: |
+          tools/linux/elf-audit.sh -o "$OBJDIR/elf-audit.txt" "$OBJDIR/sysroot" ||
+            { echo "::error title=ELF audit::$(grep '^ERROR' "$OBJDIR/elf-audit.txt" | head -n 20 | tr '\n' ';')"; exit 1; }
+
       - name: Report build failure
         if: failure()
         run: |
@@ -391,6 +373,8 @@ jobs:
         uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
         with:
           name: foxynbsd-world-log
-          path: ${{ env.BUILD_LOG }}
+          path: |
+            ${{ env.BUILD_LOG }}
+            ${{ env.OBJDIR }}/elf-audit.txt
           if-no-files-found: warn
           retention-days: 14

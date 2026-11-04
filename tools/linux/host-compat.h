@@ -21,6 +21,9 @@
 #ifndef __dead2
 #define __dead2		__attribute__((__noreturn__))
 #endif
+#ifndef __pure
+#define __pure		__attribute__((__pure__))
+#endif
 #ifndef __printflike
 #define __printflike(fmt, va) __attribute__((__format__(__printf__, fmt, va)))
 #endif
