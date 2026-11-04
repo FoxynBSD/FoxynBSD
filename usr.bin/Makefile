@@ -165,6 +165,7 @@ SUBDIR=	alias \
 	rpcgen \
 	rpcinfo \
 	rs \
+	ruby \
 	rup \
 	ruptime \
 	rusers \

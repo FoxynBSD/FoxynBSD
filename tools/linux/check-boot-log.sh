@@ -31,6 +31,8 @@
 #			one (skipped for root.iso)
 #	cc		the image's gcc 12 (cc) and gcc 8 build and run C and C++
 #			(skipped for an image without them)
+#	ruby		Ruby runs with openssl, yaml, zlib, socket, net/http and
+#			RubyGems (skipped for an image without Ruby)
 #	persist		(not in all) a second boot of disk.img found the first
 #			one's boot count and a clean file system
 #	install		(not in all) foxyn-install finished (boot-test.sh --install)
@@ -43,7 +45,7 @@ set -eu
 OBJDIR=${OBJDIR:-${XDG_CACHE_HOME:-$HOME/.cache}/foxynbsd}
 LOG=$OBJDIR/qemu/X86_64_GENERIC.boot-root.log
 if [ "${1:-}" = -l ]; then LOG=$2; shift 2; fi
-[ $# -gt 0 ] || { sed -n '9,37p' "$0" | sed 's/^# \{0,1\}//'; exit 2; }
+[ $# -gt 0 ] || { sed -n '9,39p' "$0" | sed 's/^# \{0,1\}//'; exit 2; }
 [ -f "$LOG" ] || { echo "::error title=boot log::no log at $LOG"; exit 1; }
 
 fail() { echo "::error title=$1::$2"; return 1; }
@@ -181,6 +183,16 @@ check_cc() {
 	    fail compilers "$(lines '^cc-check: FAIL' | tr '\n' ';')"
 }
 
+check_ruby() {
+	lines '^ruby-check: ' || :
+	if grep -aq '^ruby-check: skipped' "$LOG"; then
+		echo "::notice title=ruby::no Ruby in the image, not tested"
+		return 0
+	fi
+	grep -aq '^ruby-check: ok' "$LOG" ||
+	    fail Ruby "$(lines '^ruby-check: FAIL' | tr '\n' ';')"
+}
+
 check_disk() {
 	if has 'root on cd9660, /etc/rc'; then
 		echo "::notice title=disk::the root is root.iso, not a disk: not tested"
@@ -207,7 +219,7 @@ check_persist() {
 	    fail persist "the file system was not clean after halt -p"
 }
 
-ALL="rtld rcd identity basics syslogd daemons periodic cxx runtime fs abi kld net tls disk cc"
+ALL="rtld rcd identity basics syslogd daemons periodic cxx runtime fs abi kld net tls disk cc ruby"
 [ "$*" = all ] && set -- $ALL
 rc=0
 for c; do

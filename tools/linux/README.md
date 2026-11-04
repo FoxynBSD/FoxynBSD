@@ -503,7 +503,7 @@ quick to build; CI's userland jobs use it. Either way the image gets the
 reads (`profile`, `shells`, `csh.*`, `hosts`, `services`, all of
 `pam.d`, ...) and root's dot files from `share/skel`, with a `.shrc`
 prompt that shows `user@host:directory`. Root's shell is `csh`, as on
-DragonFly. The base programs include LibreSSL (`libcrypto`, `libssl`),
+DragonFly. The base programs include LibreSSL 4.3 (`libcrypto`, `libssl`),
 `libfetch` and what uses them: `csh`, `mtree`, `dhcpcd`, `fetch` and
 `openssl`, with `/etc/ssl/openssl.cnf` and LibreSSL's CA certificates in
 `/etc/ssl/cert.pem`. It compiles a few console terminal types (`xterm`,
@@ -727,16 +727,56 @@ check per CI step (`all` runs them all):
 | `abi` | programs with either ELF ABI note (FoxynBSD, DragonFly) run |
 | `kld` | the kernel modules in the image (`udf`, `ext2fs`, when built) load and unload |
 | `net` | `dhcpcd` runs and leased `vtnet0` an address, a default route and a name server; `fetch` gets `http://10.0.2.100/` through the gateway |
-| `tls` | `fetch` over HTTPS to an `openssl s_server` in the guest, with a certificate `openssl req` made there (LibreSSL's libcrypto and libssl) |
+| `tls` | `fetch` over HTTPS to an `openssl s_server` in the guest, with a certificate `openssl req` made there (LibreSSL's libcrypto and libssl); `ssh-keygen` makes RSA and Ed25519 keys when the image has OpenSSH |
 | `disk` | on a disk (`disk.img`, an installed disk): the root is UFS or HAMMER2 and writable (skipped for root.iso) |
 | `persist` | not in `all`: a second boot of `disk.img` found the first one's boot count in `/var/db`, kept the password database and had a clean file system |
 | `install` | not in `all`: `foxyn-install` finished (`boot-test.sh --install`) |
 | `cc` | gcc 12 (`cc`, `c++`) and gcc 8 (`CCVER=gcc80`) compile, link and run C, static C and C++ with an exception in the image (skipped for an image without compilers) |
+| `ruby` | Ruby with `openssl` (LibreSSL), `yaml` (libyaml), `zlib` and `socket`, `Net::HTTP` to `http://10.0.2.100/`, RubyGems (skipped for an image without Ruby) |
 
 A failing boot leaves the serial log in `$OBJDIR/qemu/`. On a kernel
 trap, `boot-test.sh` resolves the faulting instruction to a source line
 (`<log>.fault`); with `machdep.print_user_faults`, it does the same for
 faults in `ld-elf.so.2`.
+
+## LibreSSL and Ruby
+
+FoxynBSD's base has LibreSSL 4.3.4 (`crypto/libressl`; DragonFly has
+3.6.1) and Ruby 4.0.9 (`contrib/ruby`, `usr.bin/ruby`), which DragonFly
+does not have; Ruby's `openssl` extension needs LibreSSL 3.9 or later.
+
+LibreSSL builds as before: `lib/librecrypto` (`libprivate_crypto.so.57`),
+`lib/libressl` (`libprivate_ssl.so.60`), `usr.bin/openssl` and
+`usr.bin/nc`, with source lists, `HAVE_*` settings and the x86_64
+assembly taken from what LibreSSL's own configure produces for the
+target; `crypto/libressl/README.DRAGONFLY` says how to regenerate them.
+The portable LibreSSL's `include/compat` headers stand in for most of
+DragonFly's earlier local changes (`pledge`, `unveil`, `syslog_r`, ...).
+LibreSSL 4 removed old interfaces, which a few programs used: `BN_init`
+(`libtelnet`, `newkey`/`chkey`), `BN_MASK2` and `BN_zero`'s return value
+(`dc`), `EVP_add_cipher_alias` (`tcpdump`); they are changed as OpenBSD
+changed them. `Makefile_upgrade.inc` removes the old libraries and
+headers on an upgrade.
+
+Ruby is built by its own configure and makefiles, which `usr.bin/ruby`
+drives (on DragonFly natively, or here as a cross build). Its extensions
+link the base's libraries: `openssl` (LibreSSL), `psych` (YAML, which
+RubyGems needs: `contrib/libyaml`, `lib/libyaml`, a private
+`libprivate_yaml.so.2`), `zlib`, `socket`; `fiddle` is not built, as the
+base has no libffi. A cross build needs a Ruby of the same version on the
+build host (BASERUBY), which runs the generators, the extensions' setup
+and the gems' installation: `build.sh` builds it first from the same
+`contrib/ruby`, for the host (`$OBJDIR/host/obj/ruby`), so the host needs
+no Ruby. Its precompiled core library (`builtin_binary.rbbin`) also goes
+into the target build, which cannot make it (it would have to run the
+target's miniruby): without it the interpreter would start as miniruby
+does, compiling that code at each start and without RubyGems. The
+format records the version, word size and byte order, which the host and
+the target share.
+
+Ruby is in the image with the whole world, not in the base image. The
+`ruby` test runs it there with each of those extensions, `Net::HTTP`
+through QEMU's network and RubyGems.
 
 ## The whole world
 
@@ -860,7 +900,8 @@ report are uploaded as artifacts.
 | root image | boots through `/etc/rc` and `rc.d` to a root login; syslogd, newsyslog, cron, devd, periodic |
 | whole world (`build.sh world`) | builds into the sysroot (CI job *Whole world*) |
 | ELF audit | no host contamination in the sysroot and the image |
-| network (`dhcpcd`), LibreSSL, `fetch` | in the base image; tested at boot (DHCP lease, HTTP, HTTPS) |
+| network (`dhcpcd`), LibreSSL 4.3, `fetch` | in the base image; tested at boot (DHCP lease, HTTP, HTTPS) |
+| Ruby 4.0 | in the world image with openssl, psych, zlib, socket and RubyGems; tested at boot |
 | writable root on a disk (`build.sh disk`) | UFS on GPT, made with the host `makefs`; boots twice in CI |
 | gcc 12's runtime (`gnu/lib/gcc120`) | built by the world (`xgcc`, `xc++`); the image's gcc 12 and gcc 8 build and run C and C++ |
 | installers | the BSD Installer starts in CI and installs by hand (disklabel64, `/boot` UFS, HAMMER2, `boot1.efi`); `foxyn-install` installs and the disk boots alone in CI |

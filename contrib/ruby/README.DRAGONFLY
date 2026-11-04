@@ -1,0 +1,26 @@
+RUBY
+====
+
+Original source can be downloaded from:
+https://cache.ruby-lang.org/pub/ruby/4.0/
+
+file   = ruby-4.0.9.tar.xz
+sha256 = a8057adb39f51ad6dc3106237504c93dd792bb515837b4fe7817ae21ed7e51f4
+
+Deleted (not needed to build or install Ruby): test/, spec/,
+bootstraptest/, benchmark/, sample/, doc/, win32/, wasm/, cygwin/.
+No local modifications.
+
+These sources are used in:
+	usr.bin/ruby	ruby, irb, gem, erb, ... and libruby.so.40, with
+			Ruby's own configure and makefiles (see the comment
+			there); the extensions link the base's LibreSSL and
+			libyaml.  fiddle (FFI) is not built: libffi is not in
+			the base.
+
+The build must not write into this directory: usr.bin/ruby configures
+--without-git (else the bundled gems' sources would be cloned into
+gems/src) and builds in its object directory.
+
+Ruby's licence: BSD-2-Clause or the Ruby licence (COPYING, BSDL);
+LEGAL lists the files with other terms.

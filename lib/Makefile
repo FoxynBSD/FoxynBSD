@@ -93,7 +93,8 @@ SUBDIR=	${SUBDIR_ORDERED} \
 	libu4bhid \
 	libvgl \
 	libwrap \
-	liby
+	liby \
+	libyaml
 
 .if make(install)
 SUBDIR:=	libc ${SUBDIR:Nlibc}

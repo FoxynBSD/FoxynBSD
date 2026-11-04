@@ -207,6 +207,14 @@ if [ "$result" -eq 0 ] && [ -n "$ROOTARG" ] && [ "$MODE" != install ] &&
 		sleep 5
 		tries=$((tries + 1))
 	done
+	# Ruby (the image with the world): /root/tests/ruby-check prints
+	# "ruby-check:" lines and ends with ruby-42.
+	printf "sh -c 'sh /root/tests/ruby-check; echo ruby-\$((6*7)): \$?'\r" >&3
+	tries=0
+	while [ "$tries" -lt 24 ] && ! grep -aq '^ruby-42:' "$LOG"; do
+		sleep 5
+		tries=$((tries + 1))
+	done
 	# Run the daily periodic(8) jobs and print their report, each line
 	# prefixed with "daily| ", for CI to check.
 	printf "sh -c 'periodic daily; sed \"s/^/daily| /\" /var/log/daily.log; echo periodic-\$((6*7)): \$?'\r" >&3

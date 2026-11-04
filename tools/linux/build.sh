@@ -965,6 +965,7 @@ world_dir() {
 		  gcc_prep; world_lib "$1" ) && gcc_pic_unwind ;;
 	gnu/usr.bin/cc80) gcc_prep_clean; world_lib "$1" ;;
 	gnu/lib/gcc120)	world_gcc120 ;;
+	usr.bin/ruby)	world_ruby ;;
 	*)		world_lib "$1" ;;
 	esac
 }
@@ -1057,6 +1058,45 @@ world_gcc120() {
 	for d in $GCC120_CXX; do
 		world_lib "$g/$d" || return
 	done
+}
+
+# Ruby (usr.bin/ruby, contrib/ruby) for the target.  Ruby's configure
+# cross-compiles with a Ruby that runs on this host (BASERUBY), which runs
+# the build's generators, the extensions' extconf.rb and the installation
+# of the default and bundled gems in place of the Ruby being built.  It
+# must be the same Ruby: the install runs the tree's lib/ (RubyGems 4,
+# Pathname in the core) in it.  So BASERUBY is built first, for this
+# host, from contrib/ruby (a release builds without a Ruby), into
+# $HOSTOBJ/ruby; the host needs no Ruby of its own.
+host_ruby() {
+	local o=$HOSTOBJ/ruby-build p=$HOSTOBJ/ruby v
+	v=$(sed -n 's/^#define RUBY_VERSION_TEENY \([0-9]*\)/\1/p' "$SRCDIR/contrib/ruby/version.h")
+	v=$(sed -n 's/^#define RUBY_API_VERSION_MAJOR \([0-9]*\)/\1/p;s/^#define RUBY_API_VERSION_MINOR \([0-9]*\)/\1/p' \
+	    "$SRCDIR/contrib/ruby/include/ruby/version.h" | tr '\n' .)$v
+	if [ "$(cat "$p/.version" 2>/dev/null)" = "$v" ] && [ -x "$p/bin/ruby" ] &&
+	    [ -s "$o/builtin_binary.rbbin" ]; then
+		return 0
+	fi
+	msg "building Ruby $v for this host (BASERUBY)"
+	rm -rf "$o" "$p"; mkdir -p "$o"
+	# Without the shims and the world's settings: a plain host build.
+	( PATH=$(echo "$PATH" | tr ':' '\n' | grep -vx "$HOSTBIN" | paste -sd:)
+	  unset MAKEOBJDIRPREFIX MAKEFLAGS MACHINE MACHINE_ARCH MACHINE_PLATFORM \
+	      CCVER CC CXX NXENV _SHLIBDIRPREFIX WANT_INSTALLER
+	  cd "$o" && "$SRCDIR/contrib/ruby/configure" --prefix="$p" \
+	      --disable-install-doc --disable-yjit --disable-zjit --without-gmp \
+	      --disable-shared CC="$HOST_CC" >configure.log 2>&1 &&
+	  make -j"$JOBS" >make.log 2>&1 && make install-nodoc >install.log 2>&1 ) ||
+	    die "building the host Ruby failed: see $o/*.log"
+	echo "$v" > "$p/.version"
+}
+
+world_ruby() {
+	host_ruby
+	# The host build's precompiled core library (see usr.bin/ruby).
+	world_lib usr.bin/ruby \
+	    "RUBY_CONFIGURE_ARGS=--host=x86_64-unknown-dragonfly --build=x86_64-pc-linux-gnu --with-baseruby=$HOSTOBJ/ruby/bin/ruby" \
+	    "RUBY_BUILTIN_BINARY=$HOSTOBJ/ruby-build/builtin_binary.rbbin"
 }
 
 # The SUBDIR list of a directory's Makefile, as its make sees it.
@@ -1203,6 +1243,7 @@ do_rootfs() {
 	write_runtime_tests "$root/root/tests"
 	write_net_test "$root/root/tests/net-check"
 	write_cc_test "$root/root/tests/cc-check"
+	write_ruby_test "$root/root/tests/ruby-check"
 	# Kernel modules for the kldload test in rc.local, when `build.sh
 	# modules` built them (MODULES_OVERRIDE="vfs/udf vfs/ext2fs" builds
 	# only these): filesystems the GENERIC kernel does not have built in.
@@ -1550,6 +1591,66 @@ rootfs_installer() {
 	echo 'installer::0:0::0:0:FoxynBSD Installer:/root:/usr/sbin/installer' \
 	    >> "$root/etc/master.passwd"
 	cp "$SRCDIR/nrelease/root/etc/issue" "$root/etc/issue"
+}
+
+# Ruby in the image (the world has it), which boot-test.sh runs after
+# logging in: the interpreter and the extensions that link the base's
+# libraries (openssl: LibreSSL, psych: libyaml, zlib, socket), Net::HTTP
+# to the server boot-test.sh has QEMU answer on 10.0.2.100, and RubyGems.
+write_ruby_test() {
+	cat > "$1" <<'EOF'
+#!/bin/sh
+if [ ! -x /usr/bin/ruby ]; then
+	echo "ruby-check: skipped (no Ruby in this image)"
+	exit 0
+fi
+ruby -v | sed 's/^/ruby-check: /'
+ruby -ropenssl -ryaml -rzlib -rsocket -rnet/http -e '
+ok = true
+check = lambda do |name, &b|
+  begin
+    r = b.call
+    puts "ruby-check: #{name}: #{r}"
+  rescue Exception => e
+    ok = false
+    puts "ruby-check: FAIL #{name}: #{e.class}: #{e.message}"
+  end
+end
+check.call("openssl") do
+  d = OpenSSL::Digest::SHA256.hexdigest("foxynbsd")
+  raise "sha256 #{d}" unless d == "32a855ce4cf7566b341676d3a01b7456f39f87e2a8720fd74e1846e8359c81a4"
+  OpenSSL::OPENSSL_LIBRARY_VERSION
+end
+check.call("yaml") do
+  h = YAML.safe_load(YAML.dump({ "os" => "FoxynBSD", "n" => 42 }))
+  raise h.inspect unless h["n"] == 42
+  "round trip ok (libyaml #{Psych::LIBYAML_VERSION})"
+end
+check.call("zlib") do
+  s = "fox" * 100
+  raise "inflate" unless Zlib::Inflate.inflate(Zlib::Deflate.deflate(s)) == s
+  "deflate/inflate ok"
+end
+check.call("socket") do
+  srv = TCPServer.new("127.0.0.1", 0)
+  t = Thread.new { c = srv.accept; c.puts(c.gets.upcase); c.close }
+  c = TCPSocket.new("127.0.0.1", srv.addr[1]); c.puts("fox"); r = c.gets.chomp; t.join
+  raise r unless r == "FOX"
+  "loopback ok"
+end
+check.call("net/http") do
+  b = Net::HTTP.get(URI("http://10.0.2.100/"))
+  raise b.inspect unless b.include?("foxynbsd-net-42")
+  "http://10.0.2.100/ ok"
+end
+check.call("rubygems") do
+  "#{Gem::VERSION}, #{Gem::Specification.count} gems"
+end
+puts "ruby-check: #{ok ? "ok" : "fail"}"
+exit(ok)
+'
+EOF
+	chmod 755 "$1"
 }
 
 # Two tiny static programs that differ only in their ELF ABI note: one
