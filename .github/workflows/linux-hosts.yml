@@ -1,0 +1,156 @@
+name: Linux hosts
+
+# The Linux host build (tools/linux) on other distributions than the
+# Ubuntu runner of linux-build.yml: each builds the kernel, the EFI
+# loader and the base userland in a container of that distribution,
+# audits the target ELF files and boots the image under QEMU to a root
+# login.  It is expensive, so it runs only when the host build itself
+# changes, once a week, and by hand; linux-build.yml covers every push.
+#
+# Omarchy is Arch-based: the Arch container checks its packages and
+# toolchain (same pacman repositories), not Omarchy itself.
+
+on:
+  push:
+    branches: [dev]
+    paths:
+      - 'tools/linux/**'
+      - 'lib/libcompiler_rt/**'
+      - 'contrib/compiler-rt/**'
+      - '.github/workflows/linux-hosts.yml'
+  pull_request:
+    branches: [dev]
+    paths:
+      - 'tools/linux/**'
+      - 'lib/libcompiler_rt/**'
+      - 'contrib/compiler-rt/**'
+      - '.github/workflows/linux-hosts.yml'
+  schedule:
+    - cron: '23 4 * * 1'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+defaults:
+  run:
+    shell: bash
+
+jobs:
+  host:
+    name: ${{ matrix.name }}
+    runs-on: ubuntu-24.04
+    timeout-minutes: 150
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          # Arch has the newest clang: it also builds the kernel and every
+          # module with it (KERNCC=clang); Debian keeps the default gcc.
+          - name: Arch Linux (container, clang kernel)
+            image: archlinux:latest
+            kerncc: clang
+          - name: Debian stable (container)
+            image: debian:stable
+            kerncc: gcc
+    container:
+      image: ${{ matrix.image }}
+      # QEMU uses KVM when the runner passes it through; otherwise it
+      # falls back to TCG (slower, hence the boot timeout below).
+      options: --device /dev/kvm
+    env:
+      OBJDIR: /tmp/foxynbsd-obj
+      BUILD_LOG: /tmp/foxynbsd-build.log
+      BOOT_TIMEOUT: 900
+      KERNCC: ${{ matrix.kerncc }}
+    steps:
+      # The package lists are the ones tools/linux/README.md documents.
+      - name: Install host packages
+        run: |
+          . /etc/os-release
+          case $ID in
+          arch)
+            pacman -Syu --noconfirm --needed git base-devel flex bison \
+              libbsd libtirpc clang lld libisoburn ncurses qemu-base edk2-ovmf ;;
+          debian)
+            apt-get update
+            DEBIAN_FRONTEND=noninteractive apt-get install -y --no-install-recommends \
+              git ca-certificates build-essential flex bison libfl-dev \
+              libbsd-dev libtirpc-dev pkg-config clang lld xorriso ncurses-bin \
+              qemu-system-x86 ovmf ;;
+          esac
+          echo "$PRETTY_NAME"; gcc --version | head -n1; clang --version | head -n1
+          ld --version | head -n1; sh -c 'readlink -f /bin/sh'
+
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+
+      - name: Build host tools, kernel, modules, loader and boot tree
+        run: |
+          set -o pipefail
+          { tools/linux/build.sh tools && tools/linux/build.sh kernel &&
+            tools/linux/build.sh modules &&
+            tools/linux/build.sh loader && tools/linux/build.sh esp; } 2>&1 |
+            tee -a "$BUILD_LOG" | grep '^>>>\|build.sh:'
+
+      - name: Build headers, libc, the base userland and the root image
+        run: |
+          set -o pipefail
+          { tools/linux/build.sh sysroot && tools/linux/build.sh libc &&
+            tools/linux/build.sh base && tools/linux/build.sh rootfs; } 2>&1 |
+            tee -a "$BUILD_LOG" | grep '^>>>\|build.sh:'
+
+      - name: Report build failure
+        if: failure()
+        run: |
+          [ -f "$BUILD_LOG" ] || exit 0
+          errs=$(grep -E ': (fatal )?error:|\*\*\* \[|^Error|build.sh:' "$BUILD_LOG" | sort -u | head -n 30 || :)
+          errs=$(printf '%s\n--- log tail ---\n%s\n' "$errs" "$(grep -v ' warning: ' "$BUILD_LOG" | tail -n 25)")
+          msg=$(printf '%s\n' "$errs" | cut -c1-400 | sed 's/%/%25/g' | awk '{printf "%s%%0A", $0}')
+          echo "::error title=Build failed (${{ matrix.name }})::${msg}"
+
+      - name: Audit the target ELF files
+        run: |
+          tools/linux/elf-audit.sh -o "$OBJDIR/elf-audit.txt" \
+            "$OBJDIR/rootfs" "$OBJDIR/sysroot" ||
+            { echo "::error title=ELF audit::$(grep '^ERROR' "$OBJDIR/elf-audit.txt" | head -n 20 | tr '\n' ';')"; exit 1; }
+
+      - name: Boot and log in under QEMU
+        id: boot
+        run: |
+          [ -w /dev/kvm ] && echo "KVM available" || echo "no KVM: TCG"
+          tools/linux/boot-test.sh --root
+
+      - name: Check the boot log
+        run: tools/linux/check-boot-log.sh all
+
+      - name: Report boot result
+        if: always() && (steps.boot.outcome == 'failure' || steps.boot.outcome == 'success')
+        run: |
+          log="$OBJDIR/qemu/X86_64_GENERIC.boot-root.log"
+          {
+            cat "$log.fault" 2>/dev/null || :
+            echo "--- serial tail ---"
+            tail -n 60 "$log" 2>/dev/null || :
+            echo "--- qemu stderr ---"
+            cat "$log.stderr" 2>/dev/null || :
+          } | sed 's/%/%25/g; s/\r//g' | awk '{printf "%s%%0A", $0}' > /tmp/boot-tail
+          echo "::notice title=Boot (${{ matrix.name }}, ${{ steps.boot.outcome }}), serial tail::$(cat /tmp/boot-tail)"
+
+      - name: Upload logs
+        if: always()
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: foxynbsd-host-${{ strategy.job-index }}
+          path: |
+            ${{ env.BUILD_LOG }}
+            ${{ env.OBJDIR }}/elf-audit.txt
+            ${{ env.OBJDIR }}/qemu/*.log
+            ${{ env.OBJDIR }}/qemu/*.stderr
+          if-no-files-found: warn
+          retention-days: 14

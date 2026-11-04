@@ -1,0 +1,51 @@
+name: Linux host scripts
+
+# Fast checks of tools/linux (seconds, no build): the scripts parse under
+# the shells Linux hosts use as /bin/sh (dash on Debian/Ubuntu, bash on
+# Arch), shellcheck finds no errors, and the ELF audit still flags a
+# Linux binary.  The builds are in linux-build.yml and linux-hosts.yml.
+
+on:
+  push:
+    branches: [dev]
+    paths:
+      - 'tools/linux/**'
+      - '.github/workflows/**'
+  pull_request:
+    branches: [dev]
+    paths:
+      - 'tools/linux/**'
+      - '.github/workflows/**'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  scripts:
+    name: Script checks
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+
+      - name: Parse with dash and bash
+        run: |
+          for f in tools/linux/*.sh; do
+            dash -n "$f" && bash -n "$f" || { echo "::error file=$f::does not parse"; exit 1; }
+          done
+
+      - name: shellcheck (errors only)
+        run: shellcheck -S error tools/linux/*.sh
+
+      # The audit must fail on a glibc program and pass on an empty tree.
+      - name: ELF audit self-test
+        run: |
+          mkdir -p /tmp/host/bin /tmp/empty
+          cp /usr/bin/true /tmp/host/bin/
+          if tools/linux/elf-audit.sh /tmp/host; then
+            echo "::error::elf-audit.sh accepted a glibc program"; exit 1
+          fi
+          tools/linux/elf-audit.sh /tmp/empty
