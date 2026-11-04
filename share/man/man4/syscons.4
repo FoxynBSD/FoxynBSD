@@ -53,6 +53,7 @@
 .Cd "options SC_BORDER_COLOR=_attribute_"
 .Cd "options SC_DFLT_FONT"
 .Cd "makeoptions SC_DFLT_FONT=_font_name_"
+.Cd "options SC_DFLT_TERM=\e\(dqxterm\e\(dq"
 .Cd "device sc0 at isa?" Op flags Ar flags
 .Sh DESCRIPTION
 The
@@ -382,6 +383,35 @@ unless you explicitly load a software font at startup.
 See
 .Sx EXAMPLES
 below.
+.It Dv SC_DFLT_TERM=\e\(dqname\e\(dq
+The terminal emulator of new virtual terminals:
+.Dq sc
+(the default) emulates the
+.Dq cons25
+terminal,
+.Dq xterm
+what
+.Xr terminfo 5
+calls
+.Dq xterm ,
+and
+.Dq dumb
+interprets no escape sequences.
+.Xr vidcontrol 1 Fl T
+changes the emulator of one terminal.
+The type of the terminal in
+.Xr ttys 5
+should match its emulator.
+The
+.Dq xterm
+emulator has scroll regions, the alternate screen, the
+.Ql ESC [ ?
+private modes, cursor position and device attribute reports and the
+DEC line drawing characters, and sends xterm's function and cursor key
+strings; it shows 256 and direct colors with the nearest of the 16 that
+the adapter has, and, like the
+.Dq sc
+emulator, shows bytes, not UTF-8.
 .El
 .Pp
 The following options will remove some features from the

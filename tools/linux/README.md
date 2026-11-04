@@ -541,7 +541,12 @@ only on the first boot; see below.) `/etc/rc.local` prints `uname -a` and runs
 the boot tests below. When `/etc/rc` exits, init starts `getty` on the
 console from a small `/etc/ttys` (`ttyv0` in the QEMU window, the serial
 `ttyd0` with `--serial`), and `login` checks passwords through PAM
-(`/etc/pam.d`, `pam_unix` and friends). Root has no password.
+(`/etc/pam.d`, `pam_unix` and friends). Root has no password. `ttyv0` has
+the type `xterm`, and the image's `rc.conf` sets `allscreens_flags="-T
+xterm"`, so `/etc/rc.d/syscons` gives every virtual console syscons'
+xterm emulator (`sys/dev/misc/syscons/scterm-xterm.c`, `vidcontrol -T`)
+instead of the cons25 one, which shows the `ESC [ ?` sequences of line
+editors such as Ruby's `irb` (Reline) as text.
 
 `build.sh rootfs` finally packs the tree as a Rock Ridge ISO with xorriso,
 with every file owned by root:wheel (the build runs unprivileged, so the

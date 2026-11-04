@@ -175,9 +175,10 @@ usage(void)
 		" [-l screen_map]\n"
 		"                  [-M char] [-m on | off] [-r foreground"
 		" background]\n"
-		"                  [-S on | off] [-s number] [-t N | off]"
-		" [mode]\n"
-		"                  [foreground [background]] [show]\n");
+		"                  [-S on | off] [-s number] [-T xterm | cons25]"
+		" [-t N | off]\n"
+		"                  [mode]"
+		" [foreground [background]] [show]\n");
 
 	exit(1);
 }
@@ -457,6 +458,28 @@ load_font(char *type, char *filename)
 
 	fclose(fd);
 	free(fontmap);
+}
+
+
+/*
+ * Set the terminal emulator of the vty.
+ */
+
+static void
+set_terminal_mode(char *arg)
+{
+	term_info_t ti;
+	const char *name = arg;
+
+	/* cons25 is what the "sc" emulator emulates */
+	if (strcmp(name, "cons25") == 0)
+		name = "sc";
+	memset(&ti, 0, sizeof(ti));
+	strlcpy(ti.ti_name, name, sizeof(ti.ti_name));
+	if (ioctl(0, CONS_SETTERM, &ti) == -1) {
+		revert();
+		err(1, "setting terminal emulator %s", arg);
+	}
 }
 
 
@@ -1113,7 +1136,7 @@ main(int argc, char **argv)
 	if (ioctl(0, CONS_GETINFO, &info) == -1)
 		err(1, "must be on a virtual console");
 
-	while((opt = getopt(argc, argv, "b:Cc:df:g:h:i:l:LM:m:pPr:S:s:t:x")) != -1) {
+	while((opt = getopt(argc, argv, "b:Cc:df:g:h:i:l:LM:m:pPr:S:s:T:t:x")) != -1) {
 		switch(opt) {
 		case 'b':
 			set_border_color(optarg);
@@ -1177,6 +1200,9 @@ main(int argc, char **argv)
 			break;
 		case 's':
 			set_console(optarg);
+			break;
+		case 'T':
+			set_terminal_mode(optarg);
 			break;
 		case 't':
 			set_screensaver_timeout(optarg);

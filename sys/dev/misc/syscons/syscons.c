@@ -830,6 +830,7 @@ scclose(struct dev_close_args *ap)
 	else {
 	    sc_vtb_destroy(&scp->vtb);
 	    sc_vtb_destroy(&scp->scr);
+	    sc_vtb_destroy(&scp->alt);
 	    sc_free_history_buffer(scp, scp->ysize);
 	    SC_STAT(dev) = NULL;
 	    kfree(scp, M_SYSCONS);
@@ -928,7 +929,15 @@ sckbdevent(keyboard_t *thiskbd, int event, void *arg)
 	    (*linesw[cur_tty->t_line].l_rint)(KEYCHAR(c), cur_tty);
 	    break;
 	case FKEY:  /* function key, return string */
-	    cp = kbd_get_fkeystr(thiskbd, KEYCHAR(c), &len);
+	    /* the emulator's string (xterm's keys), else the keymap's */
+	    cp = NULL;
+	    syscons_lock();
+	    if (sc->cur_scp->tsw->te_fkeystr != NULL)
+		cp = __DECONST(u_char *, (*sc->cur_scp->tsw->te_fkeystr)(
+		    sc->cur_scp, KEYCHAR(c), &len));
+	    syscons_unlock();
+	    if (cp == NULL)
+		cp = kbd_get_fkeystr(thiskbd, KEYCHAR(c), &len);
 	    if (cp != NULL) {
 	    	while (len-- >  0)
 		    (*linesw[cur_tty->t_line].l_rint)(*cp++, cur_tty);
@@ -1780,6 +1789,8 @@ scstart(struct tty *tp)
     struct clist *rbp;
     int len;
     u_char buf[PCBURST];
+    u_char resp[sizeof(((scr_stat *)NULL)->resp_buf)];
+    int resp_len;
     scr_stat *scp = SC_STAT(tp->t_dev);
 
     syscons_lock();
@@ -1797,7 +1808,16 @@ scstart(struct tty *tp)
 	    sc_puts(scp, buf, len);
 	}
 	tp->t_state &= ~TS_BUSY;
+	/* replies the emulator queued while it held the lock */
+	resp_len = scp->resp_len;
+	if (resp_len > 0)
+	    bcopy(scp->resp_buf, resp, resp_len);
+	scp->resp_len = 0;
 	syscons_unlock();
+	if (resp_len > 0 && ISTTYOPEN(tp)) {
+	    for (len = 0; len < resp_len; ++len)
+		(*linesw[tp->t_line].l_rint)(resp[len], tp);
+	}
 	ttwwakeup(tp);
     } else {
 	syscons_unlock();
@@ -3579,6 +3599,15 @@ sc_alloc_scr_buffer(scr_stat *scp, int wait, int discard)
 	sc_vtb_destroy(&old);
     }
 
+    /*
+     * A second buffer of the same size, where the xterm emulator keeps
+     * the screen while a program uses the alternate one: allocated
+     * here, where it may sleep, since the emulator runs with the
+     * syscons lock held.
+     */
+    sc_vtb_destroy(&scp->alt);
+    sc_vtb_init(&scp->alt, VTB_MEMORY, scp->xsize, scp->ysize, NULL, wait);
+
 #ifndef SC_NO_SYSMOUSE
     /* move the mouse cursor at the center of the screen */
     sc_mouse_move(scp, scp->xpixel / 2, scp->ypixel / 2);
@@ -4322,6 +4351,22 @@ sc_paste(scr_stat *scp, u_char *p, int count)
 	lwkt_reltoken(&tp->t_token);
     }
     lwkt_reltoken(&vga_token);
+}
+
+/*
+ * Queue a reply of the terminal emulator (a cursor position or device
+ * attributes report) as input of the screen's tty.  The emulator runs
+ * with the syscons lock held, where the line discipline cannot be
+ * entered; scstart() delivers the queue once it has dropped the lock.
+ * A reply that does not fit is dropped whole.
+ */
+void
+sc_respond(scr_stat *scp, const u_char *p, int count)
+{
+    if (count <= 0 || scp->resp_len + count > (int)sizeof(scp->resp_buf))
+	return;
+    bcopy(p, scp->resp_buf + scp->resp_len, count);
+    scp->resp_len += count;
 }
 
 void

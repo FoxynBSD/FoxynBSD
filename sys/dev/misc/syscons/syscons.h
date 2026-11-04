@@ -260,6 +260,8 @@ typedef struct scr_stat {
 	struct sc_rndr_sw *rndr;		/* renderer */
 	sc_vtb_t	scr;
 	sc_vtb_t	vtb;
+	sc_vtb_t	alt;			/* xterm emulator: main screen
+						   kept while in the alt one */
 	uint64_t	fbi_generation;		/* track fb_info updates */
 
 	int 		xpos;			/* current X position */
@@ -328,6 +330,14 @@ typedef struct scr_stat {
 	int		splash_save_status;	/* saved status for splash scr*/
 	int		queue_update_td;
 	struct thread	*asynctd;
+
+	/*
+	 * Replies of the terminal emulator to the program (a cursor
+	 * position report, ...).  The emulator queues them while it
+	 * holds the syscons lock; scstart() hands them to the tty.
+	 */
+	u_char		resp_buf[64];
+	int		resp_len;
 #ifdef _SCR_MD_STAT_DECLARED_
 	scr_md_stat_t	md;			/* machine dependent vars */
 #endif
@@ -352,7 +362,7 @@ typedef struct scr_stat {
 /* terminal emulator */
 
 #ifndef SC_DFLT_TERM
-#define SC_DFLT_TERM	"*"			/* any */
+#define SC_DFLT_TERM	"sc"			/* cons25 */
 #endif
 
 typedef int	sc_term_init_t(scr_stat *scp, void **tcp, int code);
@@ -371,6 +381,7 @@ typedef void	sc_term_notify_t(scr_stat *scp, int event);
 #define SC_TE_NOTIFY_VTSWITCH_IN	0
 #define SC_TE_NOTIFY_VTSWITCH_OUT	1
 typedef int	sc_term_input_t(scr_stat *scp, int c, struct tty *tp);
+typedef const u_char *sc_term_fkeystr_t(scr_stat *scp, int c, size_t *len);
 
 typedef struct sc_term_sw {
 	LIST_ENTRY(sc_term_sw)	link;
@@ -388,6 +399,7 @@ typedef struct sc_term_sw {
 	sc_term_clear_t		*te_clear;
 	sc_term_notify_t	*te_notify;
 	sc_term_input_t		*te_input;
+	sc_term_fkeystr_t	*te_fkeystr;	/* function key string, or NULL */
 } sc_term_sw_t;
 
 extern struct linker_set scterm_set;
@@ -535,6 +547,7 @@ int		sc_switch_scr(sc_softc_t *sc, u_int next_scr);
 void		sc_alloc_scr_buffer(scr_stat *scp, int wait, int discard);
 int		sc_init_emulator(scr_stat *scp, char *name);
 void		sc_paste(scr_stat *scp, u_char *p, int count);
+void		sc_respond(scr_stat *scp, const u_char *p, int count);
 void		sc_bell(scr_stat *scp, int pitch, int duration);
 void		sc_font_scale(scr_stat *scp, int max_cols, int max_rows);
 

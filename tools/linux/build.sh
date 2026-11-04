@@ -1971,6 +1971,9 @@ sendmail_outbound_enable="NO"
 sendmail_msp_queue_enable="NO"
 sendmail_rebuild_aliases="NO"
 blanktime="NO"		# Without --gui there is no ttyv0 to blank.
+# The virtual consoles run syscons' xterm emulator, as their type in
+# /etc/ttys says (the tree's default is cons25, the "sc" emulator).
+allscreens_flags="-T xterm"
 # The network: dhcpcd(8) configures QEMU's virtio-net card (user-mode
 # networking gives it 10.0.2.15, a gateway and DNS).  -b: rc goes on
 # while the lease comes.

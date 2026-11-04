@@ -84,6 +84,7 @@ dev/misc/syscons/scmouse.c		optional	sc
 dev/misc/syscons/scterm.c		optional	sc
 dev/misc/syscons/scterm-dumb.c		optional	sc
 dev/misc/syscons/scterm-sc.c		optional	sc
+dev/misc/syscons/scterm-xterm.c		optional	sc
 dev/misc/syscons/scvgarndr.c		optional	sc vga
 dev/misc/syscons/scvidctl.c		optional	sc
 dev/misc/syscons/scvtb.c		optional	sc

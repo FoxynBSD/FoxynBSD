@@ -304,7 +304,7 @@ sc_term_backtab(scr_stat *scp, int n)
 static __inline void
 sc_term_respond(scr_stat *scp, u_char *s)
 {
-	sc_paste(scp, s, strlen(s));	/* XXX: not correct, don't use rmap */
+	sc_respond(scp, s, strlen(s));
 }
 
 static __inline void
