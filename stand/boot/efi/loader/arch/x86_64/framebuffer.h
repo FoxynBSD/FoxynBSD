@@ -32,6 +32,7 @@
 #define	_EFIFB_H_
 
 int	efi_find_framebuffer(struct efi_fb *efifb);
+void	efi_menu_logo_orange(void);
 
 /* Guess bits-per-pixel from the color masks. */
 u_int	efi_framebuffer_bpp(struct efi_fb *efifb);

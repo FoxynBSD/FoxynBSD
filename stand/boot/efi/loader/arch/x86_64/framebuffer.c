@@ -565,3 +565,108 @@ command_uga(int argc, char *argv[])
 	snprintf(command_errbuf, sizeof(command_errbuf), "usage: %s", argv[0]);
 	return (CMD_ERROR);
 }
+
+/*
+ * Wisdom, the FoxynBSD fox in the boot menu, is orange.  The EFI text
+ * console has 16 fixed colors and none of them is orange (edk2's
+ * GraphicsConsole draws the "brown" of the VGA palette as olive), so the
+ * menu draws Wisdom's fur in brown and this function repaints the brown
+ * pixels orange through the Graphics Output Protocol.
+ *
+ * It first checks that it knows where the text is: it paints one cell
+ * with a brown background at the cursor, expects a solid cell of 8x19
+ * pixels (edk2's glyph size) on the text grid that GraphicsConsole
+ * centers on the screen, and reads the firmware's brown from it.  If
+ * anything does not match (no GOP, another console driver, another font
+ * size), it does nothing and the fox stays the console's brown.
+ */
+#define	CONS_GLYPH_W	8
+#define	CONS_GLYPH_H	19
+#define	WISDOM_R	0xff
+#define	WISDOM_G	0x8c
+#define	WISDOM_B	0x1a
+
+static int
+same_pixel(EFI_GRAPHICS_OUTPUT_BLT_PIXEL *a, EFI_GRAPHICS_OUTPUT_BLT_PIXEL *b)
+{
+	return (a->Red == b->Red && a->Green == b->Green && a->Blue == b->Blue);
+}
+
+void
+efi_menu_logo_orange(void)
+{
+	SIMPLE_TEXT_OUTPUT_INTERFACE *co = ST->ConOut;
+	EFI_GRAPHICS_OUTPUT_PROTOCOL *gop;
+	EFI_GRAPHICS_OUTPUT_BLT_PIXEL cell[(CONS_GLYPH_W + 2) * (CONS_GLYPH_H + 2)];
+	EFI_GRAPHICS_OUTPUT_BLT_PIXEL brown, *buf;
+	UINTN cols, rows, w, h, x0, y0, px, py, i, n;
+	INT32 col, row, pcol, attr;
+	CHAR16 space[2] = { ' ', 0 };
+	int ok;
+
+	if (BS->LocateProtocol(&gop_guid, NULL, (VOID **)&gop) != EFI_SUCCESS)
+		return;
+	if (co->QueryMode(co, co->Mode->Mode, &cols, &rows) != EFI_SUCCESS)
+		return;
+	w = gop->Mode->Info->HorizontalResolution;
+	h = gop->Mode->Info->VerticalResolution;
+	if (cols * CONS_GLYPH_W > w || rows * CONS_GLYPH_H > h)
+		return;
+	x0 = (w - cols * CONS_GLYPH_W) / 2;
+	y0 = (h - rows * CONS_GLYPH_H) / 2;
+
+	/*
+	 * The probe cell: on the cursor's row, which is blank after the
+	 * menu, one column in so that the frame below has a left side.
+	 */
+	col = co->Mode->CursorColumn;
+	row = co->Mode->CursorRow;
+	attr = co->Mode->Attribute;
+	pcol = col + 1;
+	if (pcol + 1 >= (INT32)cols || row + 1 >= (INT32)rows)
+		return;
+	co->SetCursorPosition(co, pcol, row);
+	co->SetAttribute(co, EFI_TEXT_ATTR(EFI_BROWN, EFI_BROWN));
+	co->OutputString(co, space);
+	co->SetAttribute(co, attr);
+
+	/* The cell and a one-pixel frame: solid brown inside, not outside. */
+	px = x0 + pcol * CONS_GLYPH_W;
+	py = y0 + row * CONS_GLYPH_H;
+	ok = py > 0 &&
+	    gop->Blt(gop, cell, EfiBltVideoToBltBuffer, px - 1, py - 1, 0, 0,
+	    CONS_GLYPH_W + 2, CONS_GLYPH_H + 2, 0) == EFI_SUCCESS;
+	if (ok) {
+		brown = cell[1 * (CONS_GLYPH_W + 2) + 1];
+		for (py = 1; ok && py <= CONS_GLYPH_H; py++)
+			for (px = 1; ok && px <= CONS_GLYPH_W; px++)
+				ok = same_pixel(&cell[py * (CONS_GLYPH_W + 2) + px],
+				    &brown);
+		/* The blank cell to the right is not brown. */
+		ok = ok && !same_pixel(&cell[1 * (CONS_GLYPH_W + 2) +
+		    CONS_GLYPH_W + 1], &brown);
+	}
+	co->SetCursorPosition(co, pcol, row);	/* clear the probe cell */
+	co->OutputString(co, space);
+	co->SetCursorPosition(co, col, row);
+	if (!ok)
+		return;
+
+	/* Repaint the brown pixels of the text area (only Wisdom uses it). */
+	n = w * h;
+	if (BS->AllocatePool(EfiLoaderData, n * sizeof(*buf),
+	    (VOID **)&buf) != EFI_SUCCESS)
+		return;
+	if (gop->Blt(gop, buf, EfiBltVideoToBltBuffer, 0, 0, 0, 0, w, h,
+	    0) == EFI_SUCCESS) {
+		for (i = 0; i < n; i++) {
+			if (same_pixel(&buf[i], &brown)) {
+				buf[i].Red = WISDOM_R;
+				buf[i].Green = WISDOM_G;
+				buf[i].Blue = WISDOM_B;
+			}
+		}
+		gop->Blt(gop, buf, EfiBltBufferToVideo, 0, 0, 0, 0, w, h, 0);
+	}
+	BS->FreePool(buf);
+}

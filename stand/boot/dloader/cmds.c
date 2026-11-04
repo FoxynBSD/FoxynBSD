@@ -489,64 +489,128 @@ command_menu(int ac, char **av)
 #define FRED_RIGHT 1
 static char *logo_blank_line = "                                 ";
 
+void (*menu_logo_hook)(void);
+
 /*
- * The FoxynBSD fox.  logo_default is used on the video console,
- * logo_color with fred_is_red, logo_mono on serial consoles and with
- * loader_plain.  The fred_* variable names are kept so that existing
- * loader.conf files still work.
+ * The menu logos, 16 lines of 33 columns each.  loader_logo picks one:
+ *
+ *	wisdom	Wisdom, the FoxynBSD fox (default): orange on the video
+ *		console (VGA/EFI color 3, which consoles show as orange-brown)
+ *		with a white face.
+ *	fred	Fred, DragonFly BSD's dragonfly: indigo.
+ *
+ * Each comes in three versions: the default colors, red (fred_is_red),
+ * and plain on serial consoles and with loader_plain.  The fred_*
+ * variables (fred_disable, fred_on_left, fred_separated, fred_is_red)
+ * apply to whichever logo is shown, so existing loader.conf files keep
+ * working.
  */
-static char *logo_color[LOGO_LINES] = {
+static char *wisdom_orange[LOGO_LINES] = {
 	"                                 ",
-	"[31;1m     /\\                   /\\     [0m",
-	"[31;1m    /  \\                 /  \\    [0m",
-	"[31;1m   / /\\ \\               / /\\ \\   [0m",
-	"[31;1m  / /  \\ \\_____________/ /  \\ \\  [0m",
-	"[31;1m  | |   \\               /   | |  [0m",
-	"[31;1m  |  \\                     /  |  [0m",
-	"[31;1m   \\     __           __     /   [0m",
-	"[31;1m    \\   /[33;1mo[31;1m_\\         /_[33;1mo[31;1m\\   /    [0m",
-	"[31;1m     \\                     /     [0m",
-	"[31;1m      \\        .-.        /      [0m",
-	"[31;1m       `.      \\_/      ,'       [0m",
-	"[31;1m         `-.    |    ,-'         [0m",
-	"[31;1m            `-._|_,-'            [0m",
-	"                                 ",
-	"                                 " };
-
-static char *logo_default[LOGO_LINES] = {
-	"                                 ",
-	"[33m     /\\                   /\\     [0m",
-	"[33m    /  \\                 /  \\    [0m",
-	"[33m   / /\\ \\               / /\\ \\   [0m",
-	"[33m  / /  \\ \\_____________/ /  \\ \\  [0m",
-	"[33m  | |   \\               /   | |  [0m",
-	"[33m  |  \\                     /  |  [0m",
-	"[33m   \\     __           __     /   [0m",
-	"[33m    \\   /[37;1mo[33m_\\         /_[37;1mo[33m\\   /    [0m",
+	"[33m      /\\                 /\\      [0m",
+	"[33m     /  \\               /  \\     [0m",
+	"[33m    / [37;1m/\\[33m \\_____________/ [37;1m/\\[33m \\    [0m",
+	"[33m   / [37;1m/  \\               /  \\[33m \\   [0m",
+	"[33m  |                           |  [0m",
+	"[33m  |    [37;1m__               __[33m    |  [0m",
+	"[33m    \\  [37;1m(o_)           (_o)[33m  /    [0m",
 	"[33m     \\                     /     [0m",
-	"[33m      \\        .-.        /      [0m",
-	"[33m       `.      \\_/      ,'       [0m",
-	"[33m         `-.    |    ,-'         [0m",
-	"[33m            `-._|_,-'            [0m",
+	"[33m      \\ [37;1m\\      [33m.-.      [37;1m/[33m /      [0m",
+	"[33m       \\ [37;1m`._   [33m\\_/[37;1m   _.'[33m /       [0m",
+	"[33m        `.  [37;1m`--'|`--'[33m  ,'        [0m",
+	"[33m          `-.._ [37;1m|[33m _..-'          [0m",
+	"[33m               `-'               [0m",
 	"                                 ",
+	"[33m          ~  Wisdom  ~           [0m" };
+
+static char *wisdom_red[LOGO_LINES] = {
+	"                                 ",
+	"[31;1m      /\\                 /\\      [0m",
+	"[31;1m     /  \\               /  \\     [0m",
+	"[31;1m    / [37;1m/\\[31;1m \\_____________/ [37;1m/\\[31;1m \\    [0m",
+	"[31;1m   / [37;1m/  \\               /  \\[31;1m \\   [0m",
+	"[31;1m  |                           |  [0m",
+	"[31;1m  |    [37;1m__               __[31;1m    |  [0m",
+	"[31;1m    \\  [37;1m(o_)           (_o)[31;1m  /    [0m",
+	"[31;1m     \\                     /     [0m",
+	"[31;1m      \\ [37;1m\\      [31;1m.-.      [37;1m/[31;1m /      [0m",
+	"[31;1m       \\ [37;1m`._   [31;1m\\_/[37;1m   _.'[31;1m /       [0m",
+	"[31;1m        `.  [37;1m`--'|`--'[31;1m  ,'        [0m",
+	"[31;1m          `-.._ [37;1m|[31;1m _..-'          [0m",
+	"[31;1m               `-'               [0m",
+	"                                 ",
+	"[31;1m          ~  Wisdom  ~           [0m" };
+
+static char *wisdom_mono[LOGO_LINES] = {
+	"                                 ",
+	"      /\\                 /\\      ",
+	"     /  \\               /  \\     ",
+	"    / /\\ \\_____________/ /\\ \\    ",
+	"   / /  \\               /  \\ \\   ",
+	"  |                           |  ",
+	"  |    __               __    |  ",
+	"    \\  (o_)           (_o)  /    ",
+	"     \\                     /     ",
+	"      \\ \\      .-.      / /      ",
+	"       \\ `._   \\_/   _.' /       ",
+	"        `.  `--'|`--'  ,'        ",
+	"          `-.._ | _..-'          ",
+	"               `-'               ",
+	"                                 ",
+	"          ~  Wisdom  ~           " };
+
+static char *fred_red[LOGO_LINES] = {
+	"[31;1m ,--,                       ,--, [0m",
+	"[31;1m |   `-,       [33;1m_[31m:[33;1m_[31;1m       ,-'   | [0m",
+	"[31;1m  `,    `-,   [33;1m([31m/ \\[33;1m)[31;1m   ,-'    ,'  [0m",
+	"[31;1m    `-,    `-,[31m/   \\[31;1m,-'    ,-'    [0m",
+	"[31;1m       `------[31m{   }[31;1m------'       [0m",
+	"[31;1m   ,----------[31m{   }[31;1m----------,   [0m",
+	"[31;1m  |        _,-[31m{   }[31;1m-,_        |  [0m",
+	"[31;1m   `-,__,-'   [31m\\   /[31;1m   `-,__,-'   [0m",
+	"[31m               | |               [0m",
+	"[31m               | |               [0m",
+	"[31m               | |               [0m",
+	"[31m               | |               [0m",
+	"[31m               | |               [0m",
+	"[31m               | |               [0m",
+	"[31m               `,'               [0m",
 	"                                 " };
 
-static char *logo_mono[LOGO_LINES] =  {
-	"                                 ",
-	"     /\\                   /\\     ",
-	"    /  \\                 /  \\    ",
-	"   / /\\ \\               / /\\ \\   ",
-	"  / /  \\ \\_____________/ /  \\ \\  ",
-	"  | |   \\               /   | |  ",
-	"  |  \\                     /  |  ",
-	"   \\     __           __     /   ",
-	"    \\   /o_\\         /_o\\   /    ",
-	"     \\                     /     ",
-	"      \\        .-.        /      ",
-	"       `.      \\_/      ,'       ",
-	"         `-.    |    ,-'         ",
-	"            `-._|_,-'            ",
-	"                                 ",
+static char *fred_indigo[LOGO_LINES] = {
+	"[36m ,--,                       ,--[36;1m, [0m",
+	"[36m |   `-,       [34;1m_[34m:[34;1m_[36m       ,-'   [36;1m| [0m",
+	"[36m  `,    `-,   [34;1m([34m/ \\[34;1m)[36m   ,-'    [36;1m,'  [0m",
+	"[36m    `-,    `-,[34m/   \\[36m,-'    [36;1m,-'    [0m",
+	"[36m       `------[34m{   }[36m------[36;1m'       [0m",
+	"[36m   ,----------[34m{   }[36m----------[36;1m,   [0m",
+	"[36m  |        [36;1m_,-[34m{   }[36m-,_        [36;1m|  [0m",
+	"[36m   `-,__[36;1m,-'   [34m\\   /[36m   `-,__[36;1m,-'   [0m",
+	"[34m               | |               [0m",
+	"[34m               | |               [0m",
+	"[34m               | |               [0m",
+	"[34m               | |               [0m",
+	"[34m               | |               [0m",
+	"[34m               | |               [0m",
+	"[34m               `,'               [0m",
+	"                                 " };
+
+static char *fred_mono[LOGO_LINES] =  {
+	" ,--,                       ,--, ",
+	" |   `-,       _:_       ,-'   | ",
+	"  `,    `-,   (/ \\)   ,-'    ,'  ",
+	"    `-,    `-,/   \\,-'    ,-'    ",
+	"       `------{   }------'       ",
+	"   ,----------{   }----------,   ",
+	"  |        _,-{   }-,_        |  ",
+	"   `-,__,-'   \\   /   `-,__,-'   ",
+	"               | |               ",
+	"               | |               ",
+	"               | |               ",
+	"               | |               ",
+	"               | |               ",
+	"               | |               ",
+	"               `,'               ",
 	"                                 " };
 
 static void
@@ -573,18 +637,25 @@ menu_display(void)
 	dvar_t dvar;
 	int i;
 	int logo_left = 0;		/* default to fred on right */
-	int separated = 0;		/* default: fox without a separator line */
-	char **logo = logo_default;
+	int separated = 0;		/* default: no separator line */
+	char **logo;
 	char *console_val = getenv("console");
+	int fred = 0;
+
+	dvar = dvar_get("loader_logo");
+	if (dvar != NULL && dvar->count > 0 && strcmp(dvar->data[0], "fred") == 0)
+		fred = 1;
+
+	logo = fred ? fred_indigo : wisdom_orange;
 
 	if (dvar_istrue(dvar_get("fred_is_red")))
-		logo = logo_color;
+		logo = fred ? fred_red : wisdom_red;
 
 	if (dvar_istrue(dvar_get("loader_plain")))
-		logo = logo_mono;
+		logo = fred ? fred_mono : wisdom_mono;
 
 	if (strcmp(console_val, "comconsole") == 0)
-		logo = logo_mono;
+		logo = fred ? fred_mono : wisdom_mono;
 
 	if (dvar_istrue(dvar_get("fred_disable")))
 		logo = NULL;
@@ -632,6 +703,8 @@ menu_display(void)
 		printf("\n");
 		i++;
 	}
+	if (logo == wisdom_orange && menu_logo_hook != NULL)
+		menu_logo_hook();
 }
 
 static int

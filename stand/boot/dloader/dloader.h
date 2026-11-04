@@ -33,6 +33,11 @@
  */
 
 void dloader_init_cmds(void);
+/*
+ * Called after the boot menu has drawn Wisdom in its default colors, if
+ * set: the EFI loader repaints the fur orange (efi_menu_logo_orange).
+ */
+extern void (*menu_logo_hook)(void);
 int dloader_run(int ac, char **av);
 
 extern char *DirBase;

@@ -275,11 +275,23 @@ type for this image.
 Only AMD processes are supported now.
 .It Va kernel
 .Pq Dq kernel .
+.It Va loader_logo
+.Pq Dq wisdom
+The logo shown next to the boot menu.
+.Dq wisdom
+is Wisdom, the FoxynBSD fox, drawn in orange with a white face;
+.Dq fred
+is Fred, the
+.Dx
+mascot, a blue dragonfly with cyan wings.
+The
+.Va loader_plain
+and
+.Va fred_*
+variables below apply to whichever logo is shown.
 .It Va loader_plain
 .Pq Dq NO
-Unlike in the past, the loader defaults to displaying Fred, the official
-.Dx
-mascot, in color when the boot menu appears, unless
+The loader displays the logo in color when the boot menu appears, unless
 .Pa console
 is set to
 .Dq comconsole
@@ -288,31 +300,31 @@ in
 or in the environment.
 If set to
 .Dq YES ,
-Fred will always be displayed in monochrome.
+the logo will always be displayed in monochrome.
 .It Va fred_is_red
 .Pq Dq NO
-Under color mode, Fred is depicted as a blue dragonfly with cyan wings
-by default.
 If set to
 .Dq YES ,
-Fred will be shown as a red dragonfly with red wings instead.
+the logo is drawn in red: Fred as a red dragonfly with red wings, Wisdom
+as a red fox.
 .It Va fred_disable
 .Pq Dq NO
-Fred is displayed with the menu by default.
+The logo is displayed with the menu by default.
 If set to
 .Dq YES ,
-Fred will not be shown.
+it will not be shown.
 The area will simply be blank.
 .It Va fred_on_left
 .Pq Dq NO
 If set to
 .Dq YES ,
-Fred will be displayed on the left side of the menu rather than the right side.
+the logo will be displayed on the left side of the menu rather than the
+right side.
 .It Va fred_separated
 .Pq Dq NO
 If set to
 .Dq YES ,
-a line will be drawn between Fred and the menu block.
+a line will be drawn between the logo and the menu block.
 .It Va splash_bmp_load
 .Pq Dq NO
 If set to

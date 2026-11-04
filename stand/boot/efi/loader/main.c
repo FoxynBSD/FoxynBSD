@@ -43,6 +43,11 @@
 #include <smbios.h>
 
 #include "loader_efi.h"
+#include "dloader.h"
+#if defined(__x86_64__)
+#include <machine/metadata.h>
+#include "framebuffer.h"
+#endif
 
 extern char bootprog_name[];
 extern char bootprog_rev[];
@@ -217,6 +222,10 @@ main(int argc, CHAR16 *argv[])
 	 * printf() etc. once this is done.
 	 */
 	cons_probe();
+#if defined(__x86_64__)
+	/* Wisdom's orange in the boot menu (arch/x86_64/framebuffer.c). */
+	menu_logo_hook = efi_menu_logo_orange;
+#endif
 
 	/*
 	 * Parse the args to set the console settings, etc
