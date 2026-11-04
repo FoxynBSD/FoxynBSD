@@ -1327,6 +1327,11 @@ write_etc() {
 	else
 		grep -v '/usr/libexec/atrun' "$SRCDIR/etc/crontab" > "$root/etc/crontab"
 	fi
+	# /etc/os-release, from installworld's own target (NAME=FoxynBSD,
+	# ID_LIKE=dragonfly).
+	( cd "$SRCDIR" && make -f Makefile.inc1 DESTDIR="$root" os-release )
+	# /usr/Makefile: make src-create, dports-create, pkg-bootstrap, ...
+	cp "$SRCDIR/etc/Makefile.usr" "$root/usr/Makefile"
 	# The rest of etc/Makefile's distribution files that a shell
 	# session reads (profile, shells, csh.*, hosts, services, ...).
 	for f in auth.conf csh.cshrc csh.login csh.logout devtab hosts \
@@ -1438,6 +1443,8 @@ echo
 if echo ok > /tmp/.rc-test; then
 	echo "rc: /tmp is writable (tmpfs)"
 fi
+# Identity: os-release names FoxynBSD and keeps DragonFly as ID_LIKE.
+( . /etc/os-release && echo "os-release: $PRETTY_NAME (ID=$ID, ID_LIKE=$ID_LIKE)" )
 # CI looks for the marker below: print it only if dynamically linked
 # programs (rtld + libc + libutil + ncurses) ran.
 if uname -a && ls -l /bin/sh; then

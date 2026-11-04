@@ -11,7 +11,8 @@
 # Checks:
 #	rtld		dynamically linked programs ran (/etc/rc.local's marker)
 #	rcd		lists commands the rc.d scripts did not find (not fatal)
-#	identity	uname -a reports FoxynBSD
+#	identity	uname -a and /etc/os-release report FoxynBSD (ID_LIKE
+#			dragonfly)
 #	basics		terminfo, tmpfs /tmp, login classes, devfs rules after
 #			the password database, pwd_mkdb
 #	syslogd		a logger(1) message reached /var/log/messages
@@ -33,7 +34,7 @@ set -eu
 OBJDIR=${OBJDIR:-${XDG_CACHE_HOME:-$HOME/.cache}/foxynbsd}
 LOG=$OBJDIR/qemu/X86_64_GENERIC.boot-root.log
 if [ "${1:-}" = -l ]; then LOG=$2; shift 2; fi
-[ $# -gt 0 ] || { sed -n '9,27p' "$0" | sed 's/^# \{0,1\}//'; exit 2; }
+[ $# -gt 0 ] || { sed -n '9,28p' "$0" | sed 's/^# \{0,1\}//'; exit 2; }
 [ -f "$LOG" ] || { echo "::error title=boot log::no log at $LOG"; exit 1; }
 
 fail() { echo "::error title=$1::$2"; return 1; }
@@ -53,7 +54,10 @@ check_rcd() {
 
 check_identity() {
 	grep -aE '^FoxynBSD foxynbsd [^ ]+ FoxynBSD ' "$LOG" ||
-	    fail Identity "uname -a does not report FoxynBSD"
+	    fail Identity "uname -a does not report FoxynBSD" || return
+	# FoxynBSD by name, DragonFly-compatible for tools that read ID_LIKE.
+	grep -aE '^os-release: FoxynBSD .*\(ID=foxynbsd, ID_LIKE=dragonfly\)' "$LOG" ||
+	    fail Identity "/etc/os-release does not name FoxynBSD like dragonfly"
 }
 
 check_basics() {
