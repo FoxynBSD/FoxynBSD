@@ -390,10 +390,16 @@ KCFLAGS+= -include ${SYSDIR}/dev/drm/kconfig.h
 # emits 16-byte aligned SSE spills (e.g. 'movaps %xmm0,-176(%rbp)') for the
 # zero-initialized locals of these sources, which take a #GP in kernel mode.
 # Tell GCC about the real alignment so it realigns the stack where needed.
+# clang spells the same: -mno-soft-float undoes the kernel's -msoft-float
+# (it has no -mhard-float on x86), and -mstack-alignment takes bytes.
 sse2_objects=	dcn_calcs.o dcn_calc_auto.o dcn_calc_math.o \
 		dml_common_defs.o dml1_display_rq_dlg_calc.o
+.if ${CCVER:Mclang*}
+SSE2_CFLAGS=	-mno-soft-float -msse -msse2 -mstack-alignment=8
+.else
+SSE2_CFLAGS=	-mhard-float -msse -msse2 -mpreferred-stack-boundary=3
+.endif
 .for F in ${sse2_objects}
 ${F}:
-	${CC} ${CFLAGS} ${KCFLAGS} -mhard-float -msse -msse2 \
-	    -mpreferred-stack-boundary=3 -c ${.IMPSRC}
+	${CC} ${CFLAGS} ${KCFLAGS} ${SSE2_CFLAGS} -c ${.IMPSRC}
 .endfor

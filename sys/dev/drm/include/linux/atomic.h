@@ -193,7 +193,7 @@ atomic_andnot(int i, atomic_t *v)
 
 #define cmpxchg_relaxed(...)	cmpxchg(__VA_ARGS__)
 
-#define atomic64_inc_return(p)	__sync_add_and_fetch_8(p, 1)
+#define atomic64_inc_return(p)	__sync_add_and_fetch_8(&(p)->counter, 1)
 
 static inline void
 atomic_set_release(atomic_t *v, int i)
