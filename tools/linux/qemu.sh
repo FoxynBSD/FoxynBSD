@@ -253,13 +253,24 @@ else
 	CONSOLE="-nographic -serial mon:stdio"
 fi
 
+# Each disk gets a serial number from its file name (installed.img:
+# "installed"), which the kernel shows as /dev/serno/<serial>: a disk is
+# then named the same in whatever order it is attached, as installers
+# write it into fstab and loader.conf.  At most 20 characters.  QEMU
+# takes it on the virtio-blk device (-drive serial= is gone in QEMU 9).
+serial() {
+	basename "$1" | sed 's/\.[^.]*$//; s/[^A-Za-z0-9_-]/_/g' | cut -c1-20
+}
+
 # The first virtio disk (vbd0): the ESP from build.sh, served as a
 # virtual FAT disk, or an installed disk, whose own ESP boots.
 if [ "$ROOT" = installed ]; then
-	BOOTDRIVE=file=$INSTALLED,if=virtio,format=raw
+	BOOTDRIVE=file=$INSTALLED,if=none,id=vd0,format=raw
+	BOOTDEV=virtio-blk-pci,drive=vd0,serial=$(serial "$INSTALLED")
 	ESP="$INSTALLED (its own ESP)"
 else
-	BOOTDRIVE=file=fat:$ESP,format=raw,if=virtio,readonly=on
+	BOOTDRIVE=file=fat:$ESP,if=none,id=vd0,format=raw,readonly=on
+	BOOTDEV=virtio-blk-pci,drive=vd0,serial=foxyn-esp
 fi
 
 # -nodefaults: q35 would otherwise add an empty AHCI CD drive, whose
@@ -270,7 +281,7 @@ set -- \
     -m "${MEM:-2G}" -smp "${SMP:-2}" \
     -drive if=pflash,format=raw,readonly=on,file="$OVMF_CODE" \
     -drive if=pflash,format=raw,file="$VARS" \
-    -drive "$BOOTDRIVE" \
+    -drive "$BOOTDRIVE" -device "$BOOTDEV" \
     -netdev "user,id=n0${NETDEV_OPTS:-}" -device virtio-net-pci,netdev=n0 \
     $CONSOLE \
     "$@"
@@ -279,12 +290,15 @@ set -- \
 # rather than as an AHCI CD: QEMU's ATAPI emulation times out with the
 # ahci(4) driver ("Cannot copy rfis").
 if [ "$ROOT" = 1 ]; then
-	set -- "$@" -drive file="$ROOTISO",if=virtio,format=raw,readonly=on
+	set -- "$@" -drive file="$ROOTISO",if=none,id=vd1,format=raw,readonly=on \
+	    -device virtio-blk-pci,drive=vd1,serial="$(serial "$ROOTISO")"
 elif [ "$ROOT" = disk ]; then
-	set -- "$@" -drive file="$DISK",if=virtio,format=raw
+	set -- "$@" -drive file="$DISK",if=none,id=vd1,format=raw \
+	    -device virtio-blk-pci,drive=vd1,serial="$(serial "$DISK")"
 fi
 if [ -n "${ROOTDISK:-}" ]; then
-	set -- "$@" -drive file="$ROOTDISK",if=virtio,format=raw
+	set -- "$@" -drive file="$ROOTDISK",if=none,id=vd2,format=raw \
+	    -device virtio-blk-pci,drive=vd2,serial="$(serial "$ROOTDISK")"
 fi
 
 if [ "$GUI" = 1 ]; then

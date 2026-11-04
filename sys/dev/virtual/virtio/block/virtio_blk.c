@@ -97,6 +97,9 @@ struct vtblk_softc {
 	enum vtblk_cache_mode	 vtblk_write_cache;
 
 	struct vtblk_request	 vtblk_dump_request;
+
+	/* The device's serial number (VIRTIO_BLK_T_GET_ID), or "". */
+	char			 vtblk_ident[VIRTIO_BLK_ID_BYTES + 1];
 };
 
 static struct virtio_feature_desc vtblk_feature_desc[] = {
@@ -161,6 +164,7 @@ static void	vtblk_vq_intr(void *);
 static void	vtblk_prepare_dump(struct vtblk_softc *);
 static int	vtblk_write_dump(struct vtblk_softc *, void *, off_t, size_t);
 static int	vtblk_flush_dump(struct vtblk_softc *);
+static void	vtblk_get_ident(struct vtblk_softc *);
 static int	vtblk_poll_request(struct vtblk_softc *,
 		    struct vtblk_request *);
 
@@ -354,6 +358,15 @@ vtblk_attach(device_t dev)
 			goto fail;
 		}
 	}
+
+	/*
+	 * Ask for the serial number now, by polling, while no interrupt
+	 * handler can take the reply.  The device only processes requests
+	 * once the driver is ready (DRIVER_OK); the status bits accumulate,
+	 * so the bus setting it again after attach is harmless.
+	 */
+	virtio_reinit_complete(dev);
+	vtblk_get_ident(sc);
 
 	for (i = 0; i < sc->vtblk_nintrs; i++) {
 		error = virtio_setup_intr(dev, i,
@@ -751,6 +764,12 @@ vtblk_alloc_disk(struct vtblk_softc *sc, struct virtio_blk_config *blkcfg)
 
 	sc->cdev->si_drv1 = sc;
 	sc->cdev->si_iosize_max = MAXPHYS;
+	/* A serial number gives the disk its /dev/serno/<serial> names. */
+	if (sc->vtblk_ident[0] != '\0') {
+		info.d_serialno = sc->vtblk_ident;
+		device_printf(sc->vtblk_dev, "serial number: %s\n",
+		    sc->vtblk_ident);
+	}
 	disk_setdiskinfo(&sc->vtblk_disk, &info);
 	if (virtio_with_feature(sc->vtblk_dev, VIRTIO_BLK_F_BLK_SIZE)) {
 		device_printf(sc->vtblk_dev, "Block size: %u\n",
@@ -1035,6 +1054,52 @@ vtblk_flush_dump(struct vtblk_softc *sc)
 	bp.b_cmd = BUF_CMD_FLUSH;
 
 	return (vtblk_poll_request(sc, req));
+}
+
+/*
+ * The device's serial number: QEMU's -drive ...,serial=, a cloud
+ * volume's id.  Up to VIRTIO_BLK_ID_BYTES bytes, NUL-padded when shorter;
+ * devices that do not know the request answer VIRTIO_BLK_S_UNSUPP.
+ * Characters that do not belong in a device name become '_'.
+ * hw.vtblk.<unit>.no_ident=1 skips the request.
+ */
+static void
+vtblk_get_ident(struct vtblk_softc *sc)
+{
+	struct bio bio;
+	struct buf bp;
+	struct vtblk_request *req;
+	char *id = sc->vtblk_ident;
+	int i;
+
+	id[0] = '\0';
+	if (vtblk_tunable_int(sc, "no_ident", 0))
+		return;
+
+	req = &sc->vtblk_dump_request;
+	req->vbr_ack = -1;
+	req->vbr_hdr.type = VIRTIO_BLK_T_GET_ID;
+	req->vbr_hdr.ioprio = 1;
+	req->vbr_hdr.sector = 0;
+
+	req->vbr_bio = &bio;
+	bzero(&bio, sizeof(struct bio));
+	bzero(&bp, sizeof(struct buf));
+
+	bio.bio_buf = &bp;
+	bp.b_cmd = BUF_CMD_READ;
+	bp.b_data = id;
+	bp.b_bcount = VIRTIO_BLK_ID_BYTES;
+
+	if (vtblk_poll_request(sc, req) != 0) {
+		id[0] = '\0';
+		return;
+	}
+	id[VIRTIO_BLK_ID_BYTES] = '\0';
+	for (i = 0; id[i] != '\0'; i++) {
+		if (id[i] <= ' ' || id[i] > '~' || id[i] == '/')
+			id[i] = '_';
+	}
 }
 
 static int

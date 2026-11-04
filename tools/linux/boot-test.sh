@@ -12,9 +12,11 @@
 # --install boots root.iso with an empty disk ($INSTALLED) as well, logs
 # in, runs foxyn-install on it and powers off; --installed then boots that
 # disk alone (its own ESP and loader) and runs the --root tests.
+# --bsdinstaller logs in as "installer" instead and passes when the BSD
+# Installer shows its welcome screen (the image with the world has it).
 #
 # Usage:
-#	tools/linux/boot-test.sh [--root|--disk|--install|--installed] [KERNCONF]
+#	tools/linux/boot-test.sh [--root|--disk|--install|--installed|--bsdinstaller] [KERNCONF]
 #
 # Environment:
 #	BOOT_TIMEOUT	seconds to wait (default 300)
@@ -38,6 +40,7 @@ case ${1:-} in
 --disk)	ROOTARG=--disk SUFFIX=-disk MODE=disk; shift ;;
 --install) ROOTARG=--root SUFFIX=-install MODE=install; shift ;;
 --installed) ROOTARG=--installed SUFFIX=-installed MODE=installed; shift ;;
+--bsdinstaller) ROOTARG=--root SUFFIX=-bsdinstaller MODE=bsdinstaller; shift ;;
 esac
 INSTALLED=${INSTALLED:-$OBJDIR/installed.img}
 if [ "$MODE" = install ]; then
@@ -125,7 +128,28 @@ done
 # the whole world, sh in the base image.
 # Repeat the command in case it was typed before the shell read input.
 LOGIN_OK='login-ok-42 root'
-if [ "$result" -eq 0 ] && [ -n "$ROOTARG" ]; then
+# --bsdinstaller: the installer user's shell is /usr/sbin/installer.  It
+# asks for the terminal type on a serial console, then the curses front
+# end and the back end start and show the welcome screen.
+if [ "$result" -eq 0 ] && [ "$MODE" = bsdinstaller ]; then
+	result=1
+	printf 'installer\r' >&3
+	tries=0
+	while [ "$tries" -lt 36 ]; do
+		sleep 5
+		if grep -aq 'Welcome to the FoxynBSD Live CD' "$LOG"; then
+			result=0
+			break
+		fi
+		grep -Eq "$FAIL|Login incorrect|Command Failed" "$LOG" && break
+		grep -aq 'What is your terminal type' "$LOG" &&
+		    ! grep -aq 'set new TERM' "$LOG" && printf 'vt100\r' >&3
+		tries=$((tries + 1))
+	done
+	[ "$result" -eq 0 ] || echo ">>> the BSD Installer did not start" >&2
+	MODE=done
+fi
+if [ "$result" -eq 0 ] && [ -n "$ROOTARG" ] && [ "$MODE" != done ]; then
 	result=1
 	printf 'root\r' >&3
 	tries=0
@@ -158,7 +182,8 @@ fi
 
 # List the running programs once, for CI to check the daemons rc.d
 # started ("daemons-42: init syslogd cron ...").
-if [ "$result" -eq 0 ] && [ -n "$ROOTARG" ] && [ "$MODE" != install ]; then
+if [ "$result" -eq 0 ] && [ -n "$ROOTARG" ] && [ "$MODE" != install ] &&
+    [ "$MODE" != done ]; then
 	printf "sh -c 'echo daemons-\$((6*7)): \$(ps -axo comm= | tr \"\\\\n\" \" \")'\r" >&3
 	tries=0
 	while [ "$tries" -lt 6 ] && ! grep -aq '^daemons-42:' "$LOG"; do
@@ -194,7 +219,8 @@ fi
 
 # A disk is shut down cleanly, so the next boot finds its file system
 # clean and what this one wrote on it.
-if [ "$result" -eq 0 ] && [ "$MODE" != root ] && [ -n "$MODE" ]; then
+if [ "$result" -eq 0 ] && [ "$MODE" != root ] && [ "$MODE" != done ] &&
+    [ -n "$MODE" ]; then
 	printf 'halt -p\r' >&3
 	tries=0
 	while [ "$tries" -lt 24 ] && kill -0 "$pid" 2>/dev/null; do
@@ -215,6 +241,8 @@ if [ "$result" -eq 0 ]; then
 	if [ "$MODE" = disk ]; then
 		echo ">>> boot test passed: disk.img booted to a login prompt and powered off" >&2
 		tail -n 4 "$LOG" >&2
+	elif [ "$MODE" = done ]; then
+		echo ">>> boot test passed: the BSD Installer started (welcome screen)" >&2
 	elif [ "$MODE" = install ]; then
 		echo ">>> boot test passed: foxyn-install installed on $INSTALLED" >&2
 		grep -a '^foxyn-install: ' "$LOG" | tail -n 3 >&2

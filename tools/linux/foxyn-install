@@ -14,9 +14,11 @@
 #	DISK		the disk to erase, as in /dev (vbd2, da0, nvme0, ...)
 #	-y		do not ask before erasing DISK
 #	-t		root file system: hammer2 (default) or ufs
-#	-b		what the kernel will call the disk when it boots from it
-#			(default vbd0: the only virtio disk under QEMU); it goes
-#			into loader.conf and fstab
+#	-b		what the kernel will call the disk when it boots from it;
+#			it goes into loader.conf and fstab.  Default: its
+#			serial number name, serno/<serial> (the same in any
+#			order of disks), else vbd0 (the only virtio disk under
+#			QEMU)
 #	-s		size of the EFI system partition in MiB (default 256)
 #
 # Layout: GPT slice 0 is the ESP (FAT32: EFI/BOOT/BOOTX64.EFI and /boot
@@ -26,7 +28,7 @@
 set -eu
 
 FSTYPE=hammer2
-BOOTDISK=vbd0
+BOOTDISK=
 ESPMB=256
 YES=
 
@@ -48,6 +50,20 @@ shift $((OPTIND - 1))
 DISK=${1#/dev/}
 
 case $FSTYPE in hammer2|ufs) ;; *) die "-t must be hammer2 or ufs" ;; esac
+# The disk's serial number name: devfs makes /dev/serno/<serial> an
+# alias, the same device (major and minor) as /dev/$DISK.  Its slices
+# are <serial>.s0, ...; the whole disk is the entry without a dot.
+if [ -z "$BOOTDISK" ]; then
+	mm=$(ls -l "/dev/$DISK" | awk '{ print $5, $6 }')
+	BOOTDISK=$(ls -l /dev/serno 2>/dev/null |
+	    awk -v mm="$mm" '$5 " " $6 == mm && $NF !~ /\./ { print "serno/" $NF; exit }')
+	: "${BOOTDISK:=vbd0}"
+fi
+# The slices' names: vbd0s1, or serno/<serial>.s1.
+case $BOOTDISK in
+serno/*) SLICE=$BOOTDISK.s ;;
+*)	SLICE=${BOOTDISK}s ;;
+esac
 [ "$(id -u)" = 0 ] || die "run me as root"
 [ -c "/dev/$DISK" ] || die "no disk /dev/$DISK"
 [ -f /boot/loader.efi ] && [ -f /boot/kernel/kernel ] ||
@@ -117,8 +133,8 @@ pass=0
 [ "$FSTYPE" = ufs ] && pass=1
 cat > "$MNT/etc/fstab" <<EOF
 # Device		Mountpoint	FStype	Options		Dump	Pass#
-/dev/${BOOTDISK}s1	/		$FSTYPE	rw		$pass	$pass
-/dev/${BOOTDISK}s0	/boot/efi	msdos	rw,noauto	0	0
+/dev/${SLICE}1	/		$FSTYPE	rw		$pass	$pass
+/dev/${SLICE}0	/boot/efi	msdos	rw,noauto	0	0
 EOF
 sed -i '' -e '/^root_rw_mount=/d' \
     -e 's|^# rc.conf for the .*|# rc.conf of a system installed by foxyn-install.  Services|' \
@@ -139,11 +155,11 @@ console=$(kenv console 2>/dev/null || echo efi)
 	echo "console=\"$console\""
 	[ "$console" = comconsole ] && echo 'boot_serial="YES"'
 	echo 'autoboot_delay="3"'
-	echo "vfs.root.mountfrom=\"$FSTYPE:${BOOTDISK}s1\""
+	echo "vfs.root.mountfrom=\"$FSTYPE:${SLICE}1\""
 } > "$MNT/boot/efi/boot/loader.conf"
 cp "$MNT/boot/efi/boot/loader.conf" "$MNT/boot/loader.conf"
 umount "$MNT/boot/efi"
 umount "$MNT"
 rmdir "$MNT"
 trap - EXIT
-msg "done: /dev/$DISK boots FoxynBSD on its own ($FSTYPE root, ${BOOTDISK}s1 when it boots)"
+msg "done: /dev/$DISK boots FoxynBSD on its own ($FSTYPE root, ${SLICE}1 when it boots)"

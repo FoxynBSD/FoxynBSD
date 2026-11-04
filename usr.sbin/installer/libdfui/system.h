@@ -42,8 +42,8 @@
 #define HAS_TCP
 #define HAS_NPIPE
 
-#define OPERATING_SYSTEM_NAME	"DragonFly BSD"
-#define OPERATING_SYSTEM_URL	"http://www.dragonflybsd.org"
+#define OPERATING_SYSTEM_NAME	"FoxynBSD"
+#define OPERATING_SYSTEM_URL	"https://github.com/FoxynBSD/FoxynBSD"
 
 char *ostype(void);
 int has_tcp(void);

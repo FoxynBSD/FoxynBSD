@@ -70,7 +70,7 @@ The network comes up at boot either way (`dhcpcd` on QEMU's user-mode
 network), and `fetch` reaches HTTP and HTTPS servers.
 
 To install FoxynBSD on a disk that then boots on its own, run the
-installer from the live image (see [The installer](#the-installer)):
+installer from the live image (see [The installers](#the-installers)):
 
     tools/linux/boot-test.sh --install     # root.iso runs foxyn-install on $OBJDIR/installed.img
     tools/linux/qemu.sh --installed        # boot that disk alone (its own ESP, HAMMER2 root)
@@ -112,6 +112,7 @@ or by hand: `ROOTDISK=<empty image> tools/linux/qemu.sh`, log in, and
     tools/linux/boot-test.sh --disk         # same with disk.img, then halt -p
     tools/linux/boot-test.sh --install      # root.iso installs itself on installed.img
     tools/linux/boot-test.sh --installed    # boot installed.img alone, run the tests
+    tools/linux/boot-test.sh --bsdinstaller # log in as installer: the BSD Installer starts
     tools/linux/check-boot-log.sh all       # check what the --root boot did (see Tests)
     tools/linux/elf-audit.sh "$OBJDIR/rootfs" "$OBJDIR/sysroot"   # host contamination audit
     eval "$(tools/linux/build.sh env)"      # shell env for running make by hand
@@ -180,6 +181,8 @@ There are three kinds of compiled code, each with its own compiler:
   `build.sh disk` (`tools/linux/makefs` has the few headers and
   definitions glibc lacks; the UFS headers are copied from `sys/vfs/ufs`
   into a directory of their own);
+* `btxld` and BSD `dd`/`stat` shims for the BIOS boot blocks (see
+  [The BSD Installer](#the-bsd-installer));
 * the compiler wrappers `cc`, `kcc`, `xcc`, `xc++`, `xgcc`, `hostcc`,
   `hostc++` and `nxenv`.
 
@@ -577,12 +580,68 @@ rules. Later boots keep the database.
 hard stop, `fsck -p` repairs it at boot. `build.sh disk` makes a new image
 each time: what was written into the old one is lost.
 
-## The installer
+## The installers
+
+The image with the whole world has two installers. The BSD Installer
+(`usr.sbin/installer`) is DragonFly's, the one to install with by hand.
+`foxyn-install` is a short script that does a fixed install with no
+questions, for CI and scripts.
+
+### The BSD Installer
+
+Log in as `installer` on the live image (no password; `/etc/issue` says
+so) and the BSD Installer starts: on a serial console it asks for the
+terminal type first (`vt100`, `xterm`), then its curses front end
+(`dfuife_curses`) and back end (`dfuibe_installer`) walk through the
+install. With the defaults (UEFI, one disk, HAMMER2) it makes a GPT with
+an EFI system partition holding `boot1.efi`, a disklabel64 slice with
+`/boot` (UFS, 1 GB), swap and the HAMMER2 root with its `/build` PFS, and
+copies the live system (`share/installer/sources.conf`) with `cpdup`.
+`boot1.efi` starts `/loader.efi` from the `/boot` partition, which loads
+the kernel there. It also configures the installed system (root
+password, users, time zone, network) and can set up a NetBoot server.
+
+As `nrelease` builds the release CD, `build.sh`:
+
+* builds it: `WANT_INSTALLER` is set for the world, so `usr.sbin/installer`
+  and `share/installer` are built (they are only built for release media);
+* builds `boot1.efi` with the EFI loader, and the BIOS boot blocks
+  (`boot1_64`, `boot2_64` and their 32-bit versions from
+  `stand/boot/pc32/boot2`), which `disklabel64 -B` writes into the slice
+  (the installer always runs it). They are 32-bit code; `btxld` is built
+  for the host with the tree's a.out and ELF32 definitions, and the boot2
+  makefile gets BSD `dd conv=osync` and `stat` shims. Arch's assembler adds
+  an x86 ISA note by default, which would make `boot1` longer than its
+  512-byte sector: it is turned off (`-mx86-used-note=no`);
+* gives the image what the installer copies: `/boot` with `boot1.efi`,
+  `loader.efi`, the boot blocks and the kernel, and `/etc/mtree`;
+* makes `/etc.hdd`, the `/etc` the installer puts on the disk instead of
+  the live one (no tmpfs mounts, a read-write root, no boot tests), and
+  the `installer` user (uid 0, shell `/usr/sbin/installer`).
+
+Its texts name FoxynBSD (`libdfui/system.h`).
+
+The installer names the disks in `fstab` and `loader.conf` by serial
+number when there is one (`/dev/serno/<serial>.s1d`), so the installed
+system finds them in any order. The virtio disk driver reads the serial
+number from the device (`VIRTIO_BLK_T_GET_ID`, in `virtio_blk.c`), and
+`qemu.sh` gives each disk one, from its file name (`installed.img`:
+`installed`).
+
+`boot-test.sh --bsdinstaller` (CI's *Whole world* job) logs in as
+`installer` and passes on the welcome screen. To install with it by hand
+under QEMU:
+
+    truncate -s 8G target.img
+    ROOTDISK=$PWD/target.img tools/linux/qemu.sh     # log in as installer
+    INSTALLED=$PWD/target.img tools/linux/qemu.sh --installed
+
+### foxyn-install
 
 `foxyn-install` (`tools/linux/foxyn-install`, in the image as
 `/usr/sbin/foxyn-install`) installs the running system on a disk that
-then boots on its own. It is minimal: one disk, no questions beyond the
-confirmation (`-y` skips it), no swap, no encryption.
+then boots on its own, with no questions beyond the confirmation (`-y`
+skips it): one disk, no swap, no encryption.
 
     foxyn-install [-y] [-t hammer2|ufs] [-b BOOTDISK] [-s ESPSIZE] DISK
 
@@ -594,23 +653,19 @@ for UFS). It copies the running system with `cpdup` (`bin`, `boot`,
 `/etc`, `/var` and `/root` are the tmpfs copies, so the password database
 comes along), writes an `fstab` with a read-write root, drops
 `root_rw_mount="NO"` from `rc.conf`, and fills the ESP:
-`EFI/BOOT/BOOTX64.EFI` (the loader) and `boot/` with `dloader.rc`, the
-defaults, the kernel and the modules. The loader reads the kernel from
-the ESP, as with `build.sh esp`; its `loader.conf` takes the console the
-running system was booted with (`kenv console`) and sets
-`vfs.root.mountfrom`.
+`EFI/BOOT/BOOTX64.EFI` (the loader itself, not `boot1.efi`) and `boot/`
+with `dloader.rc`, the defaults, the kernel and the modules. Its
+`loader.conf` takes the console the running system was booted with
+(`kenv console`) and sets `vfs.root.mountfrom`.
 
-The kernel names GPT partitions by disk and slice only (`vbd0s1`; there
-are no label aliases for them, and virtio disks have no serial number):
-`-b` is the name of the disk when the installed system boots, `vbd0` by
-default, the only virtio disk under QEMU. It goes into `loader.conf` and
-`fstab`.
+`-b` is the name of the disk when the installed system boots; it goes
+into `loader.conf` and `fstab`. By default it is the disk's serial number
+name (`serno/<serial>`, found by device number in `/dev/serno`), else
+`vbd0`. GPT partitions have no label names in the kernel.
 
-The image carries what the installer copies: `build.sh rootfs` puts
-`build.sh esp`'s loader (`/boot/loader.efi`), `dloader.rc`, defaults and
-kernel into `/boot`, as on an installed DragonFly system, and the base
-programs include `gpt`, `newfs_msdos`, `newfs_hammer2`, `newfs`,
-`mount_msdos`, `mount_hammer2`, `hammer2`, `cpdup`, `kenv` and `dd`.
+The base programs include what it runs: `gpt`, `newfs_msdos`,
+`newfs_hammer2`, `newfs`, `mount_msdos`, `mount_hammer2`, `hammer2`,
+`cpdup`, `kenv` and `dd`.
 
 `boot-test.sh --install` boots root.iso with an empty disk
 (`$OBJDIR/installed.img`, `INSTALL_SIZE`, default 4G) as `vbd2`, runs
@@ -743,9 +798,10 @@ report are uploaded as artifacts.
 * The root image is a read-only cd9660 with tmpfs over `/etc`, `/var`,
   `/tmp` and `/root`; `build.sh disk` makes a writable UFS one, which
   boots with the ESP that QEMU serves (the host `makefs` has only the ffs
-  back end). `foxyn-install` makes a disk that boots alone, with a HAMMER2
-  or UFS root; it installs on one disk, with no swap, and names the root
-  by its device at boot (`vbd0s1` by default; issue #9).
+  back end). The BSD Installer and `foxyn-install` make disks that boot
+  alone. CI runs the whole BSD Installer only up to its welcome screen;
+  its install was tested by hand under QEMU (UEFI, HAMMER2). The base
+  image has `foxyn-install` but not the BSD Installer (issue #9).
 * The base image (`ROOTFS=base`) has only the programs of `build.sh
   base`; the default image has the whole world.
 * The images have no packages (`pkg`, DPorts) yet.
@@ -807,4 +863,4 @@ report are uploaded as artifacts.
 | network (`dhcpcd`), LibreSSL, `fetch` | in the base image; tested at boot (DHCP lease, HTTP, HTTPS) |
 | writable root on a disk (`build.sh disk`) | UFS on GPT, made with the host `makefs`; boots twice in CI |
 | gcc 12's runtime (`gnu/lib/gcc120`) | built by the world (`xgcc`, `xc++`); the image's gcc 12 and gcc 8 build and run C and C++ |
-| installer (`foxyn-install`) | GPT, FAT32 ESP with the loader and kernel, HAMMER2 or UFS root; the installed disk boots alone in CI |
+| installers | the BSD Installer starts in CI and installs by hand (disklabel64, `/boot` UFS, HAMMER2, `boot1.efi`); `foxyn-install` installs and the disk boots alone in CI |

@@ -454,6 +454,15 @@ jobs:
       - name: Check the boot log
         run: tools/linux/check-boot-log.sh all
 
+      # The BSD Installer (usr.sbin/installer) on the image with the
+      # whole world: logging in as "installer" starts it, and its front
+      # end and back end show the welcome screen.  CI installs with
+      # foxyn-install (the Userland job); the BSD Installer's menus are
+      # walked by hand (tools/linux/README.md).
+      - name: Start the BSD Installer
+        run: |
+          BOOT_LOG="$OBJDIR/qemu/bsdinstaller.log" tools/linux/boot-test.sh --bsdinstaller
+
       - name: Report boot result
         if: always() && (steps.boot.outcome == 'failure' || steps.boot.outcome == 'success')
         run: |

@@ -876,8 +876,11 @@ wenv() {
 	# Scripts that sort or compare file lists (kdump's mkioctls, ...)
 	# expect the C collation of a BSD host.
 	LC_ALL=C
+	# usr.sbin/installer (the BSD Installer) is built only for release
+	# media (nrelease sets it); the live image is release media.
+	WANT_INSTALLER=yes
 	export CCVER CC CXX MAKEOBJDIRPREFIX NXENV _SHLIBDIRPREFIX
-	export LC_ALL
+	export LC_ALL WANT_INSTALLER
 	mkdir -p "$MAKEOBJDIRPREFIX"
 }
 
@@ -1210,13 +1213,20 @@ do_rootfs() {
 		mkdir -p "$root/boot/kernel"
 		objcopy --strip-debug "$ko" "$root/boot/kernel/$f.ko"
 	done
-	# What foxyn-install puts on the disk it installs to: the EFI loader
-	# and the boot tree of `build.sh esp` (dloader.rc, the defaults, the
-	# kernel), in /boot as on an installed DragonFly system.
+	# What the installers put on the disk they install to: the EFI
+	# loader and the boot tree of `build.sh esp` (dloader.rc, the
+	# defaults, the kernel), in /boot as on an installed DragonFly system.
 	local esp=$OBJDIR/esp/X86_64_GENERIC
 	if [ -f "$esp/EFI/BOOT/BOOTX64.EFI" ] && [ -f "$esp/boot/kernel/kernel" ]; then
 		mkdir -p "$root/boot/kernel" "$root/boot/defaults"
 		cp "$esp/EFI/BOOT/BOOTX64.EFI" "$root/boot/loader.efi"
+		# The BSD Installer's ESP gets boot1.efi, which starts
+		# loader.efi from the installed /boot partition.
+		[ -f "$(boot1_efi)" ] && cp "$(boot1_efi)" "$root/boot/boot1.efi"
+		# disklabel64 -B (the BSD Installer) reads the BIOS boot blocks.
+		for f in $(biosboot_files); do
+			[ -f "$f" ] && cp "$f" "$root/boot/"
+		done
 		cp "$esp/boot/dloader.rc" "$root/boot/"
 		cp "$esp/boot/defaults/"* "$root/boot/defaults/"
 		cp "$esp/boot/kernel/kernel" "$root/boot/kernel/kernel"
@@ -1285,6 +1295,7 @@ do_rootfs() {
 	(cd "$SRCDIR/etc/pam.d" && ls | grep -vx Makefile |
 	    while read -r f; do cp "$f" "$root/etc/pam.d/$f"; done)
 	write_ttys "$root/etc/ttys"
+	[ -x "$root/usr/sbin/installer" ] && rootfs_installer "$root"
 	if command -v xorriso >/dev/null 2>&1; then
 		# -R keeps modes and symlinks (Rock Ridge); the volume is read-only.
 		# Record the files as root:wheel rather than the building user.
@@ -1398,10 +1409,14 @@ write_net_test() {
 	cat > "$1" <<'EOF'
 #!/bin/sh
 net=ok tls=ok
+# The lease comes in parts: the address, then the route and the
+# name server (dhcpcd's hooks write resolv.conf).  Wait for all three.
 i=0
-while ! ifconfig vtnet0 2>/dev/null | grep -q '^[[:space:]]*inet '; do
+while ! { ifconfig vtnet0 2>/dev/null | grep -q '^[[:space:]]*inet ' &&
+    route -n get default >/dev/null 2>&1 &&
+    grep -q '^nameserver' /etc/resolv.conf 2>/dev/null; }; do
 	i=$((i + 1))
-	[ $i -lt 30 ] || break
+	[ $i -lt 40 ] || break
 	sleep 1
 done
 addr=$(ifconfig vtnet0 | awk '$1 == "inet" { print $2; exit }')
@@ -1503,6 +1518,27 @@ echo "cc-check: $ok"
 [ $ok = ok ]
 EOF
 	chmod 755 "$1"
+}
+
+# The BSD Installer (usr.sbin/installer) on the live image, set up as
+# nrelease sets up the release CD: /etc.hdd is the /etc it copies to the
+# disk instead of the live one (no tmpfs mounts, a read-write root, no
+# boot tests in rc.local), and logging in as "installer" (uid 0, no
+# password) starts it; /etc/issue says so.  Only the world has it.
+rootfs_installer() {
+	local root=$1
+	cp "$SRCDIR/etc/defaults/pfi.conf" "$root/etc/defaults/"
+	rm -rf "$root/etc.hdd"
+	cp -a "$root/etc" "$root/etc.hdd"
+	sed -i -e '/^root_rw_mount=/d' \
+	    -e 's|^# rc.conf for the root image .*|# rc.conf of a system installed by the BSD Installer.  Services|' \
+	    "$root/etc.hdd/rc.conf"
+	printf '# Device\tMountpoint\tFStype\tOptions\tDump\tPass#\n' \
+	    > "$root/etc.hdd/fstab"
+	rm -f "$root/etc.hdd/rc.local"
+	echo 'installer::0:0::0:0:FoxynBSD Installer:/root:/usr/sbin/installer' \
+	    >> "$root/etc/master.passwd"
+	cp "$SRCDIR/nrelease/root/etc/issue" "$root/etc/issue"
 }
 
 # Two tiny static programs that differ only in their ELF ABI note: one
@@ -1668,6 +1704,10 @@ write_etc() {
 	    "$SRCDIR/etc/devd.conf" "$root/etc/"
 	mkdir -p "$root/etc/devd"
 	cp "$SRCDIR/etc/devd/"*.conf "$root/etc/devd/"
+	# The mtree specifications (distribution installs them): the BSD
+	# Installer builds the new /var from BSD.var.dist.
+	mkdir -p "$root/etc/mtree"
+	cp "$SRCDIR/etc/mtree/"BSD.*.dist "$root/etc/mtree/"
 	# dhcpcd's configuration (etc/Makefile takes it from contrib), and
 	# LibreSSL's: openssl(1)'s defaults and the CA certificates that
 	# libtls and fetch(1) check servers against.
@@ -1988,7 +2028,7 @@ do_loader() {
 	MAKEOBJDIRPREFIX=$STANDOBJ; export MAKEOBJDIRPREFIX
 	mkdir -p "$STANDOBJ"
 	for d in stand/lib stand/boot/dloader stand/boot/efi/libefi \
-	    stand/boot/efi/loader; do
+	    stand/boot/efi/loader stand/boot/efi/boot1; do
 		msg "building $d"
 		# depend first, as in world_lib: bsd.prog.mk turns DPADD into
 		# dependencies only through .depend, so without it loader.efi
@@ -1996,11 +2036,96 @@ do_loader() {
 		( cd "$SRCDIR/$d" && make obj >/dev/null &&
 		  make CC="$xcc" depend && make -j"$JOBS" CC="$xcc" )
 	done
-	msg "loader: $(loader_efi)"
+	msg "loader: $(loader_efi), $(boot1_efi)"
+	do_biosboot
+}
+
+# The legacy BIOS boot blocks of stand/boot/pc32/boot2: boot1_64 and
+# boot2_64, which disklabel64 -B writes into a slice (the BSD Installer
+# always runs it), and their 32-bit counterparts.  They are 32-bit code
+# (the pc64 makefiles add -m32) linked by btxld, a host tool.  On this
+# host btxld gets the BSD a.out and ELF32 definitions from a directory
+# of its own, and the boot2 makefile two BSD tools: dd conv=osync (pad
+# the output) and stat with no options (the size is the eighth field).
+# The assembler must not add an x86 ISA note (Arch's binutils do by
+# default): objcopy -O binary would put it after the 512-byte boot1.
+do_biosboot() {
+	local inc=$HOSTOBJ/btxld-inc bsd=$HOSTOBJ/bsdbin d m note=
+	mkdir -p "$inc/sys" "$bsd"
+	cp "$SRCDIR/sys/sys/imgact_aout.h" "$inc/sys/"
+	cat > "$inc/a.out.h" <<'EOF'
+/* btxld on a Linux host: the BSD a.out definitions, not glibc's. */
+#include <sys/types.h>
+#include <arpa/inet.h>	/* ntohl, in the a.out macros */
+#define __LDPGSZ	4096
+#include <sys/imgact_aout.h>
+EOF
+	cat > "$inc/sys/elf32.h" <<'EOF'
+/* btxld on a Linux host: glibc's <elf.h> has the ELF32 types. */
+#include <elf.h>
+#ifndef IS_ELF
+#define IS_ELF(ehdr)	((ehdr).e_ident[EI_MAG0] == ELFMAG0 && \
+			 (ehdr).e_ident[EI_MAG1] == ELFMAG1 && \
+			 (ehdr).e_ident[EI_MAG2] == ELFMAG2 && \
+			 (ehdr).e_ident[EI_MAG3] == ELFMAG3)
+#endif
+EOF
+	cat > "$bsd/stat" <<EOF
+#!/bin/sh
+[ \$# -eq 1 ] || exec "$(host_path stat)" "\$@"
+s=\$("$(host_path stat)" -c %s "\$1") || exit 1
+echo "0 0 0 0 0 0 0 \$s 0 0 0 0 0 0 0 \$1"
+EOF
+	cat > "$bsd/dd" <<EOF
+#!/bin/sh
+obs= of= sync=
+n=\$#
+while [ "\$n" -gt 0 ]; do
+	a=\$1; shift; n=\$((n - 1))
+	case \$a in
+	conv=osync) sync=1; continue ;;
+	obs=*) obs=\${a#obs=} ;;
+	of=*) of=\${a#of=} ;;
+	esac
+	set -- "\$@" "\$a"
+done
+"$(host_path dd)" "\$@" || exit
+if [ -n "\$sync" ] && [ -n "\$obs" ] && [ -n "\$of" ]; then
+	s=\$("$(host_path stat)" -c %s "\$of")
+	truncate -s \$(( (s + obs - 1) / obs * obs )) "\$of"
+fi
+EOF
+	chmod 755 "$bsd/stat" "$bsd/dd"
+	echo | as -mx86-used-note=no -o /dev/null - 2>/dev/null &&
+	    note=-Wa,-mx86-used-note=no
+	printf '#!/bin/sh\nexec standcc %s "$@"\n' "$note" > "$HOSTBIN/biosbootcc"
+	chmod 755 "$HOSTBIN/biosbootcc"
+	m="CC=biosbootcc NXENV=env NXCC_LINK=hostcc REALLY_X86_64=true MACHINE_ARCH=i386 MACHINE=i386"
+	for d in asmdef btx btxld boot2; do
+		msg "building stand/boot/pc32/$d"
+		( PATH=$bsd:$PATH
+		  cd "$SRCDIR/stand/boot/pc32/$d" && make $m "NXCC=hostcc -I$inc" obj >/dev/null &&
+		  make $m "NXCC=hostcc -I$inc" depend &&
+		  make -j"$JOBS" $m "NXCC=hostcc -I$inc" ) || return
+	done
+	d=$STANDOBJ$SRCDIR/stand/boot/pc32/boot2
+	[ "$(wc -c < "$d/boot1_64")" = 512 ] || die "boot1_64 is not 512 bytes"
+}
+
+# The BIOS boot blocks that disklabel64 -B reads from /boot.
+biosboot_files() {
+	local d=$STANDOBJ$SRCDIR/stand/boot/pc32/boot2
+	echo "$d/boot1_64 $d/boot2_64 $d/boot1_32 $d/boot2_32"
 }
 
 loader_efi() {
 	echo "$STANDOBJ$SRCDIR/stand/boot/efi/loader/loader.efi"
+}
+
+# boot1.efi: the first stage that the BSD Installer puts on an ESP; it
+# starts /loader.efi (or /boot/loader.efi) from a UFS partition.
+boot1_efi() {
+	echo "$STANDOBJ$SRCDIR/stand/boot/efi/boot1/boot1.efi"
 }
 
 # Assemble an EFI System Partition tree that QEMU can serve directly with
