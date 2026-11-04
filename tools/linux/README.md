@@ -115,6 +115,7 @@ or by hand: `ROOTDISK=<empty image> tools/linux/qemu.sh`, log in, and
     tools/linux/boot-test.sh --bsdinstaller # log in as installer: the BSD Installer starts
     tools/linux/check-boot-log.sh all       # check what the --root boot did (see Tests)
     tools/linux/elf-audit.sh "$OBJDIR/rootfs" "$OBJDIR/sysroot"   # host contamination audit
+    tools/linux/check-logos.sh -p           # the boot menu logos: sizes, variants agree
     eval "$(tools/linux/build.sh env)"      # shell env for running make by hand
 
 A quicker first boot, with the minimal image instead of the world:
@@ -824,7 +825,7 @@ install target reads.
 |----------|------|------|
 | `linux-build.yml` | every push and PR to `dev` | Ubuntu 24.04: *Kernel, loader and boot tree* (kernel-only boot to `mountroot>`), *Kernel modules* (all 682), *Userland and boot to a shell* (base image, ELF audit, test modules, boot to a root login, every boot-log check), *Whole world* (`KEEP_GOING=1`, then `build.sh` with no arguments: the full image, ELF audit, boot to a root login, every boot-log check) |
 | `linux-hosts.yml` | changes to `tools/linux`, the compiler runtime or the workflow; weekly; by hand | Arch Linux container (clang kernel and modules) and Debian stable container (gcc): tools, kernel, all modules, loader, base, root image, ELF audit, boot, `check-boot-log.sh all` |
-| `linux-lint.yml` | changes to `tools/linux` or workflows | the scripts parse under dash and bash, `shellcheck -S error`, the ELF audit rejects a glibc program |
+| `linux-lint.yml` | changes to `tools/linux`, workflows or the loader menu (`stand/boot/dloader/cmds.c`) | the scripts parse under dash and bash, `shellcheck -S error`, the boot menu logos (`check-logos.sh`: 16 lines of 33 columns, colored and plain variants alike), the ELF audit rejects a glibc program |
 
 All jobs are blocking. The names of the `linux-build.yml` jobs are the
 required check names: do not rename them. The containers get `/dev/kvm`

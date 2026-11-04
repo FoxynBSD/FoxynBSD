@@ -11,11 +11,13 @@ on:
     paths:
       - 'tools/linux/**'
       - '.github/workflows/**'
+      - 'stand/boot/dloader/cmds.c'
   pull_request:
     branches: [dev]
     paths:
       - 'tools/linux/**'
       - '.github/workflows/**'
+      - 'stand/boot/dloader/cmds.c'
   workflow_dispatch:
 
 permissions:
@@ -40,6 +42,11 @@ jobs:
 
       - name: shellcheck (errors only)
         run: shellcheck -S error tools/linux/*.sh tools/linux/foxyn-install
+
+      # The boot menu logos (Wisdom, Fred): 16 lines of 33 columns, and
+      # the colored variants draw the same characters as the plain one.
+      - name: Check the boot menu logos
+        run: tools/linux/check-logos.sh -p
 
       # The audit must fail on a glibc program and pass on an empty tree.
       - name: ELF audit self-test
