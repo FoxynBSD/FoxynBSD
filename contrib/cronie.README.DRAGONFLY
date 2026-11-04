@@ -18,25 +18,33 @@ and out-of-range ranges, @daily).  Move to cronie-1.7.3 (or later) when
 it is released.
 
 Nothing is deleted or modified in it: the build never writes into
-contrib/cronie.  Not built: anacron (and obstack, which only anacron
-uses), cronnext, the SELinux, Linux audit and inotify parts.
+contrib/cronie.  Not built: cronnext, the SELinux, Linux audit and
+inotify parts.
 
 These sources are used in:
 	usr.sbin/cron/cron	cron(8) (Cronie's crond), /usr/sbin/cron
 				and /usr/sbin/crond
 	usr.sbin/cron/crontab	crontab(1), crontab(5)
+	gnu/usr.sbin/anacron	anacron(8), anacrontab(5) (GPL, so under gnu/),
+				with Cronie's obstack: this libc has none
 
 What configure would write is in usr.sbin/cron/include: config.h and
 cron-paths.h (the BSD paths: /var/cron/tabs, /var/cron/allow and
 /var/cron/deny).  execvpe(3), which this libc lacks, is in
 usr.sbin/cron/cron/compat.c.  The manual pages get this system's paths
-from usr.sbin/cron/cronie-man.sed when they are built.
+from usr.sbin/cron/cronie-man.sed when they are built.  anacron uses the
+same config.h; its paths (/etc/anacrontab, /var/spool/anacron) are in
+gnu/usr.sbin/anacron/anacron-paths.h, its manual pages are edited by
+anacron-man.sed.  /etc/crontab runs anacron -s every hour, and
+/etc/anacrontab runs periodic(8) daily, weekly and monthly.
 
 When upgrading: check configure.ac for new HAVE_ and WITH_ macros and
-src/Makemodule.am for new source files, then update this file's tag,
-commit and date (tools/linux/check-submodules.sh compares the commit with
-the one the tree records).
+src/Makemodule.am and anacron/Makemodule.am for new source files, then
+update this file's tag, commit and date (tools/linux/check-submodules.sh
+compares the commit with the one the tree records).
 
 Cronie's licence: ISC and BSD (COPYING); cronie_common.c has no notice
-of its own and comes under COPYING.  Not built and GPL: anacron
-(COPYING.anacron), obstack (COPYING.obstack) and src/cronnext.c.
+of its own and comes under COPYING.  anacron is GPL, version 2 or later
+(COPYING.anacron), and obstack LGPL, version 2.1 or later
+(COPYING.obstack): built in gnu/usr.sbin/anacron.  src/cronnext.c is GPL
+and not built.

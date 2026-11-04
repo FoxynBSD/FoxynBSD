@@ -23,7 +23,7 @@ BINUPDATE+=${.CURDIR}/../usr.bin/mail/misc/mail.rc \
 
 # Initial distribution files are installed read-write (644)
 #
-BIN1=	auth.conf \
+BIN1=	anacrontab auth.conf \
 	crontab csh.cshrc csh.login csh.logout \
 	devtab dhclient.conf dntpd.conf \
 	ftpusers gettytab \

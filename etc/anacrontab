@@ -1,0 +1,18 @@
+# /etc/anacrontab - the system's daily, weekly and monthly jobs, for
+# anacron(8), which cron(8) runs every hour (/etc/crontab).  A job runs
+# once per period: one that was due while the machine was off runs in
+# the first hour it is on again, inside START_HOURS_RANGE.  The
+# timestamps of the last runs are in /var/spool/anacron.  See
+# anacrontab(5).
+#
+SHELL=/bin/sh
+PATH=/bin:/sbin:/usr/bin:/usr/sbin
+# Up to RANDOM_DELAY minutes more than each job's delay.
+RANDOM_DELAY=15
+# Start jobs from 3:00 to 21:59 only.
+START_HOURS_RANGE=3-22
+#
+#period	delay	id			command
+1	5	periodic.daily		periodic daily
+7	15	periodic.weekly		periodic weekly
+@monthly	30	periodic.monthly	periodic monthly

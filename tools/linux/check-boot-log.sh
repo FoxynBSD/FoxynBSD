@@ -17,7 +17,7 @@
 #			the password database, pwd_mkdb
 #	syslogd		a logger(1) message reached /var/log/messages
 #	daemons		syslogd, cron and devd still run after login
-#	cron		cron(8) ran a root crontab's and an /etc/cron.d job;
+#	cron		cron(8) ran a root crontab's and an /etc/cron.d job, anacron(8) a job;
 #			nobody installed, listed and removed a crontab
 #	periodic	`periodic daily` finished and found every command
 #	cxx		the static C++ exception test

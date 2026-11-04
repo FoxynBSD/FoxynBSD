@@ -922,7 +922,7 @@ BASE_PROGS="sbin/init bin/sh bin/cat bin/chmod bin/cp bin/date bin/df
 	gnu/usr.bin/grep/grep usr.bin/head usr.bin/id usr.bin/logger
 	usr.bin/login usr.bin/mktemp usr.bin/sed usr.bin/tail usr.bin/touch
 	usr.bin/tr usr.bin/uname usr.bin/wc usr.bin/xargs usr.bin/xinstall
-	usr.sbin/chown usr.sbin/cron/cron usr.sbin/cron/crontab usr.sbin/newsyslog usr.sbin/pwd_mkdb usr.sbin/syslogd
+	usr.sbin/chown usr.sbin/cron/cron usr.sbin/cron/crontab gnu/usr.sbin/anacron usr.sbin/newsyslog usr.sbin/pwd_mkdb usr.sbin/syslogd
 	usr.bin/diff usr.bin/lockf usr.bin/netstat usr.bin/sort usr.bin/tee
 	usr.bin/w gnu/usr.bin/grep/egrep gnu/usr.bin/grep/fgrep usr.sbin/chkgrp
 	usr.sbin/periodic
@@ -989,7 +989,7 @@ WORLD_PREBUILD="lib/libc_rtld gnu/lib/gcc80/libgcc_eh
 	gnu/lib/gcc80/libstdc++/headers gnu/lib/gcc80/libstdc++/components
 	gnu/lib/gcc80/libstdc++/product"
 WORLD_TOP="gnu/lib lib usr.bin/flex/lib libexec bin sbin usr.bin usr.sbin
-	gnu/usr.bin games share"
+	gnu/usr.bin gnu/usr.sbin games share"
 WORLD_SKIP="lib/csu lib/libc gnu/lib/gcc80 gnu/lib/gcc120"
 
 do_world() {
@@ -1447,6 +1447,8 @@ EOF
 # base's empty /var/cron/deny lets every user; with su(1) only, so not in
 # the base image).  cron-check wait, a few
 # minutes later, waits for both jobs to have run, then removes them.
+# start also checks anacron(8): /etc/anacrontab parses, and a test table's
+# job runs at once and leaves its timestamp.
 write_cron_test() {
 	cat > "$1" <<'EOF'
 #!/bin/sh
@@ -1471,6 +1473,18 @@ start)
 		cron=fail; echo "cron-check: FAIL crontab - (nobody, /var/cron/deny)"
 	fi
 	echo "cron-check: jobs installed at $(date +%T)"
+	# anacron(8): the system's table parses, and a job of a test table
+	# runs now (-f -n) and leaves its timestamp.
+	anacron -T || { cron=fail; echo "cron-check: FAIL anacron -T /etc/anacrontab"; }
+	t=$(mktemp -d /tmp/anacron-check.XXXXXX)
+	printf '1\t0\tanacron-check\techo anacron > %s/ran\n' "$t" > $t/tab
+	if anacron -d -f -n -t $t/tab -S $t 2>&1 && [ -f $t/ran ] &&
+	    [ -s $t/anacron-check ]; then
+		echo "cron-check: anacron ran a job, timestamp $(cat $t/anacron-check)"
+	else
+		cron=fail; echo "cron-check: FAIL anacron did not run the test job"
+	fi
+	rm -rf $t
 	;;
 wait)
 	# Cronie reads the changed tables at the start of a minute and runs
@@ -1920,6 +1934,8 @@ write_etc() {
 	else
 		grep -v '/usr/libexec/atrun' "$SRCDIR/etc/crontab" > "$root/etc/crontab"
 	fi
+	# periodic(8) by anacron(8), which the crontab runs every hour.
+	cp "$SRCDIR/etc/anacrontab" "$root/etc/anacrontab"
 	# /etc/os-release, from installworld's own target (NAME=FoxynBSD,
 	# ID_LIKE=dragonfly).
 	( cd "$SRCDIR" && make -f Makefile.inc1 DESTDIR="$root" os-release )

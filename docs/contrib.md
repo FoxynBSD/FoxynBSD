@@ -62,9 +62,13 @@ in `/usr` fetch the submodules too.
   runs `tools/linux/check-submodules.sh`, which checks that the
   `commit =` line is the commit the tree records and that `url =` matches
   `.gitmodules`.
-- The licence of every file that is built must be compatible with the
-  base (BSD, ISC, MIT and similar). A GPL part of a package can stay in
-  the submodule if it is not built. Say so in the README.
+- The licence of what is built must suit the base. BSD, ISC, MIT and
+  similar code is built where the program usually lives (`usr.sbin/...`).
+  GPL and LGPL code is built under `gnu/`, as DragonFly does with grep
+  and gcc, and never goes into the kernel: Cronie's anacron is built in
+  `gnu/usr.sbin/anacron`, apart from its ISC cron. A part that is not
+  built can stay in the submodule whatever its licence. The README
+  says which is which.
 
 ## Adding a package as a submodule
 
@@ -103,4 +107,4 @@ Before committing, check upstream's build files for new sources and new
 
 | Path | Upstream | Tag | Built in |
 |------|----------|-----|----------|
-| `contrib/cronie` | <https://github.com/cronie-crond/cronie> | `cronie-1.7.2` + 35 (master, for the `crontab` backup fix) | `usr.sbin/cron`: `cron(8)`, `crontab(1)` |
+| `contrib/cronie` | <https://github.com/cronie-crond/cronie> | `cronie-1.7.2` + 35 (master, for the `crontab` backup fix) | `usr.sbin/cron`: `cron(8)`, `crontab(1)`; `gnu/usr.sbin/anacron`: `anacron(8)` |

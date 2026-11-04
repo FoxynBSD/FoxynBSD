@@ -711,7 +711,7 @@ the choice. QEMU uses KVM when `/dev/kvm` is writable, and TCG otherwise
 
 `boot-test.sh --root` boots the image headless, waits for `login:`, logs
 in as root over the serial line, lists the running programs, runs
-`/root/tests/net-check` (the network and TLS), `/root/tests/cc-check`
+`/root/tests/cron-check` (cron, crontab and anacron), `/root/tests/net-check` (the network and TLS), `/root/tests/cc-check`
 (the image's compilers) and `periodic daily`. It
 has QEMU's user-mode network answer HTTP on 10.0.2.100 (a `guestfwd`
 that runs a small script for each connection), so the network test needs
@@ -727,6 +727,7 @@ check per CI step (`all` runs them all):
 | `basics` | terminfo, a writable tmpfs `/tmp`, login classes, devfs rules after the password database |
 | `syslogd` | a `logger(1)` message reached `/var/log/messages` |
 | `daemons` | `syslogd`, `cron` and `devd` still run after login |
+| `cron` | `cron(8)` (Cronie) ran a root crontab's job and an `/etc/cron.d` job; `nobody` installed, listed and removed a crontab (images with `su`); `/etc/anacrontab` parses and `anacron(8)` ran a test job |
 | `periodic` | `periodic daily` finished and found every command |
 | `cxx` | a static C++ program throws through two frames and catches |
 | `runtime` | compiler-rt builtins in a static and a dynamic program; C++ constructors, destructors and an exception across a shared library; `atexit` order; `dlopen(3)` (sources in `tools/linux/tests`) |
@@ -904,7 +905,7 @@ report are uploaded as artifacts.
 | `loader.efi`, ESP tree | boots under QEMU + OVMF |
 | compiler runtime | built from `contrib/compiler-rt`; tested in the image |
 | libc, rtld, base userland, C++ runtime | build with clang; run in the image |
-| root image | boots through `/etc/rc` and `rc.d` to a root login; syslogd, newsyslog, cron, devd, periodic |
+| root image | boots through `/etc/rc` and `rc.d` to a root login; syslogd, newsyslog, cron (Cronie) and anacron, devd, periodic |
 | whole world (`build.sh world`) | builds into the sysroot (CI job *Whole world*) |
 | ELF audit | no host contamination in the sysroot and the image |
 | network (`dhcpcd`), LibreSSL 4.3, `fetch` | in the base image; tested at boot (DHCP lease, HTTP, HTTPS) |
