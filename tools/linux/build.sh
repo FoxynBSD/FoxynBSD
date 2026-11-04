@@ -1566,14 +1566,23 @@ do_loader() {
 	local d xcc
 	kenv
 	headers_ok || do_sysroot
-	xcc="cc -nostdinc -isystem $SYSROOT/usr/include"
+	# The loader's compiler: the kernel cc wrapper on the sysroot's
+	# headers.  One word, because mkdep passes it as CC=${CC} in its
+	# environment.
+	printf '#!/bin/sh\nexec cc -nostdinc -isystem "%s/usr/include" "$@"\n' \
+	    "$SYSROOT" > "$HOSTBIN/standcc"
+	chmod 755 "$HOSTBIN/standcc"
+	xcc=standcc
 	MAKEOBJDIRPREFIX=$STANDOBJ; export MAKEOBJDIRPREFIX
 	mkdir -p "$STANDOBJ"
 	for d in stand/lib stand/boot/dloader stand/boot/efi/libefi \
 	    stand/boot/efi/loader; do
 		msg "building $d"
+		# depend first, as in world_lib: bsd.prog.mk turns DPADD into
+		# dependencies only through .depend, so without it loader.efi
+		# is not relinked when libdloader or libefi change.
 		( cd "$SRCDIR/$d" && make obj >/dev/null &&
-		  make -j"$JOBS" CC="$xcc" )
+		  make CC="$xcc" depend && make -j"$JOBS" CC="$xcc" )
 	done
 	msg "loader: $(loader_efi)"
 }
