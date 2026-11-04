@@ -144,6 +144,15 @@ jobs:
           tools/linux/check-boot-log.sh -l "$OBJDIR/qemu/disk-boot1.log" fs net tls disk
           tools/linux/check-boot-log.sh -l "$OBJDIR/qemu/disk-boot2.log" fs disk persist
 
+      # foxyn-install from root.iso onto an empty disk, which then boots
+      # alone from its own ESP.
+      - name: Install and boot the installed disk
+        run: |
+          BOOT_LOG="$OBJDIR/qemu/install.log" tools/linux/boot-test.sh --install
+          BOOT_LOG="$OBJDIR/qemu/installed.log" tools/linux/boot-test.sh --installed
+          tools/linux/check-boot-log.sh -l "$OBJDIR/qemu/install.log" install
+          tools/linux/check-boot-log.sh -l "$OBJDIR/qemu/installed.log" fs net tls disk
+
       - name: Report boot result
         if: always() && (steps.boot.outcome == 'failure' || steps.boot.outcome == 'success')
         run: |

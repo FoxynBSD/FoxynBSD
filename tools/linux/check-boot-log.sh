@@ -27,9 +27,13 @@
 #			with a notice, when the image has none)
 #	net		dhcpcd's lease for vtnet0, fetch(1) through QEMU's network
 #	tls		fetch(1) over HTTPS to openssl(1) s_server (LibreSSL)
-#	disk		the root is writable on disk.img (skipped for root.iso)
+#	disk		the root is writable on a disk: disk.img or an installed
+#			one (skipped for root.iso)
+#	cc		the image's gcc 12 (cc) and gcc 8 build and run C and C++
+#			(skipped for an image without them)
 #	persist		(not in all) a second boot of disk.img found the first
 #			one's boot count and a clean file system
+#	install		(not in all) foxyn-install finished (boot-test.sh --install)
 #
 # LOG defaults to $OBJDIR/qemu/X86_64_GENERIC.boot-root.log.  Messages
 # use GitHub's ::error:: syntax, which reads fine in a terminal too.
@@ -39,7 +43,7 @@ set -eu
 OBJDIR=${OBJDIR:-${XDG_CACHE_HOME:-$HOME/.cache}/foxynbsd}
 LOG=$OBJDIR/qemu/X86_64_GENERIC.boot-root.log
 if [ "${1:-}" = -l ]; then LOG=$2; shift 2; fi
-[ $# -gt 0 ] || { sed -n '9,33p' "$0" | sed 's/^# \{0,1\}//'; exit 2; }
+[ $# -gt 0 ] || { sed -n '9,37p' "$0" | sed 's/^# \{0,1\}//'; exit 2; }
 [ -f "$LOG" ] || { echo "::error title=boot log::no log at $LOG"; exit 1; }
 
 fail() { echo "::error title=$1::$2"; return 1; }
@@ -167,14 +171,30 @@ check_tls() {
 	    fail TLS "$(lines '^tls-check: FAIL' | tr '\n' ';')"
 }
 
+check_cc() {
+	lines '^cc-check: ' || :
+	if grep -aq '^cc-check: skipped' "$LOG"; then
+		echo "::notice title=cc::no compiler in the image, not tested"
+		return 0
+	fi
+	grep -aq '^cc-check: ok' "$LOG" ||
+	    fail compilers "$(lines '^cc-check: FAIL' | tr '\n' ';')"
+}
+
 check_disk() {
-	if ! has 'root on ufs, /etc/rc'; then
-		echo "::notice title=disk::the root is not on disk.img, not tested"
+	if has 'root on cd9660, /etc/rc'; then
+		echo "::notice title=disk::the root is root.iso, not a disk: not tested"
 		return 0
 	fi
 	lines '^disk-check: ' || :
-	grep -aq '^disk-check: boot [0-9]* of this disk, root on ufs' "$LOG" ||
-	    fail disk "the root on disk.img is not writable"
+	grep -aqE '^disk-check: boot [0-9]+ of this disk, root on (ufs|hammer2)' "$LOG" ||
+	    fail disk "the root on the disk is not writable"
+}
+
+check_install() {
+	lines '^foxyn-install: \|^install-42:' || :
+	grep -aq '^foxyn-install: done' "$LOG" && grep -aq '^install-42: 0' "$LOG" ||
+	    fail install "foxyn-install did not finish"
 }
 
 check_persist() {
@@ -187,11 +207,11 @@ check_persist() {
 	    fail persist "the file system was not clean after halt -p"
 }
 
-ALL="rtld rcd identity basics syslogd daemons periodic cxx runtime fs abi kld net tls disk"
+ALL="rtld rcd identity basics syslogd daemons periodic cxx runtime fs abi kld net tls disk cc"
 [ "$*" = all ] && set -- $ALL
 rc=0
 for c; do
-	case " $ALL persist " in *" $c "*) ;; *) echo "unknown check: $c" >&2; exit 2 ;; esac
+	case " $ALL persist install " in *" $c "*) ;; *) echo "unknown check: $c" >&2; exit 2 ;; esac
 	echo ">>> check $c"
 	"check_$c" || rc=1
 done

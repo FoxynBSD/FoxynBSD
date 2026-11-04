@@ -1,0 +1,149 @@
+#!/bin/sh
+#
+# foxyn-install: install the running FoxynBSD system on a disk.
+#
+# A minimal installer for the images that tools/linux/build.sh makes: it
+# erases DISK, gives it a GPT with an EFI system partition and a root
+# partition, copies the running system onto it and makes it boot on its
+# own (EFI loader and kernel on the ESP).  Run it as root from root.iso
+# or disk.img.
+#
+# Usage:
+#	foxyn-install [-y] [-t hammer2|ufs] [-b BOOTDISK] [-s ESPSIZE] DISK
+#
+#	DISK		the disk to erase, as in /dev (vbd2, da0, nvme0, ...)
+#	-y		do not ask before erasing DISK
+#	-t		root file system: hammer2 (default) or ufs
+#	-b		what the kernel will call the disk when it boots from it
+#			(default vbd0: the only virtio disk under QEMU); it goes
+#			into loader.conf and fstab
+#	-s		size of the EFI system partition in MiB (default 256)
+#
+# Layout: GPT slice 0 is the ESP (FAT32: EFI/BOOT/BOOTX64.EFI and /boot
+# with the loader's files and the kernel), slice 1 the root.  A HAMMER2
+# root gets the default DATA PFS (newfs_hammer2 on a slice).
+
+set -eu
+
+FSTYPE=hammer2
+BOOTDISK=vbd0
+ESPMB=256
+YES=
+
+die() { echo "foxyn-install: $*" >&2; exit 1; }
+msg() { echo "foxyn-install: $*"; }
+usage() { die "usage: foxyn-install [-y] [-t hammer2|ufs] [-b BOOTDISK] [-s ESPSIZE] DISK"; }
+
+while getopts yt:b:s: o; do
+	case $o in
+	y)	YES=1 ;;
+	t)	FSTYPE=$OPTARG ;;
+	b)	BOOTDISK=$OPTARG ;;
+	s)	ESPMB=$OPTARG ;;
+	*)	usage ;;
+	esac
+done
+shift $((OPTIND - 1))
+[ $# -eq 1 ] || usage
+DISK=${1#/dev/}
+
+case $FSTYPE in hammer2|ufs) ;; *) die "-t must be hammer2 or ufs" ;; esac
+[ "$(id -u)" = 0 ] || die "run me as root"
+[ -c "/dev/$DISK" ] || die "no disk /dev/$DISK"
+[ -f /boot/loader.efi ] && [ -f /boot/kernel/kernel ] ||
+    die "this image has no /boot/loader.efi and /boot/kernel/kernel to install"
+if mount | grep -q "^/dev/$DISK"; then
+	die "/dev/$DISK is in use: $(mount | grep "^/dev/$DISK" | head -n 1)"
+fi
+root=$(mount | sed -n 's|^\([^ ]*\) on / .*|\1|p')
+case $root in
+/dev/$DISK|/dev/${DISK}s*) die "/dev/$DISK holds the running system's root" ;;
+esac
+
+if [ -z "$YES" ]; then
+	printf 'Erase all of /dev/%s and install FoxynBSD on it? [y/N] ' "$DISK"
+	read -r answer
+	case $answer in [yY]*) ;; *) die "nothing done" ;; esac
+fi
+
+# The partitions: the ESP first, the root in the rest of the disk.
+msg "partitioning /dev/$DISK (GPT: ${ESPMB} MiB ESP, $FSTYPE root)"
+gpt destroy "$DISK" >/dev/null 2>&1 || :
+dd if=/dev/zero of="/dev/$DISK" bs=1m count=4 2>/dev/null
+gpt create -f "$DISK"
+gpt add -t efi -s $((ESPMB * 2048)) "$DISK" >/dev/null
+gpt add -t "$FSTYPE" "$DISK" >/dev/null
+gpt show "$DISK"
+# The kernel probes the new slices when the disk is next opened.
+i=0
+while [ ! -c "/dev/${DISK}s1" ]; do
+	i=$((i + 1))
+	[ $i -le 10 ] || die "/dev/${DISK}s0 and s1 did not appear"
+	ls "/dev/$DISK" >/dev/null 2>&1
+	sleep 1
+done
+
+msg "making the file systems"
+# FAT32, as UEFI asks of an ESP; it needs at least 65525 clusters, so
+# one-sector clusters for the small partition.
+newfs_msdos -F 32 -c 1 -L EFI "/dev/${DISK}s0" >/dev/null
+case $FSTYPE in
+hammer2) newfs_hammer2 "/dev/${DISK}s1" >/dev/null ;;
+ufs)	newfs "/dev/${DISK}s1" >/dev/null ;;
+esac
+
+# A mount point of its own: the live image's root is read-only.
+MNT=$(mktemp -d /tmp/foxyn-install.XXXXXX)
+mount -t "$FSTYPE" "/dev/${DISK}s1" "$MNT"
+trap 'umount "$MNT/boot/efi" 2>/dev/null; umount "$MNT" 2>/dev/null; rmdir "$MNT"' EXIT
+
+# The running system, as it is now: on root.iso /etc, /var and /root are
+# the tmpfs copies (with the password databases already made).
+msg "copying the system to /dev/${DISK}s1"
+for d in bin boot etc lib libexec root sbin usr var; do
+	[ -d "/$d" ] || continue
+	cpdup -i0 -s0 -q "/$d" "$MNT/$d"
+done
+for d in dev mnt proc tmp home; do
+	mkdir -p "$MNT/$d"
+done
+chmod 1777 "$MNT/tmp"
+[ -d "$MNT/var/tmp" ] && chmod 1777 "$MNT/var/tmp"
+rm -f "$MNT/var/db/boot-count"
+
+# What differs from the live image: a read-write root on this disk.
+# fsck checks a UFS root at boot; HAMMER2 needs no check.
+pass=0
+[ "$FSTYPE" = ufs ] && pass=1
+cat > "$MNT/etc/fstab" <<EOF
+# Device		Mountpoint	FStype	Options		Dump	Pass#
+/dev/${BOOTDISK}s1	/		$FSTYPE	rw		$pass	$pass
+/dev/${BOOTDISK}s0	/boot/efi	msdos	rw,noauto	0	0
+EOF
+sed -i '' -e '/^root_rw_mount=/d' \
+    -e 's|^# rc.conf for the .*|# rc.conf of a system installed by foxyn-install.  Services|' \
+    "$MNT/etc/rc.conf"
+
+# The ESP: the loader and its files, the kernel and the modules.
+msg "installing the boot loader and the kernel"
+mkdir -p "$MNT/boot/efi"
+mount_msdos "/dev/${DISK}s0" "$MNT/boot/efi"
+mkdir -p "$MNT/boot/efi/EFI/BOOT"
+cp /boot/loader.efi "$MNT/boot/efi/EFI/BOOT/BOOTX64.EFI"
+mkdir -p "$MNT/boot/efi/boot"
+cpdup -i0 -s0 -q /boot "$MNT/boot/efi/boot"
+rm -rf "$MNT/boot/efi/boot/efi" "$MNT/boot/efi/boot/loader.efi"
+# The console the running system was booted with (comconsole or efi).
+console=$(kenv console 2>/dev/null || echo efi)
+{
+	echo "console=\"$console\""
+	[ "$console" = comconsole ] && echo 'boot_serial="YES"'
+	echo 'autoboot_delay="3"'
+	echo "vfs.root.mountfrom=\"$FSTYPE:${BOOTDISK}s1\""
+} > "$MNT/boot/efi/boot/loader.conf"
+cp "$MNT/boot/efi/boot/loader.conf" "$MNT/boot/loader.conf"
+umount "$MNT/boot/efi"
+umount "$MNT"
+rmdir "$MNT"
+trap - EXIT
+msg "done: /dev/$DISK boots FoxynBSD on its own ($FSTYPE root, ${BOOTDISK}s1 when it boots)"

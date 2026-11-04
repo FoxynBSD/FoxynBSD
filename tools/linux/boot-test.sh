@@ -9,13 +9,19 @@
 # (dhcpcd, fetch) and TLS.  --disk does the same with the writable disk
 # image from `build.sh disk`, and powers the machine off with halt(8) at
 # the end, so a second run boots what the first one left on the disk.
+# --install boots root.iso with an empty disk ($INSTALLED) as well, logs
+# in, runs foxyn-install on it and powers off; --installed then boots that
+# disk alone (its own ESP and loader) and runs the --root tests.
 #
 # Usage:
-#	tools/linux/boot-test.sh [--root|--disk] [KERNCONF]
+#	tools/linux/boot-test.sh [--root|--disk|--install|--installed] [KERNCONF]
 #
 # Environment:
 #	BOOT_TIMEOUT	seconds to wait (default 300)
 #	BOOT_LOG	serial log path (default $OBJDIR/qemu/<KERNCONF>.boot.log)
+#	INSTALLED	the disk --install installs on and --installed boots
+#			(default $OBJDIR/installed.img, made INSTALL_SIZE big, 4G)
+#	INSTALL_ARGS	foxyn-install options for --install (e.g. "-t ufs")
 #
 # Exit status: 0 if the expected prompt appeared (and, with --root, the
 # login worked), 1 otherwise.  The serial
@@ -25,11 +31,24 @@ set -eu
 
 SRCDIR=$(cd "$(dirname "$0")/../.." && pwd)
 OBJDIR=${OBJDIR:-${XDG_CACHE_HOME:-$HOME/.cache}/foxynbsd}
-ROOTARG= SUFFIX=
+# MODE: what the test does after logging in; ROOTARG: what qemu.sh boots.
+ROOTARG= SUFFIX= MODE=
 case ${1:-} in
---root)	ROOTARG=--root SUFFIX=-root; shift ;;
---disk)	ROOTARG=--disk SUFFIX=-disk; shift ;;
+--root)	ROOTARG=--root SUFFIX=-root MODE=root; shift ;;
+--disk)	ROOTARG=--disk SUFFIX=-disk MODE=disk; shift ;;
+--install) ROOTARG=--root SUFFIX=-install MODE=install; shift ;;
+--installed) ROOTARG=--installed SUFFIX=-installed MODE=installed; shift ;;
 esac
+INSTALLED=${INSTALLED:-$OBJDIR/installed.img}
+if [ "$MODE" = install ]; then
+	# A new empty disk, the third virtio disk (vbd2) after the ESP and
+	# root.iso.
+	rm -f "$INSTALLED"
+	truncate -s "${INSTALL_SIZE:-4G}" "$INSTALLED"
+	ROOTDISK=$INSTALLED
+	export ROOTDISK
+fi
+export INSTALLED
 CONF=${1:-X86_64_GENERIC}
 TIMEOUT=${BOOT_TIMEOUT:-300}
 LOG=${BOOT_LOG:-$OBJDIR/qemu/$CONF.boot$SUFFIX.log}
@@ -123,9 +142,23 @@ if [ "$result" -eq 0 ] && [ -n "$ROOTARG" ]; then
 	[ "$result" -eq 0 ] || echo ">>> logging in as root FAILED" >&2
 fi
 
+# --install: install on the empty disk, which this boot sees as vbd2,
+# for booting alone (vbd0).  foxyn-install prints "foxyn-install: done"
+# when it finished.
+if [ "$result" -eq 0 ] && [ "$MODE" = install ]; then
+	printf "sh -c 'foxyn-install -y ${INSTALL_ARGS:-} vbd2; echo install-\$((6*7)): \$?'\r" >&3
+	tries=0
+	while [ "$tries" -lt 120 ] && ! grep -aq '^install-42:' "$LOG"; do
+		sleep 5
+		tries=$((tries + 1))
+	done
+	grep -aq '^install-42: 0' "$LOG" ||
+	    { echo ">>> foxyn-install FAILED" >&2; result=1; }
+fi
+
 # List the running programs once, for CI to check the daemons rc.d
 # started ("daemons-42: init syslogd cron ...").
-if [ "$result" -eq 0 ] && [ -n "$ROOTARG" ]; then
+if [ "$result" -eq 0 ] && [ -n "$ROOTARG" ] && [ "$MODE" != install ]; then
 	printf "sh -c 'echo daemons-\$((6*7)): \$(ps -axo comm= | tr \"\\\\n\" \" \")'\r" >&3
 	tries=0
 	while [ "$tries" -lt 6 ] && ! grep -aq '^daemons-42:' "$LOG"; do
@@ -141,6 +174,14 @@ if [ "$result" -eq 0 ] && [ -n "$ROOTARG" ]; then
 		sleep 5
 		tries=$((tries + 1))
 	done
+	# The image's own compilers (gcc 12 and gcc 8): /root/tests/cc-check
+	# prints "cc-check:" lines and ends with cc-42.
+	printf "sh -c 'sh /root/tests/cc-check; echo cc-\$((6*7)): \$?'\r" >&3
+	tries=0
+	while [ "$tries" -lt 60 ] && ! grep -aq '^cc-42:' "$LOG"; do
+		sleep 5
+		tries=$((tries + 1))
+	done
 	# Run the daily periodic(8) jobs and print their report, each line
 	# prefixed with "daily| ", for CI to check.
 	printf "sh -c 'periodic daily; sed \"s/^/daily| /\" /var/log/daily.log; echo periodic-\$((6*7)): \$?'\r" >&3
@@ -153,7 +194,7 @@ fi
 
 # A disk is shut down cleanly, so the next boot finds its file system
 # clean and what this one wrote on it.
-if [ "$result" -eq 0 ] && [ "$ROOTARG" = --disk ]; then
+if [ "$result" -eq 0 ] && [ "$MODE" != root ] && [ -n "$MODE" ]; then
 	printf 'halt -p\r' >&3
 	tries=0
 	while [ "$tries" -lt 24 ] && kill -0 "$pid" 2>/dev/null; do
@@ -171,8 +212,14 @@ wait "$pid" 2>/dev/null || :
 [ -n "$catpid" ] && { kill "$catpid" 2>/dev/null || :; wait "$catpid" 2>/dev/null || :; }
 
 if [ "$result" -eq 0 ]; then
-	if [ "$ROOTARG" = --disk ]; then
+	if [ "$MODE" = disk ]; then
 		echo ">>> boot test passed: disk.img booted to a login prompt and powered off" >&2
+		tail -n 4 "$LOG" >&2
+	elif [ "$MODE" = install ]; then
+		echo ">>> boot test passed: foxyn-install installed on $INSTALLED" >&2
+		grep -a '^foxyn-install: ' "$LOG" | tail -n 3 >&2
+	elif [ "$MODE" = installed ]; then
+		echo ">>> boot test passed: $INSTALLED booted alone to a login prompt and powered off" >&2
 		tail -n 4 "$LOG" >&2
 	elif [ -n "$ROOTARG" ]; then
 		echo ">>> boot test passed: root.iso booted to a login prompt" >&2

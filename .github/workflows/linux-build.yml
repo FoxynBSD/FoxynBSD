@@ -331,10 +331,27 @@ jobs:
           tools/linux/check-boot-log.sh -l "$OBJDIR/qemu/disk-boot2.log" \
             rtld basics fs disk persist
 
-      - name: Report disk boot result
-        if: always() && (steps.disk.outcome == 'failure' || steps.disk2.outcome == 'failure')
+      # The installer: root.iso installs itself on an empty disk with
+      # foxyn-install (GPT, FAT32 ESP with the loader and the kernel,
+      # HAMMER2 root), and that disk then boots alone, from its own ESP.
+      - name: Install with foxyn-install
+        id: install
         run: |
-          for log in "$OBJDIR/qemu/disk-boot1.log" "$OBJDIR/qemu/disk-boot2.log"; do
+          BOOT_LOG="$OBJDIR/qemu/install.log" tools/linux/boot-test.sh --install
+          tools/linux/check-boot-log.sh -l "$OBJDIR/qemu/install.log" install
+
+      - name: Boot the installed disk alone
+        id: installed
+        run: |
+          BOOT_LOG="$OBJDIR/qemu/installed.log" tools/linux/boot-test.sh --installed
+          tools/linux/check-boot-log.sh -l "$OBJDIR/qemu/installed.log" \
+            rtld rcd basics daemons fs net tls disk
+
+      - name: Report disk boot result
+        if: always() && (steps.disk.outcome == 'failure' || steps.disk2.outcome == 'failure' || steps.install.outcome == 'failure' || steps.installed.outcome == 'failure')
+        run: |
+          for log in "$OBJDIR/qemu/disk-boot1.log" "$OBJDIR/qemu/disk-boot2.log" \
+              "$OBJDIR/qemu/install.log" "$OBJDIR/qemu/installed.log"; do
             [ -f "$log" ] || continue
             {
               echo "--- $log ---"

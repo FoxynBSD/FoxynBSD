@@ -33,12 +33,13 @@ jobs:
 
       - name: Parse with dash and bash
         run: |
-          for f in tools/linux/*.sh; do
+          # foxyn-install runs in the image, under DragonFly's sh.
+          for f in tools/linux/*.sh tools/linux/foxyn-install; do
             dash -n "$f" && bash -n "$f" || { echo "::error file=$f::does not parse"; exit 1; }
           done
 
       - name: shellcheck (errors only)
-        run: shellcheck -S error tools/linux/*.sh
+        run: shellcheck -S error tools/linux/*.sh tools/linux/foxyn-install
 
       # The audit must fail on a glibc program and pass on an empty tree.
       - name: ELF audit self-test

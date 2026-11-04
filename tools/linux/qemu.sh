@@ -3,7 +3,7 @@
 # Boot a FoxynBSD kernel built by tools/linux/build.sh under QEMU + OVMF.
 #
 # Usage:
-#	tools/linux/qemu.sh [--serial] [--kernel-only|--disk] [KERNCONF] [-- qemu args]
+#	tools/linux/qemu.sh [--serial] [--kernel-only|--disk|--installed] [KERNCONF] [-- qemu args]
 #
 # By default the whole system boots in a QEMU window: the root image
 # from `build.sh rootfs` ($OBJDIR/root.iso) is attached as a second
@@ -21,6 +21,9 @@
 #			($OBJDIR/disk.img) instead of root.iso: the root is
 #			UFS on its GPT partition (vbd1s0), mounted read-write,
 #			and what is written there stays for the next boot.
+#	--installed	boot a disk that foxyn-install installed FoxynBSD on
+#			($OBJDIR/installed.img), alone: the firmware starts the
+#			loader on its own ESP, without the ESP from build.sh.
 #	--gui, --root	the defaults, spelled out.
 #	--firmware	print the OVMF images that would be used, and exit.
 #
@@ -35,6 +38,7 @@
 #	MEM (default 2G), SMP (default 2)
 #	ROOTISO		root image for --root (default $OBJDIR/root.iso)
 #	DISK		disk image for --disk (default $OBJDIR/disk.img)
+#	INSTALLED	disk image for --installed (default $OBJDIR/installed.img)
 #	ROOTDISK	optional disk image to attach as another virtio disk
 #	NETDEV_OPTS	more options for the user-mode network (-netdev user),
 #			starting with a comma: ",hostfwd=tcp::2222-:22"
@@ -43,7 +47,8 @@
 #			$SERIAL_PIPE.in and $SERIAL_PIPE.out (made by the caller),
 #			so a script can both read the console and type on it
 #	GUI=0/1		same as --serial / --gui
-#	ROOT=0/1/disk	same as --kernel-only / --root / --disk
+#	ROOT=0/1/disk/installed	same as --kernel-only / --root / --disk /
+#			--installed
 #	DISPLAY_BACKEND	QEMU -display backend for the window (default: gtk,
 #			else sdl, whichever this QEMU has)
 #
@@ -60,7 +65,7 @@ FWONLY=0
 
 die() { echo "qemu.sh: $*" >&2; exit 1; }
 usage() {
-	die "usage: qemu.sh [--serial|--gui] [--kernel-only|--root|--disk] [--firmware] [KERNCONF] [-- qemu args]"
+	die "usage: qemu.sh [--serial|--gui] [--kernel-only|--root|--disk|--installed] [--firmware] [KERNCONF] [-- qemu args]"
 }
 
 while :; do
@@ -70,6 +75,7 @@ while :; do
 	--root)	ROOT=1; shift ;;
 	--kernel-only|--no-root) ROOT=0; shift ;;
 	--disk)	ROOT=disk; shift ;;
+	--installed) ROOT=installed; shift ;;
 	--firmware) FWONLY=1; shift ;;
 	--)	break ;;
 	-h|--help) usage ;;
@@ -77,9 +83,10 @@ while :; do
 	*)	break ;;
 	esac
 done
-[ -n "${ROOTISO:-}" ] && [ "$ROOT" != disk ] && ROOT=1
+[ -n "${ROOTISO:-}" ] && [ "$ROOT" = 0 ] && ROOT=1
 ROOTISO=${ROOTISO:-$OBJDIR/root.iso}
 DISK=${DISK:-$OBJDIR/disk.img}
+INSTALLED=${INSTALLED:-$OBJDIR/installed.img}
 CONF=X86_64_GENERIC
 if [ $# -gt 0 ] && [ "$1" != "--" ]; then CONF=$1; shift; fi
 [ "${1:-}" = "--" ] && shift
@@ -116,7 +123,7 @@ elif [ "$GUI" != 0 ]; then
 fi
 
 ESP=$OBJDIR/esp/$CONF
-[ "$FWONLY" = 1 ] || [ -f "$ESP/EFI/BOOT/BOOTX64.EFI" ] ||
+[ "$FWONLY" = 1 ] || [ "$ROOT" = installed ] || [ -f "$ESP/EFI/BOOT/BOOTX64.EFI" ] ||
     die "no ESP at $ESP; run tools/linux/build.sh esp $CONF"
 
 find_fw() {
@@ -188,11 +195,15 @@ fi
     die "no root image at $ROOTISO; run tools/linux/build.sh (or boot with --kernel-only)"
 [ "$ROOT" != disk ] || [ -f "$DISK" ] ||
     die "no disk image at $DISK; run tools/linux/build.sh disk"
+[ "$ROOT" != installed ] || [ -f "$INSTALLED" ] ||
+    die "no installed disk at $INSTALLED; install with foxyn-install (boot-test.sh --install)"
 
 # The ESP from build.sh boots on the serial console with no root device.
 # For --gui or --root, boot a hardlinked copy with its own loader.conf, so
 # the build output is left alone and no file contents are duplicated.
-if [ "$GUI" = 1 ] || [ "$ROOT" != 0 ]; then
+if [ "$ROOT" = installed ]; then
+	:	# The disk has its own ESP and loader.conf.
+elif [ "$GUI" = 1 ] || [ "$ROOT" != 0 ]; then
 	VESP=$OBJDIR/qemu/esp-$GUI$ROOT/$CONF
 	rm -rf "$VESP"
 	mkdir -p "$(dirname "$VESP")"
@@ -242,6 +253,15 @@ else
 	CONSOLE="-nographic -serial mon:stdio"
 fi
 
+# The first virtio disk (vbd0): the ESP from build.sh, served as a
+# virtual FAT disk, or an installed disk, whose own ESP boots.
+if [ "$ROOT" = installed ]; then
+	BOOTDRIVE=file=$INSTALLED,if=virtio,format=raw
+	ESP="$INSTALLED (its own ESP)"
+else
+	BOOTDRIVE=file=fat:$ESP,format=raw,if=virtio,readonly=on
+fi
+
 # -nodefaults: q35 would otherwise add an empty AHCI CD drive, whose
 # ATAPI emulation keeps the ahci(4) driver in timeouts for a minute.
 set -- \
@@ -250,13 +270,14 @@ set -- \
     -m "${MEM:-2G}" -smp "${SMP:-2}" \
     -drive if=pflash,format=raw,readonly=on,file="$OVMF_CODE" \
     -drive if=pflash,format=raw,file="$VARS" \
-    -drive file=fat:"$ESP",format=raw,if=virtio,readonly=on \
+    -drive "$BOOTDRIVE" \
     -netdev "user,id=n0${NETDEV_OPTS:-}" -device virtio-net-pci,netdev=n0 \
     $CONSOLE \
     "$@"
 
-# The ISO goes on virtio-blk rather than as an AHCI CD: QEMU's ATAPI
-# emulation times out with the ahci(4) driver ("Cannot copy rfis").
+# The root is the second virtio disk (vbd1).  The ISO goes on virtio-blk
+# rather than as an AHCI CD: QEMU's ATAPI emulation times out with the
+# ahci(4) driver ("Cannot copy rfis").
 if [ "$ROOT" = 1 ]; then
 	set -- "$@" -drive file="$ROOTISO",if=virtio,format=raw,readonly=on
 elif [ "$ROOT" = disk ]; then

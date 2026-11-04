@@ -486,7 +486,7 @@ n=\$#
 while [ "\$n" -gt 0 ]; do
 	a=\$1; shift; n=\$((n - 1))
 	case \$a in
-	-finhibit-size-directive) ;;
+	-finhibit-size-directive|-gno-as-loc-support) ;;
 	-fbuilding-libgcc) set -- "\$@" -D__LIBGCC_DWARF_FRAME_REGISTERS__=17 \\
 	    -D__LIBGCC_STACK_GROWS_DOWNWARD__ -D__LIBGCC_EH_RETURN_STACKADJ_RTX__ ;;
 	*) set -- "\$@" "\$a" ;;
@@ -502,6 +502,9 @@ done
 # tree's gcc 12: incompatible (function) pointer types (GNU grep's
 # obstack.c, K&R code in tcp_wrappers), int-conversion, implicit int and
 # implicit function declarations.
+# -gno-as-loc-support: gcc 12's libstdc++ asks gcc not to rely on the
+# assembler's .loc directives (cxx11-ios_failure.cc); clang has no such
+# option and needs none.
 # -ffile-prefix-map: __FILE__ (assert messages) and debug info name the
 # sources as a native build does (/usr/src, /usr/obj), not this host's
 # checkout and object tree.
@@ -519,9 +522,12 @@ EOF
 	# gnu/lib/gcc80/libstdc++ installs in /usr/include/c++/8.0.  Up to
 	# clang 18 a constexpr function that can never be constant is an
 	# error; gcc 8's <cmath> has some (they call non-constexpr builtins).
+	# gcc 12's libstdc++ (random.cc) calls gcc's name for the RDSEED
+	# builtin, which clang calls __builtin_ia32_rdseed32_step.
 	cat > "$HOSTBIN/xc++" <<'EOF'
 #!/bin/sh
-exec "$(dirname "$0")/xcc" --driver-mode=g++ -Wno-invalid-constexpr "$@"
+exec "$(dirname "$0")/xcc" --driver-mode=g++ -Wno-invalid-constexpr \
+	-D__builtin_ia32_rdseed_si_step=__builtin_ia32_rdseed32_step "$@"
 EOF
 	chmod 755 "$HOSTBIN/xc++"
 }
@@ -540,6 +546,41 @@ EOF
 # The kernel and modules link through this driver with the host's GNU ld
 # (ld.bfd) as with gcc: the kernel's linker script and program headers
 # are what GNU ld makes of them (lld lays out the PHDRS differently).
+# xgcc: the host gcc as a compiler for the DragonFly target, for the C
+# parts of gcc 12's runtime (gnu/lib/gcc120: crtbegin/crtend, libgcc,
+# the unwinder, libssp, libatomic, libgcov, libgomp).  They need gcc
+# itself: what it predefines for -fbuilding-libgcc, mode attributes and
+# builtins that clang lacks.  A gcc for x86_64 Linux and the tree's gcc
+# 12 for x86_64 DragonFly generate the same code for them (both ELF and
+# the SysV ABI); the differences are the predefined system macros and the
+# headers, which xgcc replaces with DragonFly's (the sysroot, then the
+# host gcc's own intrinsics and gcc 12's in /usr/libdata/gcc120), and the
+# hardening defaults of Linux distributions, which it turns off as the
+# DragonFly gcc has them.  Only compiling goes to gcc: links (libatomic,
+# libgomp and libssp are shared too) go to xcc, which links for the
+# target.  Warnings stay warnings: the host gcc is newer than gcc 12.
+write_xgcc_wrapper() {
+	local gcc inc
+	gcc=$(command -v "${HOST_GCC:-gcc}") || die "no host gcc"
+	inc=$("$gcc" -print-file-name=include)
+	cat > "$HOSTBIN/xgcc" <<EOF
+#!/bin/sh
+for a; do
+	case \$a in
+	-c|-S|-E|-M|-MM) exec "$gcc" -nostdinc -isystem "$SYSROOT/usr/include" \\
+		-idirafter "$inc" -idirafter "$SYSROOT/usr/libdata/gcc120" \\
+		-U__linux__ -U__linux -Ulinux -U__gnu_linux__ -D__DragonFly__ \\
+		-fno-pie -fcf-protection=none -fno-stack-clash-protection \\
+		-U_FORTIFY_SOURCE -fno-stack-protector \\
+		-ffile-prefix-map="$SRCDIR"=/usr/src -ffile-prefix-map="$OBJDIR"=/usr/obj \\
+		"\$@" -Wno-error -Wno-system-headers ;;
+	esac
+done
+exec "$HOSTBIN/xcc" "\$@"
+EOF
+	chmod 755 "$HOSTBIN/xgcc"
+}
+
 write_kcc_wrapper() {
 	local clang
 	if ! clang=$(command -v "${HOST_CLANG:-clang}"); then
@@ -576,6 +617,7 @@ do_tools() {
 	build_makefs
 	write_xcc_wrapper
 	write_kcc_wrapper
+	write_xgcc_wrapper
 	echo "$TOOLS_STAMP" > "$HOSTBIN/.done"
 }
 
@@ -621,7 +663,7 @@ build_makefs() {
 
 # Bump when the host tools or shims change, so an existing $OBJDIR gets
 # them rebuilt instead of failing with old ones (install -C/-B, chflags).
-TOOLS_STAMP=19
+TOOLS_STAMP=20
 
 kenv() {
 	[ "$(cat "$HOSTBIN/.done" 2>/dev/null)" = "$TOOLS_STAMP" ] || do_tools
@@ -850,14 +892,18 @@ do_libc() {
 # /etc/rc, in build order: the runtime linker and the libraries first,
 # then init, sh, login and the utilities rc.subr and rc.d call.  LibreSSL
 # (libcrypto, libssl) and libfetch come with what needs them: csh,
-# mtree, dhcpcd (the network at boot), fetch and openssl.
+# mtree, dhcpcd (the network at boot), fetch and openssl.  The installer
+# (tools/linux/foxyn-install) uses gpt, newfs_msdos, newfs_hammer2,
+# newfs, mount_msdos, mount_hammer2 (which runs hammer2), cpdup, kenv
+# and dd.
 BASE_LIBS="lib/libc_rtld libexec/rtld-elf lib/libutil lib/libcrypt
 	lib/libncurses lib/libedit lib/libm lib/libkvm lib/libypclnt
 	lib/libpam/libpam lib/libpam/modules lib/libexpat lib/libsbuf
 	gnu/usr.bin/grep/libgreputils usr.bin/awk/maketab usr.sbin/cron/lib
 	usr.bin/flex/lib gnu/lib/gcc80/libgcc_eh gnu/lib/gcc80/libstdc++/headers
 	gnu/lib/gcc80/libstdc++/components gnu/lib/gcc80/libstdc++/product
-	lib/librecrypto lib/libressl lib/libfetch lib/libkinfo lib/libnetgraph"
+	lib/librecrypto lib/libressl lib/libfetch lib/libkinfo lib/libnetgraph
+	lib/libkiconv lib/libpthread lib/libdmsg"
 BASE_PROGS="sbin/init bin/sh bin/cat bin/chmod bin/cp bin/date bin/df
 	bin/echo bin/expr bin/hostname bin/kill bin/ln bin/ls bin/mkdir bin/mv
 	bin/ps bin/pwd bin/rm bin/rmdir bin/sleep bin/stty bin/test bin/varsym
@@ -873,7 +919,9 @@ BASE_PROGS="sbin/init bin/sh bin/cat bin/chmod bin/cp bin/date bin/df
 	usr.bin/diff usr.bin/lockf usr.bin/netstat usr.bin/sort usr.bin/tee
 	usr.bin/w gnu/usr.bin/grep/egrep gnu/usr.bin/grep/fgrep usr.sbin/chkgrp
 	usr.sbin/periodic
-	bin/csh sbin/dhcpcd usr.bin/fetch usr.bin/openssl usr.sbin/mtree"
+	bin/csh sbin/dhcpcd usr.bin/fetch usr.bin/openssl usr.sbin/mtree
+	bin/cpdup sbin/gpt sbin/newfs sbin/newfs_msdos sbin/newfs_hammer2
+	sbin/mount_hammer2 sbin/mount_msdos usr.bin/kenv bin/dd sbin/hammer2"
 
 # Modules rc.local loads and unloads to test the kernel linker.
 KLD_TESTS="udf ext2fs"
@@ -909,6 +957,7 @@ world_dir() {
 		  export MAKEOBJDIRPREFIX; mkdir -p "$MAKEOBJDIRPREFIX"
 		  gcc_prep; world_lib "$1" ) && gcc_pic_unwind ;;
 	gnu/usr.bin/cc80) gcc_prep_clean; world_lib "$1" ;;
+	gnu/lib/gcc120)	world_gcc120 ;;
 	*)		world_lib "$1" ;;
 	esac
 }
@@ -920,10 +969,10 @@ world_dir() {
 # is recorded and the rest still builds; the failures are listed at the
 # end (and the command fails).  Without it the first failure stops.
 #
-# Left out: the gcc runtimes' csu and libgcc (lib/libcompiler_rt
-# stands in, see install_compiler_rt) and gnu/lib/gcc120, which needs
-# gcc internals that do not build with clang; the C++ runtime is gcc 8's,
-# as in `base`.
+# Left out: gcc 8's csu and libgcc (lib/libcompiler_rt stands in, see
+# install_compiler_rt); the C++ runtime the world links is gcc 8's, as in
+# `base`.  gcc 12's runtime (gnu/lib/gcc120), which the image's own cc
+# links with, is built last (world_gcc120).
 WORLD_PREBUILD="lib/libc_rtld gnu/lib/gcc80/libgcc_eh
 	lib/libbz2 lib/liblzma lib/libz lib/libzstd lib/libutil lib/libpcap
 	lib/libcrypt lib/libncurses lib/libncurses/libtic
@@ -933,7 +982,7 @@ WORLD_PREBUILD="lib/libc_rtld gnu/lib/gcc80/libgcc_eh
 	gnu/lib/gcc80/libstdc++/product"
 WORLD_TOP="gnu/lib lib usr.bin/flex/lib libexec bin sbin usr.bin usr.sbin
 	gnu/usr.bin games share"
-WORLD_SKIP="lib/csu lib/libc gnu/lib/gcc120 gnu/lib/gcc80"
+WORLD_SKIP="lib/csu lib/libc gnu/lib/gcc80 gnu/lib/gcc120"
 
 do_world() {
 	local d top subs failed= seen=
@@ -953,6 +1002,13 @@ do_world() {
 		[ -n "$subs" ] || { world_try "$top"; continue; }
 		for d in $subs; do world_try "$top/$d"; done
 	done
+	# gcc 12's runtime last: it includes headers that gnu/usr.bin/cc120
+	# generates (buildworld's _compiler_libs_gcc120 stage builds them
+	# first for the same reason).
+	world_dir gnu/lib/gcc120 || {
+		[ -n "${KEEP_GOING:-}" ] || die "world: gnu/lib/gcc120 failed"
+		failed="$failed gnu/lib/gcc120"
+	}
 	if [ -n "$failed" ]; then
 		msg "world: these directories failed:"
 		for d in $failed; do echo "	$d" >&2; done
@@ -961,6 +1017,39 @@ do_world() {
 	# build.sh rootfs puts the whole world in the image from now on.
 	: > "$SYSROOT/.world_done"
 	msg "world: done"
+}
+
+# gcc 12's runtime in /usr/lib/gcc120, /usr/libdata/gcc120 and
+# /usr/include/c++/12.0: what the image's cc (gcc 12, DragonFly's default
+# compiler) links programs with.  It is gcc's own code, built here as
+# buildworld builds it, except for the compilers: the C parts with xgcc
+# (the host gcc for the DragonFly target, see write_xgcc_wrapper), which
+# also takes the makefiles' gcc options (CCVER=gcc120); libstdc++, as
+# gcc 8's, with xc++ (clang): host g++ releases newer than gcc 12 do not
+# all compile its exception support (an internal compiler error in gcc
+# 16 on libsupc++'s eh_call.cc).  csu and libgcc need the headers that
+# gnu/usr.bin/cc120 generates (cc_prep, cc_tools), so this runs after it.
+GCC120_C="csu libgcc libgcc_eh libgcc_pic libssp_nonshared libssp libatomic
+	libgcov libgomp"
+GCC120_CXX="libstdc++/headers libstdc++/components libstdc++/product libstdc++fs"
+world_gcc120() {
+	local d g=gnu/lib/gcc120 o
+	[ -f "$MAKEOBJDIRPREFIX$SRCDIR/gnu/usr.bin/cc120/cc_prep/tm.h" ] ||
+	    die "$g needs gnu/usr.bin/cc120 built first (build.sh world)"
+	mkdir -p "$SYSROOT/usr/lib/gcc120/profile" "$SYSROOT/usr/libdata/gcc120"
+	for d in $GCC120_C; do
+		if [ $d = libssp ]; then
+			# Its sources include <ssp/ssp.h>, which it installs.
+			o=$(cd "$SRCDIR/$g/$d" && make obj >/dev/null &&
+			    make CCVER=gcc120 CC=xgcc ssp.h >/dev/null &&
+			    make CCVER=gcc120 -V .OBJDIR) || return
+			install -D -m 444 "$o/ssp.h" "$SYSROOT/usr/libdata/gcc120/ssp/ssp.h"
+		fi
+		WORLD_CCVER=gcc120 world_lib "$g/$d" CC=xgcc || return
+	done
+	for d in $GCC120_CXX; do
+		world_lib "$g/$d" || return
+	done
 }
 
 # The SUBDIR list of a directory's Makefile, as its make sees it.
@@ -1095,7 +1184,7 @@ do_rootfs() {
 		rm -f "$root/usr/lib/clang" "$root/.headers_done" "$root/.world_done"
 	fi
 	for d in bin sbin lib/priv libexec usr/bin usr/lib usr/libexec usr/sbin dev etc \
-	    root tmp var/db var/log var/run var/tmp; do
+	    mnt root tmp var/db var/log var/run var/tmp; do
 		mkdir -p "$root/$d"
 	done
 	mtree_dirs "$SRCDIR/etc/mtree/BSD.var.dist" "$root/var"
@@ -1106,6 +1195,7 @@ do_rootfs() {
 	write_cxx_test "$root/root/tests"
 	write_runtime_tests "$root/root/tests"
 	write_net_test "$root/root/tests/net-check"
+	write_cc_test "$root/root/tests/cc-check"
 	# Kernel modules for the kldload test in rc.local, when `build.sh
 	# modules` built them (MODULES_OVERRIDE="vfs/udf vfs/ext2fs" builds
 	# only these): filesystems the GENERIC kernel does not have built in.
@@ -1116,14 +1206,29 @@ do_rootfs() {
 		mkdir -p "$root/boot/kernel"
 		objcopy --strip-debug "$ko" "$root/boot/kernel/$f.ko"
 	done
-	# Copy the shared libraries, following NEEDED entries to a fixpoint.
+	# What foxyn-install puts on the disk it installs to: the EFI loader
+	# and the boot tree of `build.sh esp` (dloader.rc, the defaults, the
+	# kernel), in /boot as on an installed DragonFly system.
+	local esp=$OBJDIR/esp/X86_64_GENERIC
+	if [ -f "$esp/EFI/BOOT/BOOTX64.EFI" ] && [ -f "$esp/boot/kernel/kernel" ]; then
+		mkdir -p "$root/boot/kernel" "$root/boot/defaults"
+		cp "$esp/EFI/BOOT/BOOTX64.EFI" "$root/boot/loader.efi"
+		cp "$esp/boot/dloader.rc" "$root/boot/"
+		cp "$esp/boot/defaults/"* "$root/boot/defaults/"
+		cp "$esp/boot/kernel/kernel" "$root/boot/kernel/kernel"
+	else
+		msg "no ESP from build.sh esp: the image cannot install itself"
+	fi
+	install -m 555 "$SRCDIR/tools/linux/foxyn-install" "$root/usr/sbin/foxyn-install"
+	# Copy the shared libraries, following NEEDED entries to a fixpoint
+	# (not for /boot: the kernel and its modules do not load them).
 	# They are looked up where rtld looks: the standard directories and
 	# the file's RUNPATH (/usr/lib/gcc80 for libstdc++, which clang's
 	# DragonFly driver adds to every dynamic link).
 	local added=1 found dirs
 	while [ "$added" = 1 ]; do
 		added=0
-		for f in $(find "$root" -type f); do
+		for f in $(find "$root" -path "$root/boot" -prune -o -type f -print); do
 			dirs="lib lib/priv usr/lib usr/lib/priv $(readelf -d "$f" 2>/dev/null |
 			    sed -n 's/.*(R[UN]*PATH).*\[\(.*\)\]/\1/p' | tr ':' ' ')"
 			for lib in $(readelf -d "$f" 2>/dev/null |
@@ -1333,6 +1438,65 @@ fi
 rm -rf $d
 echo "tls-check: $tls"
 [ $net = ok ] && [ $tls = ok ]
+EOF
+	chmod 755 "$1"
+}
+
+# The image's own compilers, which boot-test.sh runs after logging in:
+# cc (gcc 12, DragonFly's default, with gnu/lib/gcc120) and gcc 8
+# (CCVER=gcc80, with the runtime in /usr/lib/gcc80) compile, link and run
+# C, dynamically and statically (a 128-bit division needs libgcc), and
+# C++ that throws and catches through a frame with a destructor.  The
+# base image has no compiler: the test says it is skipped.
+write_cc_test() {
+	cat > "$1" <<'EOF'
+#!/bin/sh
+if [ ! -x /usr/libexec/gcc120/cc ]; then
+	echo "cc-check: skipped (no compiler in this image)"
+	exit 0
+fi
+d=$(mktemp -d /tmp/cc.XXXXXX)
+cd $d || exit 1
+cat > t.c <<'EOT'
+#include <stdio.h>
+int main(int argc, char **argv) {
+	volatile unsigned __int128 n = (unsigned __int128)1 << 100;
+	volatile unsigned __int128 q = n / (argc + 5);
+	printf("%s %d.%d: %llu\n", argv[1], __GNUC__, __GNUC_MINOR__,
+	    (unsigned long long)(q >> 64));
+	return (q >> 64) != 9817068105;
+}
+EOT
+cat > t.cc <<'EOT'
+#include <iostream>
+#include <stdexcept>
+#include <string>
+struct guard { std::string &s; ~guard() { s += " unwound"; } };
+static void thrower(std::string &s) { guard g{s}; throw std::runtime_error("thrown"); }
+int main(int, char **argv) {
+	std::string s = argv[1];
+	try { thrower(s); } catch (const std::exception &e) { s += std::string(" ") + e.what(); }
+	std::cout << s << std::endl;
+	return s.find("unwound thrown") == std::string::npos;
+}
+EOT
+ok=ok
+for v in gcc120 gcc80; do
+	for t in "c:cc:t.c" "c-static:cc -static:t.c" "c++:c++:t.cc"; do
+		n=${t%%:*}; c=${t#*:}; c=${c%%:*}; src=${t##*:}
+		if CCVER=$v $c -O2 -o t $src >build.log 2>&1 &&
+		    out=$(./t "cc-check: $v $n") && echo "$out"; then
+			:
+		else
+			ok=fail; echo "cc-check: FAIL $v $n"
+			sed 's/^/cc-check: /' build.log | head -n 20
+		fi
+	done
+done
+cd /
+rm -rf $d
+echo "cc-check: $ok"
+[ $ok = ok ]
 EOF
 	chmod 755 "$1"
 }
@@ -1766,10 +1930,11 @@ EOF
 world_lib() {
 	local dir=$1; shift
 	msg "building $dir"
+	local ccver=${WORLD_CCVER:-clang}
 	( cd "$SRCDIR/$dir" && make obj >/dev/null &&
-	  make CCVER=clang DESTDIR="$SYSROOT" "$@" depend &&
-	  make -j"$JOBS" CCVER=clang DESTDIR="$SYSROOT" "$@" &&
-	  make CCVER=clang DESTDIR="$SYSROOT" "$@" install ) || return
+	  make CCVER=$ccver DESTDIR="$SYSROOT" "$@" depend &&
+	  make -j"$JOBS" CCVER=$ccver DESTDIR="$SYSROOT" "$@" &&
+	  make CCVER=$ccver DESTDIR="$SYSROOT" "$@" install ) || return
 	fix_sysroot_links
 }
 

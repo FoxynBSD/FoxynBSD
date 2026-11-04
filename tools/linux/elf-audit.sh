@@ -10,7 +10,8 @@
 #
 # Errors (exit status 1) mean confirmed host contamination:
 #	- not ELF64 little-endian x86-64;
-#	- a program interpreter other than ld-elf.so.2 (e.g. ld-linux);
+#	- a program interpreter other than ld-elf.so.2 (e.g. ld-linux), except
+#	  the kernel's /red/herring in boot/kernel/kernel;
 #	- a NEEDED library with a glibc/Linux soname (libc.so.6, ld-linux,
 #	  libgcc_s.so.1, libbsd.so.0, ...) that the tree does not have;
 #	- versioned references to glibc (GLIBC_x.y) or libgcc_s (GCC_x.y)
@@ -126,6 +127,9 @@ for root in "$@"; do
 		/^ *OS\/ABI:/ && /Linux|GNU/ { print "WARN  " F ": EI_OSABI is GNU (GNU ELF extensions, see elf-audit.sh)" }
 		/Requesting program interpreter:/ {
 			i = $0; sub(/.*interpreter: */, "", i); sub(/\].*/, "", i)
+			# The kernel linker script names /red/herring on
+			# purpose (the kernel is never run by an interpreter).
+			if (i == "/red/herring" && F ~ /\/boot\/kernel\/kernel$/) next
 			if (i != "/libexec/ld-elf.so.2" && i != "/usr/libexec/ld-elf.so.2")
 				err("program interpreter " i)
 		}

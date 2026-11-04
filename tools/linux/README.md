@@ -69,6 +69,15 @@ writable disk:
 The network comes up at boot either way (`dhcpcd` on QEMU's user-mode
 network), and `fetch` reaches HTTP and HTTPS servers.
 
+To install FoxynBSD on a disk that then boots on its own, run the
+installer from the live image (see [The installer](#the-installer)):
+
+    tools/linux/boot-test.sh --install     # root.iso runs foxyn-install on $OBJDIR/installed.img
+    tools/linux/qemu.sh --installed        # boot that disk alone (its own ESP, HAMMER2 root)
+
+or by hand: `ROOTDISK=<empty image> tools/linux/qemu.sh`, log in, and
+`foxyn-install vbd2`.
+
 ## Usage
 
     tools/linux/build.sh [all]              # everything below, ready for qemu.sh
@@ -95,11 +104,14 @@ network), and `fetch` reaches HTTP and HTTPS servers.
     tools/linux/qemu.sh --serial            # same, on the serial console in this terminal
     tools/linux/qemu.sh --kernel-only       # the kernel alone: ends at mountroot>
     tools/linux/qemu.sh --disk              # boot disk.img instead of root.iso (read-write)
+    tools/linux/qemu.sh --installed         # boot installed.img alone (from its own ESP)
     NETDEV_OPTS=,hostfwd=tcp::2222-:22 tools/linux/qemu.sh   # more -netdev user options
     tools/linux/qemu.sh --firmware          # print the OVMF images qemu.sh would use
     tools/linux/boot-test.sh                # headless boot, passes at the mountroot> prompt
     tools/linux/boot-test.sh --root         # headless boot to the userland, logs in as root
     tools/linux/boot-test.sh --disk         # same with disk.img, then halt -p
+    tools/linux/boot-test.sh --install      # root.iso installs itself on installed.img
+    tools/linux/boot-test.sh --installed    # boot installed.img alone, run the tests
     tools/linux/check-boot-log.sh all       # check what the --root boot did (see Tests)
     tools/linux/elf-audit.sh "$OBJDIR/rootfs" "$OBJDIR/sysroot"   # host contamination audit
     eval "$(tools/linux/build.sh env)"      # shell env for running make by hand
@@ -123,6 +135,7 @@ Output goes to `$OBJDIR`, which defaults to `~/.cache/foxynbsd`:
     $OBJDIR/rootfs/, root.iso      minimal root tree and its ISO image
     $OBJDIR/disk.img               the root tree on a writable UFS disk (build.sh disk)
     $OBJDIR/disk.mtree, disk-etc/  its makefs manifest and the /etc files it replaces
+    $OBJDIR/installed.img          the disk boot-test.sh --install installs on
     $OBJDIR/qemu/                  serial logs, UEFI variable store
 
 The build needs no root privileges. It takes a few GB for the kernel,
@@ -167,8 +180,8 @@ There are three kinds of compiled code, each with its own compiler:
   `build.sh disk` (`tools/linux/makefs` has the few headers and
   definitions glibc lacks; the UFS headers are copied from `sys/vfs/ufs`
   into a directory of their own);
-* the compiler wrappers `cc`, `kcc`, `xcc`, `xc++`, `hostcc`, `hostc++`
-  and `nxenv`.
+* the compiler wrappers `cc`, `kcc`, `xcc`, `xc++`, `xgcc`, `hostcc`,
+  `hostc++` and `nxenv`.
 
 The shims find the programs they wrap when `build.sh tools` runs, in
 `$PATH` and then in `/usr/sbin` and `/sbin` (Debian keeps some tools
@@ -317,10 +330,48 @@ defines the `__LIBGCC_*` macros that gcc predefines for
 which is enough for C. `crt1.o`, `crti.o` and `crtn.o` are the tree's
 (`lib/csu`) and carry the DragonFly ABI note.
 
-`gnu/lib/gcc120` (gcc 12's own runtime) and `gnu/lib/gcc80/{csu,libgcc}`
-are not built: they need gcc's internals (machine modes, generated
-headers) and do not compile with clang. `lib/libcompiler_rt` is not in
-`lib/Makefile`'s `SUBDIR`, so a native build is unchanged.
+`gnu/lib/gcc80/{csu,libgcc}` are not built: they need gcc's internals
+(machine modes, generated headers) and do not compile with clang.
+`lib/libcompiler_rt` is not in `lib/Makefile`'s `SUBDIR`, so a native
+build is unchanged.
+
+### gcc 12's runtime (`xgcc`)
+
+gcc 12 is DragonFly's default compiler: the image's `cc`, `c++` and `gcc`
+are gcc 12 (`gnu/usr.bin/cc120`, built by the world), and they link with
+gcc 12's own runtime in `/usr/lib/gcc120` (`crtbegin.o`/`crtend.o`,
+`libgcc`, `libgcc_eh`, `libgcc_pic`, `libssp`, `libssp_nonshared`,
+`libatomic`, `libgcov`, `libgomp`, `libstdc++`, `libstdc++fs`), with its
+headers in `/usr/libdata/gcc120` and `/usr/include/c++/12.0`.
+`build.sh world` builds `gnu/lib/gcc120` last, after `gnu/usr.bin/cc120`,
+whose generated headers (`cc_prep`, `cc_tools`) it includes, as
+buildworld's `_compiler_libs_gcc120` stage does.
+
+The C parts need gcc itself: what it predefines for `-fbuilding-libgcc`,
+mode attributes and builtins clang lacks. They are built with `xgcc`, the
+host gcc used as a compiler for the DragonFly target, and with the
+makefiles' gcc settings (`CCVER=gcc120`). A gcc for x86_64 Linux and gcc 12
+for x86_64 DragonFly generate the same code for this runtime (ELF, the
+SysV ABI); what differs is what `xgcc` replaces:
+
+* the predefined system macros (`-U__linux__ ... -D__DragonFly__`) and the
+  headers (`-nostdinc`: the sysroot's `/usr/include`, then the host
+  gcc's own intrinsics, then gcc 12's in `/usr/libdata/gcc120`);
+* the hardening defaults of Linux distributions (PIE, CET, stack clash
+  protection, `_FORTIFY_SOURCE`, the stack protector), off as in
+  DragonFly's gcc;
+* `-Werror` stays a warning: the host gcc is newer than gcc 12.
+
+Only compiling goes to gcc; links (`libatomic`, `libgomp` and `libssp`
+are also shared libraries) go to `xcc`. `libstdc++` is built with `xc++`
+(clang), like gcc 8's: host g++ releases newer than gcc 12 do not all
+compile its exception support (gcc 16 has an internal compiler error on
+`libsupc++/eh_call.cc`). For it, `xcc` drops `-gno-as-loc-support` and
+`xc++` maps gcc's `__builtin_ia32_rdseed_si_step` to clang's name.
+
+The `cc` test (see below) compiles, links and runs C (dynamic and static,
+with a 128-bit division from `libgcc`) and C++ (an exception through a
+destructor) in the image, with gcc 12 and with gcc 8 (`CCVER=gcc80`).
 
 Tests (see below) check the builtins in static and dynamic programs, C++
 constructors and destructors in a program and a shared library, an
@@ -526,6 +577,48 @@ rules. Later boots keep the database.
 hard stop, `fsck -p` repairs it at boot. `build.sh disk` makes a new image
 each time: what was written into the old one is lost.
 
+## The installer
+
+`foxyn-install` (`tools/linux/foxyn-install`, in the image as
+`/usr/sbin/foxyn-install`) installs the running system on a disk that
+then boots on its own. It is minimal: one disk, no questions beyond the
+confirmation (`-y` skips it), no swap, no encryption.
+
+    foxyn-install [-y] [-t hammer2|ufs] [-b BOOTDISK] [-s ESPSIZE] DISK
+
+It erases `DISK` and gives it a GPT with two partitions: slice 0, the
+EFI system partition (FAT32, 256 MiB, `-s`), and slice 1, the root
+(HAMMER2 by default, with `newfs_hammer2`'s default `DATA` PFS; `-t ufs`
+for UFS). It copies the running system with `cpdup` (`bin`, `boot`,
+`etc`, `lib`, `libexec`, `root`, `sbin`, `usr`, `var`; on root.iso,
+`/etc`, `/var` and `/root` are the tmpfs copies, so the password database
+comes along), writes an `fstab` with a read-write root, drops
+`root_rw_mount="NO"` from `rc.conf`, and fills the ESP:
+`EFI/BOOT/BOOTX64.EFI` (the loader) and `boot/` with `dloader.rc`, the
+defaults, the kernel and the modules. The loader reads the kernel from
+the ESP, as with `build.sh esp`; its `loader.conf` takes the console the
+running system was booted with (`kenv console`) and sets
+`vfs.root.mountfrom`.
+
+The kernel names GPT partitions by disk and slice only (`vbd0s1`; there
+are no label aliases for them, and virtio disks have no serial number):
+`-b` is the name of the disk when the installed system boots, `vbd0` by
+default, the only virtio disk under QEMU. It goes into `loader.conf` and
+`fstab`.
+
+The image carries what the installer copies: `build.sh rootfs` puts
+`build.sh esp`'s loader (`/boot/loader.efi`), `dloader.rc`, defaults and
+kernel into `/boot`, as on an installed DragonFly system, and the base
+programs include `gpt`, `newfs_msdos`, `newfs_hammer2`, `newfs`,
+`mount_msdos`, `mount_hammer2`, `hammer2`, `cpdup`, `kenv` and `dd`.
+
+`boot-test.sh --install` boots root.iso with an empty disk
+(`$OBJDIR/installed.img`, `INSTALL_SIZE`, default 4G) as `vbd2`, runs
+`foxyn-install -y vbd2` (`INSTALL_ARGS` adds options) and powers off;
+`boot-test.sh --installed` boots that disk alone (`qemu.sh --installed`:
+no ESP from the host, the firmware starts the disk's own loader) and runs
+the same tests as `--root`.
+
 ## QEMU
 
 OVMF runs `EFI/BOOT/BOOTX64.EFI` (our `loader.efi`). The loader reads
@@ -556,7 +649,8 @@ the choice. QEMU uses KVM when `/dev/kvm` is writable, and TCG otherwise
 
 `boot-test.sh --root` boots the image headless, waits for `login:`, logs
 in as root over the serial line, lists the running programs, runs
-`/root/tests/net-check` (the network and TLS) and `periodic daily`. It
+`/root/tests/net-check` (the network and TLS), `/root/tests/cc-check`
+(the image's compilers) and `periodic daily`. It
 has QEMU's user-mode network answer HTTP on 10.0.2.100 (a `guestfwd`
 that runs a small script for each connection), so the network test needs
 no network on the host. `boot-test.sh --disk` does the same with
@@ -579,8 +673,10 @@ check per CI step (`all` runs them all):
 | `kld` | the kernel modules in the image (`udf`, `ext2fs`, when built) load and unload |
 | `net` | `dhcpcd` runs and leased `vtnet0` an address, a default route and a name server; `fetch` gets `http://10.0.2.100/` through the gateway |
 | `tls` | `fetch` over HTTPS to an `openssl s_server` in the guest, with a certificate `openssl req` made there (LibreSSL's libcrypto and libssl) |
-| `disk` | on `disk.img`: the root is UFS and writable (skipped for root.iso) |
+| `disk` | on a disk (`disk.img`, an installed disk): the root is UFS or HAMMER2 and writable (skipped for root.iso) |
 | `persist` | not in `all`: a second boot of `disk.img` found the first one's boot count in `/var/db`, kept the password database and had a clean file system |
+| `install` | not in `all`: `foxyn-install` finished (`boot-test.sh --install`) |
+| `cc` | gcc 12 (`cc`, `c++`) and gcc 8 (`CCVER=gcc80`) compile, link and run C, static C and C++ with an exception in the image (skipped for an image without compilers) |
 
 A failing boot leaves the serial log in `$OBJDIR/qemu/`. On a kernel
 trap, `boot-test.sh` resolves the faulting instruction to a source line
@@ -605,9 +701,10 @@ world goes into the sysroot only, and the root image takes just the
 
 What differs from buildworld:
 
-* The compiler runtime comes from `lib/libcompiler_rt` (see above), so
-  `gnu/lib/gcc*/csu` and `libgcc` are not built, nor is `gnu/lib/gcc120`.
-  The C++ runtime is gcc 8's, as in `base`.
+* gcc 8's runtime comes from `lib/libcompiler_rt` (see above), so
+  `gnu/lib/gcc80/csu` and `libgcc` are not built. The world's own C++
+  programs link gcc 8's `libstdc++`, as in `base`. gcc 12's runtime
+  (`gnu/lib/gcc120`) is built last, with `xgcc` and `xc++` (see above).
 * `libgcc_pic.a` is compiler-rt's builtins plus the unwinder built from
   `libgcc_eh`'s sources with default visibility, which is what
   `gnu/lib/gcc80/libgcc_pic` contains: dynamically linked C++ programs
@@ -644,15 +741,17 @@ report are uploaded as artifacts.
 ## Known limitations
 
 * The root image is a read-only cd9660 with tmpfs over `/etc`, `/var`,
-  `/tmp` and `/root`; `build.sh disk` makes a writable UFS one. There is
-  no installer yet, the disk is not bootable on its own (the loader and
-  kernel stay on the ESP that QEMU serves) and its root is UFS, not
-  HAMMER2: the host `makefs` has only the ffs back end (issue #9).
+  `/tmp` and `/root`; `build.sh disk` makes a writable UFS one, which
+  boots with the ESP that QEMU serves (the host `makefs` has only the ffs
+  back end). `foxyn-install` makes a disk that boots alone, with a HAMMER2
+  or UFS root; it installs on one disk, with no swap, and names the root
+  by its device at boot (`vbd0s1` by default; issue #9).
 * The base image (`ROOTFS=base`) has only the programs of `build.sh
   base`; the default image has the whole world.
 * The images have no packages (`pkg`, DPorts) yet.
-* gcc 12's runtime (`gnu/lib/gcc120`) and the gcc 12 compiler as a
-  cross compiler for the host are not built (see above).
+* The gcc 12 compiler is built for the image, not as a cross compiler for
+  the host; its runtime's C parts are compiled by the host gcc (`xgcc`)
+  and its `libstdc++` by clang (see above).
 * The clang kernel is opt-in (`KERNCC=clang`); lld does not link the
   kernel.
 * File ownership in the sysroot is the building user's; the ISO records
@@ -707,4 +806,5 @@ report are uploaded as artifacts.
 | ELF audit | no host contamination in the sysroot and the image |
 | network (`dhcpcd`), LibreSSL, `fetch` | in the base image; tested at boot (DHCP lease, HTTP, HTTPS) |
 | writable root on a disk (`build.sh disk`) | UFS on GPT, made with the host `makefs`; boots twice in CI |
-| installer, HAMMER2 root, bootable disk | TODO (issue #9) |
+| gcc 12's runtime (`gnu/lib/gcc120`) | built by the world (`xgcc`, `xc++`); the image's gcc 12 and gcc 8 build and run C and C++ |
+| installer (`foxyn-install`) | GPT, FAT32 ESP with the loader and kernel, HAMMER2 or UFS root; the installed disk boots alone in CI |
