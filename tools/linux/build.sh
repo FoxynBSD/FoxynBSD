@@ -2275,7 +2275,7 @@ EOF
 # What this host has and lacks for each part of the build, with the
 # package that provides it.  Only reports; nothing is changed.
 do_doctor() {
-	local id=unknown pm=pacman missing= t pkg pkgp pkga why probe
+	local id=unknown pm=pacman missing= t pkg pkgp pkga why probe sub
 	[ -r /etc/os-release ] && id=$(. /etc/os-release; echo "${ID:-unknown} ${ID_LIKE:-}")
 	case " $id " in
 	*" debian "*|*" ubuntu "*) pm=apt ;;
@@ -2337,6 +2337,9 @@ EOF
 		[ -w /dev/kvm ] && echo "kvm: usable" ||
 		    echo "kvm: not usable (QEMU falls back to TCG, much slower)"
 	fi
+	# The contrib/ submodules: checked out, at the recorded commits.
+	sub=0
+	"$SRCDIR/tools/linux/check-submodules.sh" -r || sub=1
 	if [ -n "$missing" ]; then
 		case $pm in
 		apt)	echo "install: sudo apt-get install$missing" ;;
@@ -2344,6 +2347,7 @@ EOF
 		esac
 		return 1
 	fi
+	[ $sub = 0 ] || return 1
 	echo "everything the build and the boot test use is installed"
 }
 
@@ -2371,6 +2375,13 @@ main() {
 	[ $# -gt 0 ] && shift
 	case ${1:-} in
 	-*)	die "unknown option: $1 (--gui and --root belong to qemu.sh)" ;;
+	esac
+	# The contrib/ submodules (Cronie, ...) must be checked out at the
+	# commits the tree records before anything is built from them.
+	case $cmd in
+	doctor|env|tools|kernel|modules|loader|esp) ;;
+	*)	"$SRCDIR/tools/linux/check-submodules.sh" -r -q ||
+		    die "the contrib/ submodules are not ready (see above)" ;;
 	esac
 	case $cmd in
 	all)		do_all ;;

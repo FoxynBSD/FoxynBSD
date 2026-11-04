@@ -45,7 +45,19 @@ discussed in [Discussions](https://github.com/FoxynBSD/FoxynBSD/discussions).
 This path was developed on Omarchy (Arch Linux).
 Other distributions should work if they provide the same tools.
 
-1. Install the host tools and check them:
+1. Get the sources, with the submodules in `contrib/` (see
+   [`docs/contrib.md`](docs/contrib.md)):
+
+   ```sh
+   git clone --recurse-submodules https://github.com/FoxynBSD/FoxynBSD.git
+   cd FoxynBSD
+   ```
+
+   In a clone made without `--recurse-submodules`, run
+   `git submodule update --init --recursive` (`build.sh` says so if a
+   submodule is missing).
+
+2. Install the host tools and check them:
 
    ```sh
    sudo pacman -S --needed base-devel flex bison libbsd libtirpc \
@@ -57,7 +69,7 @@ Other distributions should work if they provide the same tools.
    libtirpc-dev pkg-config clang lld xorriso ncurses-bin qemu-system-x86
    qemu-system-gui ovmf`.
 
-2. Build the whole system:
+3. Build the whole system:
 
    ```sh
    tools/linux/build.sh
@@ -68,7 +80,7 @@ Other distributions should work if they provide the same tools.
    minutes on an 8-core machine, the world longer). Output goes to
    `~/.cache/foxynbsd` (set `OBJDIR` to put it elsewhere).
 
-3. Boot it:
+4. Boot it:
 
    ```sh
    tools/linux/qemu.sh

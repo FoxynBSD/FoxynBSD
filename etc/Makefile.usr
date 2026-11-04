@@ -84,12 +84,14 @@ src-check-hasdir: git-check
 src-create: src-check
 	@echo "If problems occur you may have to 'rm -rf src' and try again."
 	@echo
-	git clone --branch ${BRANCH} -- ${GITURL_SRC} ${.CURDIR}/src
+	git clone --recurse-submodules --branch ${BRANCH} -- ${GITURL_SRC} \
+	    ${.CURDIR}/src
 
 src-create-shallow: src-check
 	@echo "If problems occur you may have to 'rm -rf src' and try again."
 	@echo
-	git clone --depth 1 --branch ${BRANCH} -- ${GITURL_SRC} ${.CURDIR}/src
+	git clone --depth 1 --recurse-submodules --shallow-submodules \
+	    --branch ${BRANCH} -- ${GITURL_SRC} ${.CURDIR}/src
 
 projects-create: projects-check
 	@echo "If problems occur you may have to 'rm -rf projects' and try again."
@@ -102,7 +104,8 @@ projects-create-shallow: projects-check
 	git clone --depth 1 --branch ${BRANCH_PROJECTS} -- ${GITURL_PROJECTS} ${.CURDIR}/projects
 
 src-update: src-check-hasdir
-	cd ${.CURDIR}/src && git pull --ff-only
+	cd ${.CURDIR}/src && git pull --ff-only && \
+	    git submodule update --init --recursive
 	@echo
 	@echo "To automate, feel free to run this task from cron(8)."
 

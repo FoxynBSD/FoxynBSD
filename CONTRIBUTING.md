@@ -90,6 +90,14 @@ DragonFly name.
 Follow the surrounding code. Kernel and base system C code uses the
 BSD style described in `style(9)` (`share/man/man9/style.9`).
 
+## Third-party software (`contrib/`)
+
+Clone with `git clone --recurse-submodules` (or run `git submodule update
+--init --recursive`): some packages in `contrib/` are git submodules.
+New third-party packages come in as submodules pinned to a release tag,
+with nothing changed inside them; [`docs/contrib.md`](docs/contrib.md)
+has the rules and the steps to add or upgrade one.
+
 ## Copyright and licensing
 
 - Keep existing copyright and license notices. Never remove or rewrite

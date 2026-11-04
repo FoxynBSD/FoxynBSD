@@ -12,12 +12,16 @@ on:
       - 'tools/linux/**'
       - '.github/workflows/**'
       - 'stand/boot/dloader/cmds.c'
+      - '.gitmodules'
+      - 'contrib/**'
   pull_request:
     branches: [dev]
     paths:
       - 'tools/linux/**'
       - '.github/workflows/**'
       - 'stand/boot/dloader/cmds.c'
+      - '.gitmodules'
+      - 'contrib/**'
   workflow_dispatch:
 
 permissions:
@@ -42,6 +46,11 @@ jobs:
 
       - name: shellcheck (errors only)
         run: shellcheck -S error tools/linux/*.sh tools/linux/foxyn-install
+
+      # The contrib/ submodules: under contrib/, each with a
+      # README.DRAGONFLY that records the commit the tree points to.
+      - name: Check the submodule records
+        run: tools/linux/check-submodules.sh
 
       # The boot menu logos (Wisdom, Fred): 16 lines of 33 columns, and
       # the colored variants draw the same characters as the plain one.

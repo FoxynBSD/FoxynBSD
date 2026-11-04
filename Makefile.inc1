@@ -341,6 +341,9 @@ _bwinit:
 	@echo "--------------------------------------------------------------"
 	@echo ">>> starting buildworld target"
 	@echo "--------------------------------------------------------------"
+	@# The contrib/ submodules (docs/contrib.md) must be checked out;
+	@# without git (a tarball) their directories must not be empty.
+	@sh ${.CURDIR}/tools/linux/check-submodules.sh -r -q
 _bootstrap-tools:
 	@echo
 	@echo "--------------------------------------------------------------"
