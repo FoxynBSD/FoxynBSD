@@ -5,10 +5,13 @@
 # prompt, which is as far as a kernel-only boot can get.  With --root, also
 # attach the root image from `build.sh rootfs`, wait for the login prompt
 # that getty prints once /etc/rc has finished, then log in as root over
-# the serial line and check that a shell runs a command.
+# the serial line and check that a shell runs a command, the network
+# (dhcpcd, fetch) and TLS.  --disk does the same with the writable disk
+# image from `build.sh disk`, and powers the machine off with halt(8) at
+# the end, so a second run boots what the first one left on the disk.
 #
 # Usage:
-#	tools/linux/boot-test.sh [--root] [KERNCONF]
+#	tools/linux/boot-test.sh [--root|--disk] [KERNCONF]
 #
 # Environment:
 #	BOOT_TIMEOUT	seconds to wait (default 300)
@@ -22,16 +25,19 @@ set -eu
 
 SRCDIR=$(cd "$(dirname "$0")/../.." && pwd)
 OBJDIR=${OBJDIR:-${XDG_CACHE_HOME:-$HOME/.cache}/foxynbsd}
-ROOTARG=
-if [ "${1:-}" = "--root" ]; then ROOTARG=--root; shift; fi
+ROOTARG= SUFFIX=
+case ${1:-} in
+--root)	ROOTARG=--root SUFFIX=-root; shift ;;
+--disk)	ROOTARG=--disk SUFFIX=-disk; shift ;;
+esac
 CONF=${1:-X86_64_GENERIC}
 TIMEOUT=${BOOT_TIMEOUT:-300}
-LOG=${BOOT_LOG:-$OBJDIR/qemu/$CONF.boot${ROOTARG:+-root}.log}
+LOG=${BOOT_LOG:-$OBJDIR/qemu/$CONF.boot$SUFFIX.log}
 FAIL='panic:|Fatal trap|db>'
 if [ -n "$ROOTARG" ]; then
 	# getty's prompt, after /etc/rc ran and init went multi-user.
 	SUCCESS='login: '
-	FAIL="$FAIL|mountroot>|Manual root filesystem specification"
+	FAIL="$FAIL|mountroot>|Manual root filesystem specification|Enter full pathname of shell"
 else
 	# Reaching any of these means the kernel booted and asks for a root.
 	SUCCESS='mountroot>|Manual root filesystem specification'
@@ -51,6 +57,24 @@ if [ -n "$ROOTARG" ]; then
 	cat "$PIPE.out" > "$LOG" &
 	catpid=$!
 	CONSOLE_ENV="SERIAL_PIPE=$PIPE"
+	# The network test fetches http://10.0.2.100/: QEMU's user-mode
+	# network runs this for each connection to it, with the connection
+	# on its standard input and output.
+	HTTPD=$OBJDIR/qemu/http-ok.sh
+	cat > "$HTTPD" <<'EOF'
+#!/bin/sh
+# Read the request up to its empty line, then answer it.
+cr=$(printf '\r')
+while IFS= read -r l && [ -n "$l" ] && [ "$l" != "$cr" ]; do :; done
+printf 'HTTP/1.0 200 OK\r\nContent-Type: text/plain\r\n\r\nfoxynbsd-net-42\n'
+EOF
+	chmod 755 "$HTTPD"
+	case $HTTPD in
+	*[,\ ]*) echo ">>> $HTTPD: no commas or spaces in OBJDIR for the network test" >&2
+		NETDEV_OPTS= ;;
+	*)	NETDEV_OPTS=",guestfwd=tcp:10.0.2.100:80-cmd:$HTTPD" ;;
+	esac
+	export NETDEV_OPTS
 else
 	catpid=
 	CONSOLE_ENV="SERIAL_LOG=$LOG"
@@ -108,6 +132,15 @@ if [ "$result" -eq 0 ] && [ -n "$ROOTARG" ]; then
 		sleep 5
 		tries=$((tries + 1))
 	done
+	# The network (dhcpcd's lease, a TCP connection out through QEMU)
+	# and TLS (LibreSSL through fetch(1)): /root/tests/net-check prints
+	# "net-check:" and "tls-check:" lines and ends with net-42.
+	printf "sh -c 'sh /root/tests/net-check; echo net-\$((6*7)): \$?'\r" >&3
+	tries=0
+	while [ "$tries" -lt 24 ] && ! grep -aq '^net-42:' "$LOG"; do
+		sleep 5
+		tries=$((tries + 1))
+	done
 	# Run the daily periodic(8) jobs and print their report, each line
 	# prefixed with "daily| ", for CI to check.
 	printf "sh -c 'periodic daily; sed \"s/^/daily| /\" /var/log/daily.log; echo periodic-\$((6*7)): \$?'\r" >&3
@@ -118,12 +151,30 @@ if [ "$result" -eq 0 ] && [ -n "$ROOTARG" ]; then
 	done
 fi
 
+# A disk is shut down cleanly, so the next boot finds its file system
+# clean and what this one wrote on it.
+if [ "$result" -eq 0 ] && [ "$ROOTARG" = --disk ]; then
+	printf 'halt -p\r' >&3
+	tries=0
+	while [ "$tries" -lt 24 ] && kill -0 "$pid" 2>/dev/null; do
+		sleep 5
+		tries=$((tries + 1))
+	done
+	if kill -0 "$pid" 2>/dev/null; then
+		echo ">>> halt -p did not power the machine off" >&2
+		result=1
+	fi
+fi
+
 kill "$pid" 2>/dev/null || :
 wait "$pid" 2>/dev/null || :
 [ -n "$catpid" ] && { kill "$catpid" 2>/dev/null || :; wait "$catpid" 2>/dev/null || :; }
 
 if [ "$result" -eq 0 ]; then
-	if [ -n "$ROOTARG" ]; then
+	if [ "$ROOTARG" = --disk ]; then
+		echo ">>> boot test passed: disk.img booted to a login prompt and powered off" >&2
+		tail -n 4 "$LOG" >&2
+	elif [ -n "$ROOTARG" ]; then
 		echo ">>> boot test passed: root.iso booted to a login prompt" >&2
 		tail -n 4 "$LOG" >&2
 	else

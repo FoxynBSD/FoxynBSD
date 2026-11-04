@@ -167,7 +167,7 @@ jobs:
           sudo apt-get update
           sudo apt-get install -y --no-install-recommends \
             build-essential flex bison libfl-dev libbsd-dev libtirpc-dev \
-            pkg-config clang lld xorriso \
+            pkg-config clang lld xorriso fdisk \
             qemu-system-x86 ovmf
           clang --version | head -n1
 
@@ -297,6 +297,53 @@ jobs:
 
       - name: Check loading kernel modules
         run: tools/linux/check-boot-log.sh kld
+
+      # dhcpcd configures vtnet0 from QEMU's user-mode network, and
+      # fetch(1) reaches a server QEMU answers for.
+      - name: Check the network (dhcpcd)
+        run: tools/linux/check-boot-log.sh net
+
+      # LibreSSL in the base: fetch(1) over HTTPS to openssl s_server.
+      - name: Check TLS (libcrypto, libssl)
+        run: tools/linux/check-boot-log.sh tls
+
+      # The same tree on a writable UFS disk (build.sh disk, makefs on
+      # the host): it boots, the root is read-write, and halt -p shuts
+      # it down cleanly.
+      - name: Build the disk image
+        env:
+          ROOTFS: base
+        run: set -o pipefail; tools/linux/build.sh disk 2>&1 | tee -a "$BUILD_LOG"
+
+      - name: Boot the disk image
+        id: disk
+        run: |
+          BOOT_LOG="$OBJDIR/qemu/disk-boot1.log" tools/linux/boot-test.sh --disk
+          tools/linux/check-boot-log.sh -l "$OBJDIR/qemu/disk-boot1.log" \
+            rtld basics daemons fs net tls disk
+
+      # A second boot of the same disk finds what the first one wrote,
+      # and a clean file system.
+      - name: Boot the disk image again
+        id: disk2
+        run: |
+          BOOT_LOG="$OBJDIR/qemu/disk-boot2.log" tools/linux/boot-test.sh --disk
+          tools/linux/check-boot-log.sh -l "$OBJDIR/qemu/disk-boot2.log" \
+            rtld basics fs disk persist
+
+      - name: Report disk boot result
+        if: always() && (steps.disk.outcome == 'failure' || steps.disk2.outcome == 'failure')
+        run: |
+          for log in "$OBJDIR/qemu/disk-boot1.log" "$OBJDIR/qemu/disk-boot2.log"; do
+            [ -f "$log" ] || continue
+            {
+              echo "--- $log ---"
+              cat "$log.fault" 2>/dev/null || :
+              tail -n 60 "$log" 2>/dev/null || :
+              cat "$log.stderr" 2>/dev/null || :
+            } | sed 's/%/%25/g; s/\r//g' | awk '{printf "%s%%0A", $0}' > /tmp/boot-tail
+            echo "::warning title=Disk boot (serial tail)::$(cat /tmp/boot-tail)"
+          done
 
       - name: Report boot result
         if: always() && (steps.boot.outcome == 'failure' || steps.boot.outcome == 'success')

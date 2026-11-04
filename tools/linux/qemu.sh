@@ -3,7 +3,7 @@
 # Boot a FoxynBSD kernel built by tools/linux/build.sh under QEMU + OVMF.
 #
 # Usage:
-#	tools/linux/qemu.sh [--serial] [--kernel-only] [KERNCONF] [-- qemu args]
+#	tools/linux/qemu.sh [--serial] [--kernel-only|--disk] [KERNCONF] [-- qemu args]
 #
 # By default the whole system boots in a QEMU window: the root image
 # from `build.sh rootfs` ($OBJDIR/root.iso) is attached as a second
@@ -17,6 +17,10 @@
 #			graphical session ($DISPLAY, $WAYLAND_DISPLAY).
 #	--kernel-only	boot the kernel without the root image; it stops at
 #			the "mountroot>" prompt.
+#	--disk		boot the writable disk image from `build.sh disk`
+#			($OBJDIR/disk.img) instead of root.iso: the root is
+#			UFS on its GPT partition (vbd1s0), mounted read-write,
+#			and what is written there stays for the next boot.
 #	--gui, --root	the defaults, spelled out.
 #	--firmware	print the OVMF images that would be used, and exit.
 #
@@ -30,13 +34,16 @@
 #			usual Arch, Debian/Ubuntu and Fedora paths)
 #	MEM (default 2G), SMP (default 2)
 #	ROOTISO		root image for --root (default $OBJDIR/root.iso)
-#	ROOTDISK	optional disk image to attach as a second virtio disk
+#	DISK		disk image for --disk (default $OBJDIR/disk.img)
+#	ROOTDISK	optional disk image to attach as another virtio disk
+#	NETDEV_OPTS	more options for the user-mode network (-netdev user),
+#			starting with a comma: ",hostfwd=tcp::2222-:22"
 #	SERIAL_LOG	headless: write the serial console to this file
 #	SERIAL_PIPE	headless: connect the serial console to the FIFOs
 #			$SERIAL_PIPE.in and $SERIAL_PIPE.out (made by the caller),
 #			so a script can both read the console and type on it
 #	GUI=0/1		same as --serial / --gui
-#	ROOT=0/1	same as --kernel-only / --root
+#	ROOT=0/1/disk	same as --kernel-only / --root / --disk
 #	DISPLAY_BACKEND	QEMU -display backend for the window (default: gtk,
 #			else sdl, whichever this QEMU has)
 #
@@ -53,7 +60,7 @@ FWONLY=0
 
 die() { echo "qemu.sh: $*" >&2; exit 1; }
 usage() {
-	die "usage: qemu.sh [--serial|--gui] [--kernel-only|--root] [--firmware] [KERNCONF] [-- qemu args]"
+	die "usage: qemu.sh [--serial|--gui] [--kernel-only|--root|--disk] [--firmware] [KERNCONF] [-- qemu args]"
 }
 
 while :; do
@@ -62,6 +69,7 @@ while :; do
 	--serial|--no-gui) GUI=0; shift ;;
 	--root)	ROOT=1; shift ;;
 	--kernel-only|--no-root) ROOT=0; shift ;;
+	--disk)	ROOT=disk; shift ;;
 	--firmware) FWONLY=1; shift ;;
 	--)	break ;;
 	-h|--help) usage ;;
@@ -69,8 +77,9 @@ while :; do
 	*)	break ;;
 	esac
 done
-[ -n "${ROOTISO:-}" ] && ROOT=1
+[ -n "${ROOTISO:-}" ] && [ "$ROOT" != disk ] && ROOT=1
 ROOTISO=${ROOTISO:-$OBJDIR/root.iso}
+DISK=${DISK:-$OBJDIR/disk.img}
 CONF=X86_64_GENERIC
 if [ $# -gt 0 ] && [ "$1" != "--" ]; then CONF=$1; shift; fi
 [ "${1:-}" = "--" ] && shift
@@ -175,13 +184,15 @@ if [ "$FWONLY" = 1 ]; then
 	exit 0
 fi
 
-[ "$ROOT" = 0 ] || [ -f "$ROOTISO" ] ||
+[ "$ROOT" != 1 ] || [ -f "$ROOTISO" ] ||
     die "no root image at $ROOTISO; run tools/linux/build.sh (or boot with --kernel-only)"
+[ "$ROOT" != disk ] || [ -f "$DISK" ] ||
+    die "no disk image at $DISK; run tools/linux/build.sh disk"
 
 # The ESP from build.sh boots on the serial console with no root device.
 # For --gui or --root, boot a hardlinked copy with its own loader.conf, so
 # the build output is left alone and no file contents are duplicated.
-if [ "$GUI" = 1 ] || [ "$ROOT" = 1 ]; then
+if [ "$GUI" = 1 ] || [ "$ROOT" != 0 ]; then
 	VESP=$OBJDIR/qemu/esp-$GUI$ROOT/$CONF
 	rm -rf "$VESP"
 	mkdir -p "$(dirname "$VESP")"
@@ -190,14 +201,19 @@ if [ "$GUI" = 1 ] || [ "$ROOT" = 1 ]; then
 		rm -f "$VESP/boot/loader.conf"
 		printf 'console="efi"\nautoboot_delay="5"\n' > "$VESP/boot/loader.conf"
 	fi
-	if [ "$ROOT" = 1 ]; then
+	if [ "$ROOT" != 0 ]; then
 		# Break the hardlink before appending to the serial loader.conf.
 		if [ "$GUI" = 0 ]; then
 			rm -f "$VESP/boot/loader.conf"
 			cp "$ESP/boot/loader.conf" "$VESP/boot/loader.conf"
 		fi
-		# The ESP is the first virtio disk (vbd0), the image the second.
-		echo 'vfs.root.mountfrom="cd9660:vbd1"' >> "$VESP/boot/loader.conf"
+		# The ESP is the first virtio disk (vbd0), the image the second:
+		# the whole of root.iso, or the first GPT partition of disk.img.
+		if [ "$ROOT" = disk ]; then
+			echo 'vfs.root.mountfrom="ufs:vbd1s0"' >> "$VESP/boot/loader.conf"
+		else
+			echo 'vfs.root.mountfrom="cd9660:vbd1"' >> "$VESP/boot/loader.conf"
+		fi
 		# While the userland is young: report where programs fault.
 		echo 'machdep.print_user_faults="1"' >> "$VESP/boot/loader.conf"
 	fi
@@ -235,7 +251,7 @@ set -- \
     -drive if=pflash,format=raw,readonly=on,file="$OVMF_CODE" \
     -drive if=pflash,format=raw,file="$VARS" \
     -drive file=fat:"$ESP",format=raw,if=virtio,readonly=on \
-    -netdev user,id=n0 -device virtio-net-pci,netdev=n0 \
+    -netdev "user,id=n0${NETDEV_OPTS:-}" -device virtio-net-pci,netdev=n0 \
     $CONSOLE \
     "$@"
 
@@ -243,6 +259,8 @@ set -- \
 # emulation times out with the ahci(4) driver ("Cannot copy rfis").
 if [ "$ROOT" = 1 ]; then
 	set -- "$@" -drive file="$ROOTISO",if=virtio,format=raw,readonly=on
+elif [ "$ROOT" = disk ]; then
+	set -- "$@" -drive file="$DISK",if=virtio,format=raw
 fi
 if [ -n "${ROOTDISK:-}" ]; then
 	set -- "$@" -drive file="$ROOTDISK",if=virtio,format=raw

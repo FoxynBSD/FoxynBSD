@@ -25,6 +25,11 @@
 #	abi		programs with either ELF ABI note run
 #	kld		kernel modules in the image load and unload (skipped,
 #			with a notice, when the image has none)
+#	net		dhcpcd's lease for vtnet0, fetch(1) through QEMU's network
+#	tls		fetch(1) over HTTPS to openssl(1) s_server (LibreSSL)
+#	disk		the root is writable on disk.img (skipped for root.iso)
+#	persist		(not in all) a second boot of disk.img found the first
+#			one's boot count and a clean file system
 #
 # LOG defaults to $OBJDIR/qemu/X86_64_GENERIC.boot-root.log.  Messages
 # use GitHub's ::error:: syntax, which reads fine in a terminal too.
@@ -34,7 +39,7 @@ set -eu
 OBJDIR=${OBJDIR:-${XDG_CACHE_HOME:-$HOME/.cache}/foxynbsd}
 LOG=$OBJDIR/qemu/X86_64_GENERIC.boot-root.log
 if [ "${1:-}" = -l ]; then LOG=$2; shift 2; fi
-[ $# -gt 0 ] || { sed -n '9,28p' "$0" | sed 's/^# \{0,1\}//'; exit 2; }
+[ $# -gt 0 ] || { sed -n '9,33p' "$0" | sed 's/^# \{0,1\}//'; exit 2; }
 [ -f "$LOG" ] || { echo "::error title=boot log::no log at $LOG"; exit 1; }
 
 fail() { echo "::error title=$1::$2"; return 1; }
@@ -64,7 +69,7 @@ check_identity() {
 check_basics() {
 	! has 'Cannot read termcap database' ||
 	    fail terminfo "sh found no terminal database" || return
-	has 'rc: /tmp is writable (tmpfs)' ||
+	has 'rc: /tmp is writable' ||
 	    fail tmpfs "/tmp was not mounted writable" || return
 	! has 'login_getclass: unknown class' ||
 	    fail login.conf "init found no login class for /etc/rc" || return
@@ -150,11 +155,43 @@ check_kld() {
 	    fail kld "$(lines '^kld-check: FAIL' | tr '\n' ';')"
 }
 
-ALL="rtld rcd identity basics syslogd daemons periodic cxx runtime fs abi kld"
+check_net() {
+	lines '^net-check: ' || :
+	grep -aq '^net-check: ok' "$LOG" ||
+	    fail network "$(lines '^net-check: FAIL' | tr '\n' ';')"
+}
+
+check_tls() {
+	lines '^tls-check: ' || :
+	grep -aq '^tls-check: ok' "$LOG" ||
+	    fail TLS "$(lines '^tls-check: FAIL' | tr '\n' ';')"
+}
+
+check_disk() {
+	if ! has 'root on ufs, /etc/rc'; then
+		echo "::notice title=disk::the root is not on disk.img, not tested"
+		return 0
+	fi
+	lines '^disk-check: ' || :
+	grep -aq '^disk-check: boot [0-9]* of this disk, root on ufs' "$LOG" ||
+	    fail disk "the root on disk.img is not writable"
+}
+
+check_persist() {
+	lines '^disk-check: \|^rc: first boot\|not properly dismounted\|FILE SYSTEM' || :
+	grep -aqE '^disk-check: boot ([2-9]|[1-9][0-9]+) of this disk' "$LOG" ||
+	    fail persist "the boot count of the earlier boot is not on the disk" || return
+	! has 'rc: first boot of this disk' ||
+	    fail persist "the password databases were made again" || return
+	! grep -aqE 'not properly dismounted|UNEXPECTED INCONSISTENCY' "$LOG" ||
+	    fail persist "the file system was not clean after halt -p"
+}
+
+ALL="rtld rcd identity basics syslogd daemons periodic cxx runtime fs abi kld net tls disk"
 [ "$*" = all ] && set -- $ALL
 rc=0
 for c; do
-	case " $ALL " in *" $c "*) ;; *) echo "unknown check: $c" >&2; exit 2 ;; esac
+	case " $ALL persist " in *" $c "*) ;; *) echo "unknown check: $c" >&2; exit 2 ;; esac
 	echo ">>> check $c"
 	"check_$c" || rc=1
 done

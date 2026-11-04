@@ -77,13 +77,13 @@ jobs:
           case $ID in
           arch)
             pacman -Syu --noconfirm --needed git base-devel flex bison \
-              libbsd libtirpc clang lld libisoburn ncurses qemu-base edk2-ovmf ;;
+              libbsd libtirpc clang lld libisoburn ncurses util-linux qemu-base edk2-ovmf ;;
           debian)
             apt-get update
             DEBIAN_FRONTEND=noninteractive apt-get install -y --no-install-recommends \
               git ca-certificates build-essential flex bison libfl-dev \
               libbsd-dev libtirpc-dev pkg-config clang lld xorriso ncurses-bin \
-              qemu-system-x86 ovmf ;;
+              fdisk qemu-system-x86 ovmf ;;
           esac
           echo "$PRETTY_NAME"; gcc --version | head -n1; clang --version | head -n1
           ld --version | head -n1; sh -c 'readlink -f /bin/sh'
@@ -130,6 +130,19 @@ jobs:
 
       - name: Check the boot log
         run: tools/linux/check-boot-log.sh all
+
+      # The writable disk image (makefs and sfdisk on this host), booted
+      # twice: the second boot finds what the first one wrote.
+      - name: Build and boot the disk image
+        id: disk
+        run: |
+          set -o pipefail
+          tools/linux/build.sh disk 2>&1 | tee -a "$BUILD_LOG" | grep '^>>>\|build.sh:'
+          for n in 1 2; do
+            BOOT_LOG="$OBJDIR/qemu/disk-boot$n.log" tools/linux/boot-test.sh --disk
+          done
+          tools/linux/check-boot-log.sh -l "$OBJDIR/qemu/disk-boot1.log" fs net tls disk
+          tools/linux/check-boot-log.sh -l "$OBJDIR/qemu/disk-boot2.log" fs disk persist
 
       - name: Report boot result
         if: always() && (steps.boot.outcome == 'failure' || steps.boot.outcome == 'success')

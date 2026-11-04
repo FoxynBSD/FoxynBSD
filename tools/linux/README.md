@@ -26,12 +26,13 @@ Arch Linux and Omarchy:
 
     sudo pacman -S --needed base-devel flex bison libbsd libtirpc   # tools, kernel
     sudo pacman -S --needed clang lld libisoburn ncurses            # userland, root image
+                                                                    # (disk image: sfdisk, in util-linux)
     sudo pacman -S --needed qemu-desktop edk2-ovmf                  # boot under QEMU (qemu-base: no window)
 
 Debian and Ubuntu:
 
     sudo apt install build-essential flex bison libfl-dev libbsd-dev libtirpc-dev pkg-config
-    sudo apt install clang lld xorriso ncurses-bin
+    sudo apt install clang lld xorriso ncurses-bin fdisk     # fdisk: sfdisk, for the disk image
     sudo apt install qemu-system-x86 qemu-system-gui ovmf     # qemu-system-gui: the window
 
 LLVM's `compiler-rt` package is not needed: the compiler runtime is built
@@ -58,6 +59,16 @@ Root's shell is `csh` with DragonFly's dot files (`root@foxynbsd:~ #`).
 `qemu.sh --serial` uses the terminal instead (Ctrl-A X quits), and
 `qemu.sh --kernel-only` boots the kernel alone, to `mountroot>`.
 
+The image is a read-only live system: what you change is gone at the
+next boot. For a system that keeps its changes, put the same tree on a
+writable disk:
+
+    tools/linux/build.sh disk       # $OBJDIR/disk.img: UFS root on a GPT disk
+    tools/linux/qemu.sh --disk      # boot it; changes stay for the next boot
+
+The network comes up at boot either way (`dhcpcd` on QEMU's user-mode
+network), and `fetch` reaches HTTP and HTTPS servers.
+
 ## Usage
 
     tools/linux/build.sh [all]              # everything below, ready for qemu.sh
@@ -73,6 +84,8 @@ Root's shell is `csh` with DragonFly's dot files (`root@foxynbsd:~ #`).
     tools/linux/build.sh base               # rtld, libs, init, sh and core utilities
     tools/linux/build.sh rootfs             # root tree + root.iso (cd9660) with the whole world
     ROOTFS=base tools/linux/build.sh rootfs # minimal image: only the base programs
+    tools/linux/build.sh disk               # disk.img: the root tree on a writable UFS disk
+    DISK_SIZE=8G tools/linux/build.sh disk  # a bigger one (sparse; default 4G)
     tools/linux/build.sh world              # the whole userland, buildworld's order
     KEEP_GOING=1 tools/linux/build.sh world # same, listing every failed directory
     tools/linux/build.sh subdir bin/date    # build and install any world directory
@@ -81,9 +94,12 @@ Root's shell is `csh` with DragonFly's dot files (`root@foxynbsd:~ #`).
     tools/linux/qemu.sh                     # boot kernel + root.iso in a QEMU window: login:
     tools/linux/qemu.sh --serial            # same, on the serial console in this terminal
     tools/linux/qemu.sh --kernel-only       # the kernel alone: ends at mountroot>
+    tools/linux/qemu.sh --disk              # boot disk.img instead of root.iso (read-write)
+    NETDEV_OPTS=,hostfwd=tcp::2222-:22 tools/linux/qemu.sh   # more -netdev user options
     tools/linux/qemu.sh --firmware          # print the OVMF images qemu.sh would use
     tools/linux/boot-test.sh                # headless boot, passes at the mountroot> prompt
     tools/linux/boot-test.sh --root         # headless boot to the userland, logs in as root
+    tools/linux/boot-test.sh --disk         # same with disk.img, then halt -p
     tools/linux/check-boot-log.sh all       # check what the --root boot did (see Tests)
     tools/linux/elf-audit.sh "$OBJDIR/rootfs" "$OBJDIR/sysroot"   # host contamination audit
     eval "$(tools/linux/build.sh env)"      # shell env for running make by hand
@@ -105,6 +121,8 @@ Output goes to `$OBJDIR`, which defaults to `~/.cache/foxynbsd`:
     $OBJDIR/esp/<KERNCONF>/        EFI/BOOT/BOOTX64.EFI, boot/{dloader.rc,loader.conf,kernel/}
     $OBJDIR/world/<src>/...        world objects
     $OBJDIR/rootfs/, root.iso      minimal root tree and its ISO image
+    $OBJDIR/disk.img               the root tree on a writable UFS disk (build.sh disk)
+    $OBJDIR/disk.mtree, disk-etc/  its makefs manifest and the /etc files it replaces
     $OBJDIR/qemu/                  serial logs, UEFI variable store
 
 The build needs no root privileges. It takes a few GB for the kernel,
@@ -115,8 +133,9 @@ Environment: `OBJDIR`, `JOBS` (default: `nproc`), `HOST_CC`/`HOST_CFLAGS`
 (host tools, default `gcc`/`-O2`), `HOST_GCC` (kernel gcc), `HOST_CLANG`
 (userland and `KERNCC=clang` compiler), `KERNCC` (`gcc` or `clang`),
 `MODULES_OVERRIDE`, `KEEP_GOING`, `WITH_MODULES`, `ROOTFS` (`world` or
-`base`); for QEMU `GUI`, `ROOT`, `DISPLAY_BACKEND`, `OVMF_CODE`,
-`OVMF_VARS`, `MEM`, `SMP`, `ROOTISO`, `ROOTDISK`, `BOOT_TIMEOUT`.
+`base`), `DISK` and `DISK_SIZE`; for QEMU `GUI`, `ROOT`, `DISPLAY_BACKEND`,
+`OVMF_CODE`, `OVMF_VARS`, `MEM`, `SMP`, `ROOTISO`, `DISK`, `ROOTDISK`,
+`NETDEV_OPTS`, `BOOT_TIMEOUT`.
 
 ## Toolchain architecture
 
@@ -144,6 +163,10 @@ There are three kinds of compiled code, each with its own compiler:
   not exist: `yacc` (byacc), `zic`, `localedef`, `mkcsmapper`, `mkesdb`,
   `cap_mkdb` (with the tree's `db(3)` and `getcap(3)`), `uuencode` and
   `kbdcontrol` (for `LINT64`'s built-in keymaps);
+* `makefs` from `usr.sbin/makefs`, with only its ffs back end, for
+  `build.sh disk` (`tools/linux/makefs` has the few headers and
+  definitions glibc lacks; the UFS headers are copied from `sys/vfs/ufs`
+  into a directory of their own);
 * the compiler wrappers `cc`, `kcc`, `xcc`, `xc++`, `hostcc`, `hostc++`
   and `nxenv`.
 
@@ -425,8 +448,11 @@ quick to build; CI's userland jobs use it. Either way the image gets the
 `/etc` files of `etc/Makefile`'s `distribution` target that a session
 reads (`profile`, `shells`, `csh.*`, `hosts`, `services`, all of
 `pam.d`, ...) and root's dot files from `share/skel`, with a `.shrc`
-prompt that shows `user@host:directory`. Root's shell is `csh` when the
-image has it (the world) and `sh` in the base image. It compiles a few console terminal types (`xterm`,
+prompt that shows `user@host:directory`. Root's shell is `csh`, as on
+DragonFly. The base programs include LibreSSL (`libcrypto`, `libssl`),
+`libfetch` and what uses them: `csh`, `mtree`, `dhcpcd`, `fetch` and
+`openssl`, with `/etc/ssl/openssl.cnf` and LibreSSL's CA certificates in
+`/etc/ssl/cert.pem`. It compiles a few console terminal types (`xterm`,
 `vt100`, `vt220`, `cons25`, ...) from the tree's `terminfo.src` with the
 host's `tic`, copies `etc/login.conf` (read as text; no `cap_mkdb`
 needed), `etc/group` and `etc/master.passwd`, and installs the tree's
@@ -445,9 +471,17 @@ image's `/etc/periodic.conf` turns off the checks for what it lacks
 (sendmail, HAMMER, accounting, ipfw, pf, `locate`, `whatis`). The other
 services whose programs the image lacks are off in `rc.conf`.
 
+The network: `rc.conf` has `ifconfig_vtnet0="DHCP"` with
+`dhcp_client="dhcpcd"`, so `rc.d/netif` starts `dhcpcd -b` on QEMU's
+virtio-net card. QEMU's user-mode network leases it 10.0.2.15 with the
+gateway 10.0.2.2 and the name server 10.0.2.3, and dhcpcd's hooks write
+`/etc/resolv.conf` and the host name. dhcpcd runs privilege-separated as
+`_dhcp`, with the tree's `/etc/dhcpcd.conf`.
+
 One image-only script, `/etc/rc.local.d/imagedb`, runs first: it mounts
 the `/etc` tmpfs and builds the password database with `pwd_mkdb`, before
-the devfs rules look up `root`. `/etc/rc.local` prints `uname -a` and runs
+the devfs rules look up `root`. (On the disk image it builds the database
+only on the first boot; see below.) `/etc/rc.local` prints `uname -a` and runs
 the boot tests below. When `/etc/rc` exits, init starts `getty` on the
 console from a small `/etc/ttys` (`ttyv0` in the QEMU window, the serial
 `ttyd0` with `--serial`), and `login` checks passwords through PAM
@@ -460,6 +494,37 @@ with every file owned by root:wheel (the build runs unprivileged, so the
 `vfs.root.mountfrom="cd9660:vbd1"`, so no step needs root privileges.
 (Not as a CD: QEMU's AHCI ATAPI emulation times out with the `ahci`
 driver.)
+
+## The disk image
+
+`build.sh disk` puts the tree of `build.sh rootfs` (built first if there
+is none; `ROOTFS` picks the world or the base programs) on a writable
+disk, `$OBJDIR/disk.img`, without root privileges:
+
+* `makefs -t ffs` (built from the tree by `build.sh tools`) writes a
+  UFS1 file system from an mtree manifest of the tree, `disk.mtree`, in
+  which every file is root:wheel with the mode it has in the tree
+  (setuid bits included); hard and symbolic links are kept;
+* `sfdisk` puts a GPT around it: partition 1, at 1 MiB, of DragonFly's
+  UFS1 type and named `foxynroot`, which the kernel sees as `vbd1s0`
+  (the ESP is `vbd0`);
+* the image is sparse: `DISK_SIZE` (default `4G`) is its size, not what
+  it takes on the host.
+
+Two files differ from the live image (they come from `disk-etc/`, which
+the manifest takes instead of the tree's): `/etc/fstab` mounts `/dev/vbd1s0`
+read-write on `/` with `fsck` pass 1, and `/etc/rc.conf` lacks
+`root_rw_mount="NO"`. So `/var`, `/tmp` and `/root` live on the disk, and
+`rc.d/fsck` checks it at boot. The password database cannot be made on
+the host: on the first boot, `imagedb` mounts the root read-write, runs
+`pwd_mkdb` and mounts it read-only again, before `fsck` and the devfs
+rules. Later boots keep the database.
+
+`qemu.sh --disk` boots it (the kernel is still the ESP's) with
+`vfs.root.mountfrom="ufs:vbd1s0"`. Shut it down with `halt -p` (or
+`shutdown -p now`), so the next boot finds a clean file system; after a
+hard stop, `fsck -p` repairs it at boot. `build.sh disk` makes a new image
+each time: what was written into the old one is lost.
 
 ## QEMU
 
@@ -490,8 +555,12 @@ the choice. QEMU uses KVM when `/dev/kvm` is writable, and TCG otherwise
 ## Tests
 
 `boot-test.sh --root` boots the image headless, waits for `login:`, logs
-in as root over the serial line, lists the running programs and runs
-`periodic daily`. `check-boot-log.sh` then checks the serial log, one
+in as root over the serial line, lists the running programs, runs
+`/root/tests/net-check` (the network and TLS) and `periodic daily`. It
+has QEMU's user-mode network answer HTTP on 10.0.2.100 (a `guestfwd`
+that runs a small script for each connection), so the network test needs
+no network on the host. `boot-test.sh --disk` does the same with
+`disk.img` and ends with `halt -p`; CI boots the disk twice. `check-boot-log.sh` then checks the serial log, one
 check per CI step (`all` runs them all):
 
 | Check | What it verifies |
@@ -505,9 +574,13 @@ check per CI step (`all` runs them all):
 | `periodic` | `periodic daily` finished and found every command |
 | `cxx` | a static C++ program throws through two frames and catches |
 | `runtime` | compiler-rt builtins in a static and a dynamic program; C++ constructors, destructors and an exception across a shared library; `atexit` order; `dlopen(3)` (sources in `tools/linux/tests`) |
-| `fs` | `/tmp` and `/var/tmp` sticky and writable; `/etc`, `/var/run`, `/var/log`, `/var/db`, `/root` writable; `/` read-only; `master.passwd` and `spwd.db` mode 600 |
+| `fs` | `/tmp` and `/var/tmp` sticky and writable; `/etc`, `/var/run`, `/var/log`, `/var/db`, `/root` writable; `/` read-only on root.iso and writable on disk.img; `master.passwd` and `spwd.db` mode 600 |
 | `abi` | programs with either ELF ABI note (FoxynBSD, DragonFly) run |
 | `kld` | the kernel modules in the image (`udf`, `ext2fs`, when built) load and unload |
+| `net` | `dhcpcd` runs and leased `vtnet0` an address, a default route and a name server; `fetch` gets `http://10.0.2.100/` through the gateway |
+| `tls` | `fetch` over HTTPS to an `openssl s_server` in the guest, with a certificate `openssl req` made there (LibreSSL's libcrypto and libssl) |
+| `disk` | on `disk.img`: the root is UFS and writable (skipped for root.iso) |
+| `persist` | not in `all`: a second boot of `disk.img` found the first one's boot count in `/var/db`, kept the password database and had a clean file system |
 
 A failing boot leaves the serial log in `$OBJDIR/qemu/`. On a kernel
 trap, `boot-test.sh` resolves the faulting instruction to a source line
@@ -571,12 +644,13 @@ report are uploaded as artifacts.
 ## Known limitations
 
 * The root image is a read-only cd9660 with tmpfs over `/etc`, `/var`,
-  `/tmp` and `/root`: there is no writable root filesystem or installer
-  yet (issue #9).
+  `/tmp` and `/root`; `build.sh disk` makes a writable UFS one. There is
+  no installer yet, the disk is not bootable on its own (the loader and
+  kernel stay on the ESP that QEMU serves) and its root is UFS, not
+  HAMMER2: the host `makefs` has only the ffs back end (issue #9).
 * The base image (`ROOTFS=base`) has only the programs of `build.sh
   base`; the default image has the whole world.
-* The image does not configure the network (no DHCP in `rc.conf`) and
-  has no packages (`pkg`, DPorts).
+* The images have no packages (`pkg`, DPorts) yet.
 * gcc 12's runtime (`gnu/lib/gcc120`) and the gcc 12 compiler as a
   cross compiler for the host are not built (see above).
 * The clang kernel is opt-in (`KERNCC=clang`); lld does not link the
@@ -631,4 +705,6 @@ report are uploaded as artifacts.
 | root image | boots through `/etc/rc` and `rc.d` to a root login; syslogd, newsyslog, cron, devd, periodic |
 | whole world (`build.sh world`) | builds into the sysroot (CI job *Whole world*) |
 | ELF audit | no host contamination in the sysroot and the image |
-| writable root, installer, rest of the world in the image | TODO (issue #9) |
+| network (`dhcpcd`), LibreSSL, `fetch` | in the base image; tested at boot (DHCP lease, HTTP, HTTPS) |
+| writable root on a disk (`build.sh disk`) | UFS on GPT, made with the host `makefs`; boots twice in CI |
+| installer, HAMMER2 root, bootable disk | TODO (issue #9) |

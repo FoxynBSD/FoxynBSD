@@ -17,6 +17,8 @@
 #	tools/linux/build.sh base		(rtld, init, sh, core utilities)
 #	tools/linux/build.sh rootfs		(root tree and root.iso: the whole
 #					 world; ROOTFS=base for a minimal one)
+#	tools/linux/build.sh disk		(disk.img: the root tree on a
+#					 writable UFS disk; DISK_SIZE=4G)
 #	tools/linux/build.sh world		(the whole userland, buildworld
 #					 order; KEEP_GOING=1 lists failures)
 #	tools/linux/build.sh subdir DIR...	(build and install world dirs)
@@ -571,14 +573,55 @@ do_tools() {
 	build_small_tools
 	build_world_tools
 	build_bootstrap_tools
+	build_makefs
 	write_xcc_wrapper
 	write_kcc_wrapper
 	echo "$TOOLS_STAMP" > "$HOSTBIN/.done"
 }
 
+# makefs(8) from usr.sbin/makefs, for `build.sh disk`: it writes a UFS
+# file system image from an mtree manifest, so the files get root:wheel
+# and their modes without root privileges.  Only the ffs back end is
+# built (tools/linux/makefs/stubs.c stands in for the others).  Its
+# kernel headers (the UFS on-disk structures, sbuf) are copied into a
+# directory of their own: the rest of sys/ must not shadow the host's.
+build_makefs() {
+	local m=$SRCDIR/usr.sbin/makefs inc=$HOSTOBJ/makefs/include o=$HOSTOBJ/makefs
+	local bsd f srcs
+	bsd=$(pkg-config --cflags --libs libbsd-overlay)
+	rm -rf "$o"
+	mkdir -p "$inc/vfs/ufs" "$inc/sys"
+	cp -R "$SRCDIR/tools/linux/makefs/include/." "$inc/"
+	for f in dinode.h dir.h fs.h ufs_types.h; do
+		cp "$SRCDIR/sys/vfs/ufs/$f" "$inc/vfs/ufs/"
+	done
+	cp "$SRCDIR/sys/sys/sbuf.h" "$inc/sys/"
+	srcs="$m/makefs.c $m/walk.c $m/mtree.c $m/ffs.c $m/ffs/buf.c
+	    $m/ffs/ffs_alloc.c $m/ffs/ffs_balloc.c $m/ffs/ffs_bswap.c
+	    $m/ffs/ffs_subr.c $m/ffs/mkfs.c $m/ffs/ufs_bmap.c
+	    $SRCDIR/sys/vfs/ufs/ffs_tables.c
+	    $SRCDIR/usr.sbin/mtree/getid.c $SRCDIR/usr.sbin/mtree/misc.c
+	    $SRCDIR/usr.sbin/mtree/spec.c $SRCDIR/usr.sbin/mtree/stat_flags.c
+	    $SRCDIR/usr.sbin/mtree/pack_dev.c $SRCDIR/lib/libutil/efun.c
+	    $SRCDIR/lib/libc/stdlib/strsuftoll.c $SRCDIR/sys/kern/subr_sbuf.c
+	    $SRCDIR/tools/linux/makefs/stubs.c"
+	# __DragonFly__: makefs's ffs code has DragonFly-only branches (no
+	# UFS2, vnode fields).  LIBBSD_NETBSD_VIS: the NetBSD strnunvis(3)
+	# argument order, which DragonFly's <vis.h> has.
+	(cd "$o" && $HOST_CC $HOST_CFLAGS -std=gnu17 -w \
+	    -include "$SRCDIR/tools/linux/host-compat.h" \
+	    -include "$SRCDIR/tools/linux/makefs/makefs-compat.h" \
+	    -I"$m" -I"$SRCDIR/usr.sbin/mtree" -I"$inc" \
+	    -D__DragonFly__ -DLIBBSD_NETBSD_VIS -DMAKEFS \
+	    -DHAVE_NBTOOL_CONFIG_H=0 -DHAVE_NETDB_H=1 \
+	    -DHAVE_STRUCT_STAT_BIRTHTIME=0 -DHAVE_STRUCT_STAT_ST_FLAGS=0 \
+	    -DHAVE_STRUCT_STAT_ST_MTIMENSEC=0 -DHAVE_STRUCT_STATVFS_F_IOSIZE=0 \
+	    -o "$HOSTBIN/makefs" $srcs $bsd)
+}
+
 # Bump when the host tools or shims change, so an existing $OBJDIR gets
 # them rebuilt instead of failing with old ones (install -C/-B, chflags).
-TOOLS_STAMP=18
+TOOLS_STAMP=19
 
 kenv() {
 	[ "$(cat "$HOSTBIN/.done" 2>/dev/null)" = "$TOOLS_STAMP" ] || do_tools
@@ -805,20 +848,22 @@ do_libc() {
 
 # The smallest userland that boots to a login prompt through the tree's
 # /etc/rc, in build order: the runtime linker and the libraries first,
-# then init, sh, login and the utilities rc.subr and rc.d call.
+# then init, sh, login and the utilities rc.subr and rc.d call.  LibreSSL
+# (libcrypto, libssl) and libfetch come with what needs them: csh,
+# mtree, dhcpcd (the network at boot), fetch and openssl.
 BASE_LIBS="lib/libc_rtld libexec/rtld-elf lib/libutil lib/libcrypt
 	lib/libncurses lib/libedit lib/libm lib/libkvm lib/libypclnt
 	lib/libpam/libpam lib/libpam/modules lib/libexpat lib/libsbuf
 	gnu/usr.bin/grep/libgreputils usr.bin/awk/maketab usr.sbin/cron/lib
 	usr.bin/flex/lib gnu/lib/gcc80/libgcc_eh gnu/lib/gcc80/libstdc++/headers
 	gnu/lib/gcc80/libstdc++/components gnu/lib/gcc80/libstdc++/product
-	lib/librecrypto lib/libkinfo lib/libnetgraph"
+	lib/librecrypto lib/libressl lib/libfetch lib/libkinfo lib/libnetgraph"
 BASE_PROGS="sbin/init bin/sh bin/cat bin/chmod bin/cp bin/date bin/df
 	bin/echo bin/expr bin/hostname bin/kill bin/ln bin/ls bin/mkdir bin/mv
 	bin/ps bin/pwd bin/rm bin/rmdir bin/sleep bin/stty bin/test bin/varsym
 	sbin/adjkerntz sbin/devd sbin/devfsctl sbin/dmesg sbin/fsck sbin/ifconfig sbin/kldload sbin/kldstat
 	sbin/kldunload
-	sbin/ldconfig sbin/mount sbin/mount_tmpfs sbin/rcorder sbin/reboot
+	sbin/ldconfig sbin/mount sbin/mount_tmpfs sbin/mount_ufs sbin/rcorder sbin/reboot
 	sbin/route sbin/swapon sbin/sysctl sbin/umount
 	libexec/getty usr.bin/awk/awk usr.bin/basename usr.bin/cmp usr.bin/find
 	gnu/usr.bin/grep/grep usr.bin/head usr.bin/id usr.bin/logger
@@ -827,7 +872,8 @@ BASE_PROGS="sbin/init bin/sh bin/cat bin/chmod bin/cp bin/date bin/df
 	usr.sbin/chown usr.sbin/cron/cron usr.sbin/cron/crontab usr.sbin/newsyslog usr.sbin/pwd_mkdb usr.sbin/syslogd
 	usr.bin/diff usr.bin/lockf usr.bin/netstat usr.bin/sort usr.bin/tee
 	usr.bin/w gnu/usr.bin/grep/egrep gnu/usr.bin/grep/fgrep usr.sbin/chkgrp
-	usr.sbin/periodic"
+	usr.sbin/periodic
+	bin/csh sbin/dhcpcd usr.bin/fetch usr.bin/openssl usr.sbin/mtree"
 
 # Modules rc.local loads and unloads to test the kernel linker.
 KLD_TESTS="udf ext2fs"
@@ -993,6 +1039,9 @@ rootfs_base() {
 		# installs as "periodic".
 		prog=$(cd "$SRCDIR/$d" &&
 		    make -V '${PROGNAME:U${PROG:U${SCRIPTS:T:R}}}')
+		# A directory of subdirectories (bin/csh: gethost, csh) is
+		# named after its program.
+		[ -n "$prog" ] || prog=${d##*/}
 		# Files only: the sysroot also has an /etc/devd directory.
 		f=$(cd "$SYSROOT" && for c in */"$prog" usr/*/"$prog"; do
 			[ -f "$c" ] && echo "$c"; done | head -n 1) || :
@@ -1006,6 +1055,11 @@ rootfs_base() {
 	ln -s test "$root/bin/["
 	ln -s chown "$root/usr/sbin/chgrp"
 	ln -s w "$root/usr/bin/uptime"
+	ln -s csh "$root/bin/tcsh"
+	# dhcpcd(8) runs its hooks (resolv.conf, hostname) through this script.
+	mkdir -p "$root/usr/libexec/dhcpcd-hooks"
+	cp -p "$SYSROOT/usr/libexec/dhcpcd-run-hooks" "$root/usr/libexec/"
+	cp -p "$SYSROOT/usr/libexec/dhcpcd-hooks/"* "$root/usr/libexec/dhcpcd-hooks/"
 	mkdir -p "$root/usr/lib/security"
 	for f in $PAM_MODULES; do
 		cp -pL "$SYSROOT/usr/lib/security/$f.so" "$root/usr/lib/security/"
@@ -1051,6 +1105,7 @@ do_rootfs() {
 	write_brand_tests "$root/root/tests"
 	write_cxx_test "$root/root/tests"
 	write_runtime_tests "$root/root/tests"
+	write_net_test "$root/root/tests/net-check"
 	# Kernel modules for the kldload test in rc.local, when `build.sh
 	# modules` built them (MODULES_OVERRIDE="vfs/udf vfs/ext2fs" builds
 	# only these): filesystems the GENERIC kernel does not have built in.
@@ -1130,6 +1185,156 @@ do_rootfs() {
 	else
 		msg "root tree: $root (install xorriso to pack root.iso)"
 	fi
+}
+
+# An mtree(5) manifest of the tree in the current directory, for makefs:
+# everything root:wheel with the modes it has here (the building user
+# owns the files on the host).  Each file under $1, an overlay tree,
+# replaces or adds the file at the same path.  Names are encoded as
+# strsvis(3) octal escapes where they have other characters than these.
+disk_manifest() {
+	local over=$1
+	echo '#mtree 2.0'
+	echo '/set uid=0 gid=0'
+	{
+		find . -printf '%y %m %p\t%l\n' | while IFS= read -r l; do
+			p=${l#* * }; p=${p%%	*}
+			[ -f "$over/$p" ] || printf '%s\n' "$l"
+		done
+		(cd "$over" && find . -type f -printf "%y %m %p\t\n") |
+		    sed "s|\\t\$|\\t@$over|"
+	} | LC_ALL=C awk -F'\t' '
+	function enc(s,   r, i, c) {
+		if (s !~ /[^A-Za-z0-9._\/+,~@:=%-]/) return s
+		r = ""
+		for (i = 1; i <= length(s); i++) {
+			c = substr(s, i, 1)
+			if (c ~ /[A-Za-z0-9._\/+,~@:=%-]/) r = r c
+			else r = r sprintf("\\%03o", ord[c])
+		}
+		return r
+	}
+	BEGIN { for (i = 1; i < 256; i++) ord[sprintf("%c", i)] = i }
+	{
+		t = substr($1, 1, 1); m = substr($1, 3); sp = index(m, " ")
+		p = substr(m, sp + 1); m = substr(m, 1, sp - 1)
+		if (t == "d") ty = "dir"
+		else if (t == "l") ty = "link"
+		else if (t == "f") ty = "file"
+		else next
+		line = enc(p) " type=" ty " mode=" m
+		if (t == "l") line = line " link=" enc($2)
+		# A file of the overlay: its contents come from there.
+		if (substr($2, 1, 1) == "@")
+			line = line " contents=" enc(substr($2, 2) "/" substr(p, 3))
+		print line
+	}'
+}
+
+# A disk image with a writable root: the tree of `build.sh rootfs` (made
+# first if there is none) as a UFS file system in a GPT partition, which
+# qemu.sh --disk boots with the kernel from the ESP.  The image differs
+# from root.iso only in /etc/fstab and /etc/rc.conf: the root is mounted
+# read-write and /var, /tmp and /root live on it.  The password
+# databases are made on its first boot (rc.local.d/imagedb).
+#
+# makefs needs no root privileges, and the image is sparse: DISK_SIZE
+# (default 4G) is its size, not what it takes on the host.  It is made
+# anew each time, so what was written into the old one is lost.
+do_disk() {
+	local root=$OBJDIR/rootfs over=$OBJDIR/disk-etc img=${DISK:-$OBJDIR/disk.img}
+	local size mib off=1048576 sectors
+	[ -x "$HOSTBIN/makefs" ] || do_tools
+	need sfdisk
+	[ -f "$root/etc/rc.conf" ] || ( do_rootfs )
+	size=${DISK_SIZE:-4G}
+	case $size in
+	*[Gg])	mib=$((${size%?} * 1024)) ;;
+	*[Mm])	mib=${size%?} ;;
+	*)	die "DISK_SIZE must be like 4G or 4096M, not $size" ;;
+	esac
+	[ "$mib" -ge 64 ] || die "DISK_SIZE is too small: $size"
+	rm -rf "$over"
+	mkdir -p "$over/etc"
+	cat > "$over/etc/fstab" <<'EOF'
+# Device	Mountpoint	FStype	Options		Dump	Pass#
+/dev/vbd1s0	/		ufs	rw		1	1
+EOF
+	# The ESP is the first virtio disk (vbd0) and this one the second.
+	sed -e '/^root_rw_mount=/d' \
+	    -e 's|^# rc.conf for the root image .*|# rc.conf for the disk image from tools/linux/build.sh disk.  Services|' \
+	    "$root/etc/rc.conf" > "$over/etc/rc.conf"
+	msg "disk image: $img ($size, UFS root in GPT partition 1)"
+	(cd "$root" && disk_manifest "$over") > "$OBJDIR/disk.mtree" < /dev/null
+	(cd "$root" &&
+	    "$HOSTBIN/makefs" -t ffs -B little -Z -o version=1 \
+	    -O "$off" -s "$((mib - 2))m" "$img.tmp" "$OBJDIR/disk.mtree") >&2
+	# Room for the backup GPT at the end, then the table itself:
+	# partition 1 (vbd1s0) is the file system makefs wrote at 1 MiB.
+	truncate -s "${mib}M" "$img.tmp"
+	sectors=$(((mib - 2) * 2048))
+	printf 'label: gpt\nstart=2048, size=%s, type=9D94CE7C-1CA5-11DC-8817-01301BB8A9F5, name="foxynroot"\n' \
+	    "$sectors" | sfdisk --quiet --wipe never --wipe-partitions never "$img.tmp" >&2
+	mv "$img.tmp" "$img"
+	msg "disk image: $img (boot it with tools/linux/qemu.sh --disk)"
+}
+
+# The network and TLS test that boot-test.sh runs after logging in.
+# The network: dhcpcd(8) got a lease for vtnet0 from QEMU's user-mode
+# network (an address, the default route and a name server), and fetch(1)
+# reaches http://10.0.2.100/, where boot-test.sh has QEMU answer.  TLS:
+# fetch talks HTTPS to an openssl(1) s_server on this machine, with a
+# certificate made here, so LibreSSL's libcrypto and libssl both work.
+write_net_test() {
+	cat > "$1" <<'EOF'
+#!/bin/sh
+net=ok tls=ok
+i=0
+while ! ifconfig vtnet0 2>/dev/null | grep -q '^[[:space:]]*inet '; do
+	i=$((i + 1))
+	[ $i -lt 30 ] || break
+	sleep 1
+done
+addr=$(ifconfig vtnet0 | awk '$1 == "inet" { print $2; exit }')
+gw=$(route -n get default 2>/dev/null | awk '$1 == "gateway:" { print $2 }')
+ns=$(awk '$1 == "nameserver" { print $2; exit }' /etc/resolv.conf 2>/dev/null)
+echo "net-check: vtnet0 ${addr:-none}, gateway ${gw:-none}, nameserver ${ns:-none}"
+[ -n "$addr" ] && [ -n "$gw" ] && [ -n "$ns" ] ||
+    { net=fail; echo "net-check: FAIL no DHCP lease (address, route and name server)"; }
+ps -axo comm= | grep -qx dhcpcd ||
+    { net=fail; echo "net-check: FAIL dhcpcd is not running"; }
+out=$(fetch -T 20 -q -o - http://10.0.2.100/ 2>&1)
+case $out in
+*foxynbsd-net-42*) echo "net-check: fetched http://10.0.2.100/ through ${gw:-?}" ;;
+*) net=fail; echo "net-check: FAIL fetch http://10.0.2.100/: $out" ;;
+esac
+echo "net-check: $net"
+
+echo "tls-check: $(openssl version)"
+d=$(mktemp -d /tmp/tls.XXXXXX)
+if openssl req -x509 -newkey rsa:2048 -nodes -days 1 -subj /CN=localhost \
+    -keyout $d/key.pem -out $d/cert.pem >$d/req.log 2>&1; then
+	openssl s_server -accept 8443 -cert $d/cert.pem -key $d/key.pem \
+	    -www >$d/server.log 2>&1 </dev/null &
+	pid=$!
+	sleep 2
+	# By name: TLS sends no server name (SNI) for an address.
+	out=$(fetch -T 20 -q --no-verify-peer -o - https://localhost:8443/ 2>&1)
+	kill $pid 2>/dev/null
+	case $out in
+	*"Ciphers supported"*)
+		echo "$out" | grep -E 'Protocol|Cipher[[:space:]]*:' | sed 's/^ */tls-check: /' ;;
+	*)	tls=fail; echo "tls-check: FAIL fetch https://localhost:8443/: $out"
+		sed 's/^/tls-check: server: /' $d/server.log ;;
+	esac
+else
+	tls=fail; echo "tls-check: FAIL openssl req"; sed 's/^/tls-check: /' $d/req.log
+fi
+rm -rf $d
+echo "tls-check: $tls"
+[ $net = ok ] && [ $tls = ok ]
+EOF
+	chmod 755 "$1"
 }
 
 # Two tiny static programs that differ only in their ELF ABI note: one
@@ -1295,6 +1500,13 @@ write_etc() {
 	    "$SRCDIR/etc/devd.conf" "$root/etc/"
 	mkdir -p "$root/etc/devd"
 	cp "$SRCDIR/etc/devd/"*.conf "$root/etc/devd/"
+	# dhcpcd's configuration (etc/Makefile takes it from contrib), and
+	# LibreSSL's: openssl(1)'s defaults and the CA certificates that
+	# libtls and fetch(1) check servers against.
+	cp "$SRCDIR/contrib/dhcpcd/src/dhcpcd.conf" "$root/etc/"
+	mkdir -p "$root/etc/ssl"
+	cp "$SRCDIR/crypto/libressl/openssl.cnf" "$SRCDIR/crypto/libressl/cert.pem" \
+	    "$root/etc/ssl/"
 	# The empty log files that etc/Makefile's distribution target
 	# installs: syslogd(8) only writes to files that exist.
 	install -m 600 /dev/null "$root/var/log/auth.log"
@@ -1378,6 +1590,11 @@ sendmail_outbound_enable="NO"
 sendmail_msp_queue_enable="NO"
 sendmail_rebuild_aliases="NO"
 blanktime="NO"		# Without --gui there is no ttyv0 to blank.
+# The network: dhcpcd(8) configures QEMU's virtio-net card (user-mode
+# networking gives it 10.0.2.15, a gateway and DNS).  -b: rc goes on
+# while the lease comes.
+dhcp_client="dhcpcd"
+ifconfig_vtnet0="DHCP"
 EOF
 	# periodic(8): the reports go to files in /var/log, since the image
 	# has no mail program; the checks for programs and subsystems it
@@ -1428,9 +1645,21 @@ stop_cmd=":"
 
 imagedb_start()
 {
-	mount_tmpfs -C tmpfs /etc &&
-	    pwd_mkdb -p /etc/master.passwd && id root &&
-	    echo "rc: user database ready ($(whoami))"
+	case $(mount | sed -n 's|^.* on / (\([^,)]*\).*|\1|p') in
+	cd9660)
+		# The live image: /etc becomes a writable copy, the databases
+		# go in it at every boot.
+		mount_tmpfs -C tmpfs /etc &&
+		    pwd_mkdb -p /etc/master.passwd ;;
+	*)
+		# A disk (build.sh disk): the databases are made once, on the
+		# first boot; the root is still mounted read-only here.
+		if [ ! -f /etc/spwd.db ]; then
+			mount -u -o rw / && pwd_mkdb -p /etc/master.passwd &&
+			    mount -u -o ro / && echo "rc: first boot of this disk"
+		fi ;;
+	esac
+	id root >/dev/null && echo "rc: user database ready ($(whoami))"
 }
 
 load_rc_config $name
@@ -1440,8 +1669,10 @@ EOF
 	# rc.d/local sources this just before the LOGIN stage.
 	cat > "$root/etc/rc.local" <<'EOF'
 echo
+# The root's file system: cd9660 for root.iso, ufs for disk.img.
+rootfs=$(mount | sed -n 's|^.* on / (\([^,)]*\).*|\1|p')
 if echo ok > /tmp/.rc-test; then
-	echo "rc: /tmp is writable (tmpfs)"
+	echo "rc: /tmp is writable ($(df /tmp | awk 'NR == 2 { print $1 }'))"
 fi
 # Identity: os-release names FoxynBSD and keeps DragonFly as ID_LIKE.
 ( . /etc/os-release && echo "os-release: $PRETTY_NAME (ID=$ID, ID_LIKE=$ID_LIKE)" )
@@ -1449,7 +1680,7 @@ fi
 # programs (rtld + libc + libutil + ncurses) ran.
 if uname -a && ls -l /bin/sh; then
 	echo
-	echo "FoxynBSD userland is up (read-only root on cd9660, /etc/rc and rc.d)."
+	echo "FoxynBSD userland is up (root on $rootfs, /etc/rc and rc.d)."
 	echo "Log in as root (no password); 'halt -p' powers the machine off."
 else
 	echo "rc: dynamically linked programs fail; ld-elf.so.2 trace follows"
@@ -1468,7 +1699,7 @@ for t in rt-builtins rt-builtins-static rt-cxx rt-dlopen; do
 done
 # Kernel modules (build.sh rootfs copies them in when they were built):
 # load, find and unload each one.
-if [ -d /boot/kernel ]; then
+if ls /boot/kernel/*.ko >/dev/null 2>&1; then
 	kld=ok
 	for m in /boot/kernel/*.ko; do
 		n=${m##*/}
@@ -1494,8 +1725,20 @@ for d in /etc /var/run /var/log /var/db /root; do
 	if touch $d/.fs-check 2>/dev/null; then rm -f $d/.fs-check
 	else fs=fail; echo "fs-check: FAIL $d is not writable"; fi
 done
-if touch /.fs-check 2>/dev/null; then
-	fs=fail; echo "fs-check: FAIL / is writable (expected the read-only image)"
+if [ "$rootfs" = cd9660 ]; then
+	if touch /.fs-check 2>/dev/null; then
+		fs=fail; echo "fs-check: FAIL / is writable (expected the read-only image)"
+	fi
+elif touch /.fs-check 2>/dev/null; then
+	rm -f /.fs-check
+	# A writable root on a disk: count the boots, so a second boot
+	# shows that what the first one wrote is still there.
+	n=$(cat /var/db/boot-count 2>/dev/null || echo 0)
+	n=$((n + 1))
+	echo $n > /var/db/boot-count
+	echo "disk-check: boot $n of this disk, root on $rootfs ($(df / | awk 'NR == 2 { print $1 }'))"
+else
+	fs=fail; echo "fs-check: FAIL / is not writable on $rootfs"
 fi
 for f in /etc/master.passwd /etc/spwd.db; do
 	case $(ls -l $f 2>/dev/null) in
@@ -1653,6 +1896,7 @@ clang clang clang userland
 ld.lld lld lld userland
 tic ncurses ncurses-bin rootfs(terminfo)
 xorriso libisoburn xorriso rootfs(root.iso)
+sfdisk util-linux fdisk disk(disk.img)
 qemu-system-x86_64 qemu-desktop qemu-system-x86 boot
 EOF
 	for probe in libbsd-overlay:libbsd:libbsd-dev libtirpc:libtirpc:libtirpc-dev; do
@@ -1732,13 +1976,14 @@ main() {
 	base)		do_base ;;
 	world)		do_world ;;
 	rootfs)		do_rootfs ;;
+	disk)		do_disk ;;
 	subdir)		[ -f "$SYSROOT/usr/lib/libc.so" ] || do_libc
 			wenv; for d; do world_dir "$d"; done ;;
 	loader)		do_loader ;;
 	esp)		do_esp "$@" ;;
 	doctor)		do_doctor ;;
 	env)		kenv; env | grep -E '^(PATH|MACHINE|MACHINE_ARCH|MACHINE_PLATFORM|CCVER|HOST_CCVER|HOST_BINUTILSVER)=' | sed 's/^/export /' ;;
-	*)		sed -n '3,27p' "$0" | sed 's/^# \{0,1\}//'; exit 1 ;;
+	*)		sed -n '3,29p' "$0" | sed 's/^# \{0,1\}//'; exit 1 ;;
 	esac
 }
 
