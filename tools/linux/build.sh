@@ -591,7 +591,11 @@ kenv() {
 	# module's "dragonfly" link exists (during depend): on this host that
 	# must be the sysroot's DragonFly headers, never the Linux
 	# /usr/include.  Nothing is installed, so DESTDIR has no other
-	# effect.  KERNCC=clang compiles with kcc (see write_kcc_wrapper).
+	# effect.  The directory must exist (amdgpu builds with
+	# -Werror=missing-include-dirs) even when the kernel is built before
+	# `build.sh sysroot`: empty, it still keeps the host's headers out.
+	# KERNCC=clang compiles with kcc (see write_kcc_wrapper).
+	mkdir -p "$SYSROOT/usr/include"
 	KMAKE="DESTDIR=$SYSROOT"
 	case ${KERNCC:-gcc} in
 	gcc)	;;
