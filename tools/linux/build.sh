@@ -906,7 +906,7 @@ do_libc() {
 BASE_LIBS="lib/libc_rtld libexec/rtld-elf lib/libutil lib/libcrypt
 	lib/libncurses lib/libedit lib/libm lib/libkvm lib/libypclnt
 	lib/libpam/libpam lib/libpam/modules lib/libexpat lib/libsbuf
-	gnu/usr.bin/grep/libgreputils usr.bin/awk/maketab usr.sbin/cron/lib
+	gnu/usr.bin/grep/libgreputils usr.bin/awk/maketab
 	usr.bin/flex/lib gnu/lib/gcc80/libgcc_eh gnu/lib/gcc80/libstdc++/headers
 	gnu/lib/gcc80/libstdc++/components gnu/lib/gcc80/libstdc++/product
 	lib/librecrypto lib/libressl lib/libfetch lib/libkinfo lib/libnetgraph
@@ -933,10 +933,10 @@ BASE_PROGS="sbin/init bin/sh bin/cat bin/chmod bin/cp bin/date bin/df
 # Modules rc.local loads and unloads to test the kernel linker.
 KLD_TESTS="udf ext2fs"
 
-# PAM modules that /etc/pam.d/login and /etc/pam.d/system load.  login(1)
-# opens them with dlopen(3), so they are not in any NEEDED list.
-PAM_MODULES="pam_lastlog pam_login_access pam_nologin pam_securetty pam_self
-	pam_unix"
+# PAM modules that /etc/pam.d/login, system and crond load.  login(1) and
+# cron(8) open them with dlopen(3), so they are not in any NEEDED list.
+PAM_MODULES="pam_lastlog pam_login_access pam_nologin pam_permit pam_securetty
+	pam_self pam_unix"
 
 do_base() {
 	local d
@@ -1242,6 +1242,7 @@ do_rootfs() {
 	write_cxx_test "$root/root/tests"
 	write_runtime_tests "$root/root/tests"
 	write_net_test "$root/root/tests/net-check"
+	write_cron_test "$root/root/tests/cron-check"
 	write_cc_test "$root/root/tests/cc-check"
 	write_ruby_test "$root/root/tests/ruby-check"
 	# Kernel modules for the kldload test in rc.local, when `build.sh
@@ -1438,6 +1439,63 @@ EOF
 	    "$sectors" | sfdisk --quiet --wipe never --wipe-partitions never "$img.tmp" >&2
 	mv "$img.tmp" "$img"
 	msg "disk image: $img (boot it with tools/linux/qemu.sh --disk)"
+}
+
+# cron(8), Cronie: /root/tests/cron-check start installs a root crontab
+# and an /etc/cron.d file whose jobs write in /tmp, and has a user other
+# than root (nobody) install, list and remove a crontab of its own (the
+# base's empty /var/cron/deny lets every user; with su(1) only, so not in
+# the base image).  cron-check wait, a few
+# minutes later, waits for both jobs to have run, then removes them.
+write_cron_test() {
+	cat > "$1" <<'EOF'
+#!/bin/sh
+cron=ok
+case ${1:-} in
+start)
+	rm -f /tmp/cron-check.tab /tmp/cron-check.d
+	printf 'MAILTO=""\n* * * * * echo tab > /tmp/cron-check.tab\n' | crontab - ||
+	    { cron=fail; echo "cron-check: FAIL crontab - (root)"; }
+	printf 'MAILTO=""\n* * * * * root echo cron.d > /tmp/cron-check.d\n' \
+	    > /etc/cron.d/cron-check
+	chmod 644 /etc/cron.d/cron-check
+	if ! command -v su >/dev/null; then
+		echo "cron-check: no su(1) in this image: crontab(1) as nobody not tested"
+	elif printf '* * * * * true # cron-check\n' |
+	    su -m nobody -c 'crontab -' 2>&1; then
+		su -m nobody -c 'crontab -l' 2>&1 | grep -q 'cron-check' ||
+		    { cron=fail; echo "cron-check: FAIL crontab -l (nobody)"; }
+		su -m nobody -c 'crontab -r' 2>&1 ||
+		    { cron=fail; echo "cron-check: FAIL crontab -r (nobody)"; }
+	else
+		cron=fail; echo "cron-check: FAIL crontab - (nobody, /var/cron/deny)"
+	fi
+	echo "cron-check: jobs installed at $(date +%T)"
+	;;
+wait)
+	# Cronie reads the changed tables at the start of a minute and runs
+	# that minute's jobs: at most two minutes after start.
+	i=0
+	while [ ! -f /tmp/cron-check.tab ] || [ ! -f /tmp/cron-check.d ]; do
+		i=$((i + 1))
+		[ $i -lt 150 ] || break
+		sleep 1
+	done
+	echo "cron-check: checked at $(date +%T)"
+	[ -f /tmp/cron-check.tab ] ||
+	    { cron=fail; echo "cron-check: FAIL the root crontab's job did not run"; }
+	[ -f /tmp/cron-check.d ] ||
+	    { cron=fail; echo "cron-check: FAIL the /etc/cron.d job did not run"; }
+	crontab -r
+	rm -f /etc/cron.d/cron-check /tmp/cron-check.tab /tmp/cron-check.d
+	grep -a ' cron\[\| crond\[\|(root) CMD\|(CRON)' /var/log/cron 2>/dev/null |
+	    tail -n 5 | sed 's/^/cron-check: log: /'
+	;;
+*)	echo "usage: cron-check start|wait" >&2; exit 2 ;;
+esac
+# start reports "start ok", wait the result: "ok".
+[ "$1" = start ] && echo "cron-check: start $cron" || echo "cron-check: $cron"
+EOF
 }
 
 # The network and TLS test that boot-test.sh runs after logging in.
@@ -1831,6 +1889,8 @@ write_etc() {
 	# installs: syslogd(8) only writes to files that exist.
 	install -m 600 /dev/null "$root/var/log/auth.log"
 	install -m 600 /dev/null "$root/var/log/cron"
+	# cron(8): every user may have a crontab (see etc/Makefile).
+	install -m 600 /dev/null "$root/var/cron/deny"
 	install -m 640 /dev/null "$root/var/log/daemon"
 	install -m 644 /dev/null "$root/var/log/lpd-errs"
 	install -m 640 /dev/null "$root/var/log/maillog"
@@ -1853,7 +1913,8 @@ write_etc() {
 	    while read -r f; do cp "$f" "$root/etc/rc.d/$f"; done)
 	chmod 755 "$root/etc/rc.d/"*
 	# cron(8) with the tree's crontab; without atrun in the image (the
-	# base image), minus its job.
+	# base image), minus its job.  /etc/cron.d: more system crontabs.
+	mkdir -p "$root/etc/cron.d"
 	if [ -x "$root/usr/libexec/atrun" ]; then
 		cp "$SRCDIR/etc/crontab" "$root/etc/crontab"
 	else

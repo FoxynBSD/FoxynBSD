@@ -1,0 +1,14 @@
+#
+# PAM configuration for the "crond" service: cron(8), Cronie, runs each
+# job in a PAM session of the crontab's owner.
+#
+
+# auth: cron never asks for a password; pam_setcred(3) only.
+auth		required	pam_permit.so
+
+# account
+account		required	pam_nologin.so
+account		required	pam_unix.so
+
+# session
+session		required	pam_permit.so

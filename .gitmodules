@@ -1,0 +1,4 @@
+[submodule "contrib/cronie"]
+	path = contrib/cronie
+	url = https://github.com/cronie-crond/cronie.git
+	shallow = true

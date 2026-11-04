@@ -3,7 +3,7 @@ NOOBJ=
 FILES=	README \
 	convert.sh \
 	atrun \
-	cron \
+	crond \
 	ftpd \
 	imap \
 	login \

@@ -1,0 +1,42 @@
+CRONIE
+======
+
+A git submodule (see docs/contrib.md), not a copy of the sources:
+
+url    = https://github.com/cronie-crond/cronie.git
+tag    = none: master, 35 commits after cronie-1.7.2 (cronie-1.7.2-35-g38773f4)
+commit = 38773f4347bd86a5de089b21e924fa735ba45712
+date   = 2026-10-18
+
+Not a release tag, as an exception to docs/contrib.md: 1.7.2's
+crontab(1) crashes on -r, -e and on replacing a crontab when ~/.cache
+does not exist.  backup_crontab() then reaches umask(old_umask) with
+old_umask unset, and clang drops that path, so the code runs into the
+next function.  Upstream fixed it after 1.7.2 (fd56df9 makes ~/.cache,
+855519a initializes the state), along with crontab parser fixes (reversed
+and out-of-range ranges, @daily).  Move to cronie-1.7.3 (or later) when
+it is released.
+
+Nothing is deleted or modified in it: the build never writes into
+contrib/cronie.  Not built: anacron (and obstack, which only anacron
+uses), cronnext, the SELinux, Linux audit and inotify parts.
+
+These sources are used in:
+	usr.sbin/cron/cron	cron(8) (Cronie's crond), /usr/sbin/cron
+				and /usr/sbin/crond
+	usr.sbin/cron/crontab	crontab(1), crontab(5)
+
+What configure would write is in usr.sbin/cron/include: config.h and
+cron-paths.h (the BSD paths: /var/cron/tabs, /var/cron/allow and
+/var/cron/deny).  execvpe(3), which this libc lacks, is in
+usr.sbin/cron/cron/compat.c.  The manual pages get this system's paths
+from usr.sbin/cron/cronie-man.sed when they are built.
+
+When upgrading: check configure.ac for new HAVE_ and WITH_ macros and
+src/Makemodule.am for new source files, then update this file's tag,
+commit and date (tools/linux/check-submodules.sh compares the commit with
+the one the tree records).
+
+Cronie's licence: ISC and BSD (COPYING); cronie_common.c has no notice
+of its own and comes under COPYING.  Not built and GPL: anacron
+(COPYING.anacron), obstack (COPYING.obstack) and src/cronnext.c.

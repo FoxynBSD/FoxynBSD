@@ -17,6 +17,8 @@
 #			the password database, pwd_mkdb
 #	syslogd		a logger(1) message reached /var/log/messages
 #	daemons		syslogd, cron and devd still run after login
+#	cron		cron(8) ran a root crontab's and an /etc/cron.d job;
+#			nobody installed, listed and removed a crontab
 #	periodic	`periodic daily` finished and found every command
 #	cxx		the static C++ exception test
 #	runtime		compiler-rt builtins (static and dynamic), C++ across a
@@ -101,6 +103,15 @@ check_daemons() {
 		*) fail daemons "$d is not running"; return ;;
 		esac
 	done
+}
+
+check_cron() {
+	grep -aq '^cron-42:' "$LOG" ||
+	    fail cron "the boot test got no cron-check report" || return
+	lines '^cron-check: ' || :
+	if grep -aq '^cron-check: FAIL' "$LOG" || ! grep -aq '^cron-check: ok' "$LOG"; then
+		fail cron "$(lines '^cron-check: FAIL' | tr '\n' ';')"
+	fi
 }
 
 check_periodic() {
@@ -219,7 +230,7 @@ check_persist() {
 	    fail persist "the file system was not clean after halt -p"
 }
 
-ALL="rtld rcd identity basics syslogd daemons periodic cxx runtime fs abi kld net tls disk cc ruby"
+ALL="rtld rcd identity basics syslogd daemons cron periodic cxx runtime fs abi kld net tls disk cc ruby"
 [ "$*" = all ] && set -- $ALL
 rc=0
 for c; do

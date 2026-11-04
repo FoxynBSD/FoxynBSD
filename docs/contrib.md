@@ -103,3 +103,4 @@ Before committing, check upstream's build files for new sources and new
 
 | Path | Upstream | Tag | Built in |
 |------|----------|-----|----------|
+| `contrib/cronie` | <https://github.com/cronie-crond/cronie> | `cronie-1.7.2` + 35 (master, for the `crontab` backup fix) | `usr.sbin/cron`: `cron(8)`, `crontab(1)` |

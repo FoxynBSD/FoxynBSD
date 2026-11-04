@@ -1,10 +1,13 @@
-# $FreeBSD: src/usr.sbin/cron/crontab/Makefile,v 1.10.2.1 2001/04/25 12:09:24 ru Exp $
+# crontab(1) and crontab(5): Cronie's.
 
 PROG=	crontab
-CFLAGS+=-I${.CURDIR}/../cron
-DPADD=	${LIBCRON} ${LIBUTIL}
-LDADD=	${LIBCRON} -lutil
-MAN=	crontab.1 crontab.5
+SRCS=	crontab.c security.c entry.c env.c misc.c pw_dup.c
+CRONIE_MAN= crontab.1 crontab.5
+MAN=	${CRONIE_MAN}
+
+DPADD=	${LIBPAM}
+LDADD=	${MINUSLPAM}
+LDFLAGS+= ${LDFLAGSPAM}
 
 BINDIR=	/usr/bin
 BINOWN=	root

@@ -191,7 +191,7 @@ upgrade_base:	upgrade_check preinstall remove-obsolete-files
 	sh ${DESTDIR}/etc/pam.d/convert.sh ${DESTDIR}/etc/pam.d \
 	    ${DESTDIR}/etc/pam.conf
 .else
-.for pamconf in README convert.sh atrun cron passwd su system
+.for pamconf in README convert.sh atrun crond passwd su system
 .if !exists(${DESTDIR}/etc/pam.d/${pamconf})
 	${INSTALL} -o ${BINOWN} -g ${BINGRP} -m 644 \
 	    ${UPGRADE_SRCDIR}/pam.d/${pamconf} ${DESTDIR}/etc/pam.d
@@ -343,6 +343,10 @@ distribution:
 	    ${DESTDIR}/var/log/auth.log
 	${INSTALL} -o ${BINOWN} -g ${BINGRP} -m 600 /dev/null \
 	    ${DESTDIR}/var/log/cron
+	# cron(8) (Cronie): with no allow file, every user not listed in
+	# deny may have a crontab; with neither file, only root.
+	${INSTALL} -o ${BINOWN} -g ${BINGRP} -m 600 /dev/null \
+	    ${DESTDIR}/var/cron/deny
 	${INSTALL} -o ${BINOWN} -g ${BINGRP} -m 640 /dev/null \
 	    ${DESTDIR}/var/log/daemon
 	${INSTALL} -o ${BINOWN} -g ${BINGRP} -m 644 /dev/null \

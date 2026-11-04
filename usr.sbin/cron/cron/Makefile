@@ -1,11 +1,16 @@
-# $FreeBSD: src/usr.sbin/cron/cron/Makefile,v 1.16 2007/06/17 17:25:53 yar Exp $
+# cron(8): Cronie's crond, installed as /usr/sbin/cron (rc.d/cron) and,
+# as its manual page calls it, /usr/sbin/crond.
 
 PROG=	cron
-SRCS=	cron.c database.c do_command.c job.c user.c popen.c
-CFLAGS+=-DLOGIN_CAP -DPAM
-DPADD=	${LIBCRON} ${LIBPAM} ${LIBUTIL}
-LDADD=	${LIBCRON} ${MINUSLPAM} -lutil
+SRCS=	cron.c database.c do_command.c job.c popen.c security.c user.c \
+	cronie_common.c entry.c env.c misc.c pw_dup.c compat.c
+CRONIE_MAN= cron.8
+MAN=	${CRONIE_MAN}
+MLINKS=	cron.8 crond.8
+LINKS=	${BINDIR}/cron ${BINDIR}/crond
+
+DPADD=	${LIBPAM}
+LDADD=	${MINUSLPAM}
 LDFLAGS+= ${LDFLAGSPAM}
-MAN=	cron.8
 
 .include <bsd.prog.mk>

@@ -1,3 +1,3 @@
-SUBDIR=	lib cron crontab
+SUBDIR=	cron crontab
 
 .include <bsd.subdir.mk>

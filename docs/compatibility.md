@@ -34,6 +34,12 @@ when a tool needs it.
 | Login tips that point to DragonFly's web site, mailing list archives and DPorts | Those resources are DragonFly's and apply to FoxynBSD. |
 | Copyright and license notices | The BSD license requires keeping them. They never change. |
 
+## Base programs that differ from DragonFly
+
+| Program | FoxynBSD | What changes for you |
+|---------|----------|----------------------|
+| `cron(8)`, `crontab(1)` | [Cronie](https://github.com/cronie-crond/cronie) 1.7.2 and later fixes (`contrib/cronie`, a submodule; see [contrib.md](contrib.md)) instead of DragonFly's Vixie cron | `/etc/crontab`, the users' crontabs in `/var/cron/tabs`, `/var/cron/allow` and `/var/cron/deny`, `rc.d/cron` and `cron_flags` work as before. New: `/etc/cron.d` for more system crontabs, `cron -n` (foreground), `crontab -T` (check a file); `crontab -e`, `-r` and a replaced crontab leave a backup in `~/.cache/crontab` (`-b`: no backup). Different: the pid file is `/var/run/crond.pid`; the PAM service is `crond` (`/etc/pam.d/crond`); `crontab` for other users than root needs an allow or a deny file to exist (the base installs an empty `deny`, so everyone may); login classes (`login.conf`) are no longer applied to jobs; `-j`, `-J`, `-o`, `-s` of the old cron are gone (Cronie's `-s` sends job output to syslog). |
+
 ## ABI note and packages
 
 Every program carries an ELF note naming its ABI vendor. The kernel uses

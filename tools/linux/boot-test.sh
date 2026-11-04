@@ -190,6 +190,14 @@ if [ "$result" -eq 0 ] && [ -n "$ROOTARG" ] && [ "$MODE" != install ] &&
 		sleep 5
 		tries=$((tries + 1))
 	done
+	# cron(8): install the jobs now; cron-check wait (after the
+	# compilers, which take minutes) checks that they ran.
+	printf "sh -c 'sh /root/tests/cron-check start; echo cronstart-\$((6*7)): \$?'\r" >&3
+	tries=0
+	while [ "$tries" -lt 6 ] && ! grep -aq '^cronstart-42:' "$LOG"; do
+		sleep 5
+		tries=$((tries + 1))
+	done
 	# The network (dhcpcd's lease, a TCP connection out through QEMU)
 	# and TLS (LibreSSL through fetch(1)): /root/tests/net-check prints
 	# "net-check:" and "tls-check:" lines and ends with net-42.
@@ -212,6 +220,13 @@ if [ "$result" -eq 0 ] && [ -n "$ROOTARG" ] && [ "$MODE" != install ] &&
 	printf "sh -c 'sh /root/tests/ruby-check; echo ruby-\$((6*7)): \$?'\r" >&3
 	tries=0
 	while [ "$tries" -lt 24 ] && ! grep -aq '^ruby-42:' "$LOG"; do
+		sleep 5
+		tries=$((tries + 1))
+	done
+	# The cron jobs installed above have run ("cron-check:" lines, cron-42).
+	printf "sh -c 'sh /root/tests/cron-check wait; echo cron-\$((6*7)): \$?'\r" >&3
+	tries=0
+	while [ "$tries" -lt 36 ] && ! grep -aq '^cron-42:' "$LOG"; do
 		sleep 5
 		tries=$((tries + 1))
 	done

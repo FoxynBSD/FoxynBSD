@@ -15,7 +15,7 @@
 name="cron"
 rcvar="`set_rcvar`"
 command="/usr/sbin/${name}"
-pidfile="/var/run/${name}.pid"
+pidfile="/var/run/crond.pid"	# Cronie
 
 load_rc_config $name
 run_rc_command "$1"

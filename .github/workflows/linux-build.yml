@@ -276,6 +276,11 @@ jobs:
       - name: Check running daemons
         run: tools/linux/check-boot-log.sh daemons
 
+      # cron(8) (Cronie) runs crontab and /etc/cron.d jobs; users may
+      # have crontabs.
+      - name: Check cron jobs
+        run: tools/linux/check-boot-log.sh cron
+
       - name: Check periodic daily
         run: tools/linux/check-boot-log.sh periodic
 
