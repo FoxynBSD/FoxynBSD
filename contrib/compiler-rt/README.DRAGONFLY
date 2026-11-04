@@ -1,0 +1,21 @@
+COMPILER-RT
+===========
+
+Original source is the compiler-rt directory of the LLVM project:
+https://github.com/llvm/llvm-project
+
+tag    = llvmorg-23.1.5
+commit = 392dfff97d29b59d77e5cac6d4b6ef2585fe7117
+date   = 2 November 2026
+
+Only the x86_64 builtins (the libgcc replacement) and crtbegin/crtend
+are imported.  The file README.DELETED contains a list of deleted files
+and directories.
+
+License: Apache License v2.0 with LLVM Exceptions (LICENSE.TXT).
+
+Built by lib/libcompiler_rt for the Linux host build (tools/linux), where
+the gcc runtime (gnu/lib/gcc120) cannot be built with clang.  The list of
+sources follows lib/builtins/CMakeLists.txt for x86_64.
+
+No local modifications.
