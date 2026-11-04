@@ -77,7 +77,7 @@ To do a fast search for a file, try
 	 locate filename
 
 locate uses a database that is updated every Saturday (assuming your computer
-is running DragonFly BSD at the time) to quickly find files based on name only.
+is running FoxynBSD at the time) to quickly find files based on name only.
 %
 In order to search for a string in some files, use 'grep' like this:
 
@@ -92,7 +92,7 @@ You can use the 'fetch' command to retrieve files over ftp or http.
 
 will download the front page of the DragonFly BSD web site.
 %
-In order to make fetch (the DragonFly BSD downloading tool) ask for
+In order to make fetch (the FoxynBSD downloading tool) ask for
 username/password when it encounter a password-protected web page, you can set
 the environment variable HTTP_AUTH to 'basic:*'.
 %
@@ -122,7 +122,7 @@ You can look through a file in a nice text-based interface by typing
 
 	less filename
 %
-The default editor in DragonFly BSD is vi, which is efficient to use when you
+The default editor in FoxynBSD is vi, which is efficient to use when you
 have learned it, but somewhat user-unfriendly.  To use ee (an easier but less
 powerful editor) instead, set the environment variable EDITOR to /usr/bin/ee
 %
@@ -164,13 +164,13 @@ In other words, to get the intro to general commands, type
 
 	man 1 intro
 %
-DragonFly BSD is started up by the program 'init'.  The first thing init does
+FoxynBSD is started up by the program 'init'.  The first thing init does
 when starting multiuser mode (ie, starting the computer up for normal use) is
 to run the shell script /etc/rc.  By reading /etc/rc, you can learn a lot about
 how the system is put together, which again will make you more confident about
 what happens when you do something with it.
 %
-If you want to play CDs with DragonFly BSD, a utility for this is already
+If you want to play CDs with FoxynBSD, a utility for this is already
 included.  Type 'cdcontrol' then 'help' to learn more.  (You may need to set
 the CDROM environment variable in order to make cdcontrol want to start.)
 %
@@ -182,7 +182,8 @@ without doing this.)
 
 Note: This tip may not work in all configurations.
 %
-You can install extra packages for DragonFly BSD by using the dports system.
+You can install extra packages for FoxynBSD by using DragonFly BSD's dports
+system.
 If you have installed it, you can download, compile, and install software by
 just typing
 
@@ -245,16 +246,18 @@ Ever wonder what those numbers after command names were, as in cat(1)?  It's
 the section of the manual the man page is in.  "man man" will tell you more.
 		-- David Scheidt <dscheidt@tumbolia.com>
 %
-"man hier" explains the layout of DragonFly BSD filesystems.
+"man hier" explains the layout of FoxynBSD filesystems.
 %
-"man tuning" has tips on how to improve DragonFly BSD performance.
+"man tuning" has tips on how to improve FoxynBSD performance.
 %
-"man firewall" has basic instructions for creating a DragonFly BSD firewall.
+"man firewall" has basic instructions for creating a FoxynBSD firewall.
 %
-You can often get answers to your questions about DragonFly BSD by searching
-in the DragonFly BSD mailing list archives at
+FoxynBSD is built on DragonFly BSD, so you can often get answers to your
+questions by searching the DragonFly BSD mailing list archives at
 
 	http://lists.dragonflybsd.org/
+
+FoxynBSD's own discussions are at https://github.com/FoxynBSD/FoxynBSD/discussions
 %
 You can adjust the volume of various parts of the sound system in your
 computer by typing 'mixer <type> <volume>'.  To get a list of what you can
@@ -270,7 +273,7 @@ is dependent on (ie, the packages it needs in order to work.)
 You can make a log of your terminal session with script(1).
 %
 "man security" gives very good advice on how to tune the security of your
-DragonFly BSD system.
+FoxynBSD system.
 %
 Want to see how much virtual memory you're using?  Just type "swapinfo" to
 be shown information about the usage of your swap partitions.
@@ -416,7 +419,7 @@ To repeat the last command in the C shell, type "!!".
 Need to quickly empty a file?  Use "echo > filename".
 		-- Dru <genesis@istar.ca>
 %
-To see all directories on a DragonFly BSD system, type
+To see all directories on a FoxynBSD system, type
 
 	ls -R / | more
 %
@@ -436,7 +439,7 @@ See boot(8), loader(8) for details.
 You can open up a new split-screen window in (n)vi with :N or :E and then
 use ^w to switch between the two.
 %
-sh (the default bourne shell in DragonFly BSD) supports command-line editing.
+sh (the default bourne shell in FoxynBSD) supports command-line editing.
 Just ``set -o emacs'' or ``set -o vi'' to enable it.
 %
 When you've made modifications to a file in vi(1) and then find that
@@ -475,7 +478,7 @@ To get a detailed description of a particular dports package:
 
 	pkg search -f <package>
 %
-Getting the latest dports tree in DragonFly BSD is fairly simple:
+Getting the latest dports tree is fairly simple:
 
 	cd /usr
 	make dports-create
@@ -485,12 +488,12 @@ If you want to update your dports installation issue:
 	cd /usr
 	make dports-update
 %
-To download the DragonFly BSD git repository into /usr/src, issue:
+To download the FoxynBSD git repository into /usr/src, issue:
 
 	cd /usr
 	make src-create
 
-To update the DragonFly BSD git repository in /usr/src, issue:
+To update the FoxynBSD git repository in /usr/src, issue:
 
 	cd /usr
 	make src-update
@@ -521,15 +524,15 @@ To start the daemon type:
 
 	rcstart dntpd
 %
-DragonFly BSD supports variant symlinks.  To get more information about this
+FoxynBSD supports variant symlinks.  To get more information about this
 topic see varsym(1) and varsym(2).  You will have to enable varsyms by
 executing "sysctl vfs.enable_varsym=1", to make it permanent put it in
 /etc/sysctl.conf.  If you would like permanent varsyms, add varsym_enable=YES
 to /etc/rc.conf and put varsym assignments in /etc/varsym.conf.
 %
-"man build" gives very good advice on how to build the DragonFly BSD system.
+"man build" gives very good advice on how to build the FoxynBSD system.
 %
-Use wmake(1) to build any element within the DragonFly BSD source tree using
+Use wmake(1) to build any element within the FoxynBSD source tree using
 a buildworld environment.  The wmake utility will accept all options and
 arguments that make(1) accepts.
 %

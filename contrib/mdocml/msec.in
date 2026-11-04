@@ -22,12 +22,12 @@
  * Be sure to escape strings.
  */
 
-LINE("1",		"DragonFly General Commands Manual")
-LINE("2",		"DragonFly System Calls Manual")
-LINE("3",		"DragonFly Library Functions Manual")
-LINE("4",		"DragonFly Kernel Interfaces Manual")
-LINE("5",		"DragonFly File Formats Manual")
-LINE("6",		"DragonFly Games Manual")
-LINE("7",		"DragonFly Miscellaneous Information Manual")
-LINE("8",		"DragonFly System Manager\'s Manual")
-LINE("9",		"DragonFly Kernel Developer\'s Manual")
+LINE("1",		"FoxynBSD General Commands Manual")
+LINE("2",		"FoxynBSD System Calls Manual")
+LINE("3",		"FoxynBSD Library Functions Manual")
+LINE("4",		"FoxynBSD Kernel Interfaces Manual")
+LINE("5",		"FoxynBSD File Formats Manual")
+LINE("6",		"FoxynBSD Games Manual")
+LINE("7",		"FoxynBSD Miscellaneous Information Manual")
+LINE("8",		"FoxynBSD System Manager\'s Manual")
+LINE("9",		"FoxynBSD Kernel Developer\'s Manual")

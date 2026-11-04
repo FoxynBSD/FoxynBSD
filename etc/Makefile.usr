@@ -2,17 +2,18 @@
 #
 # Provides simple targets to download and maintain /usr/src, /usr/dports etc.
 
-# DragonFly BSD source repository
-GITURL_SRC?=git://git.dragonflybsd.org/dragonfly.git
-# DragonFly BSD projects repository
+# FoxynBSD source repository
+GITURL_SRC?=https://github.com/FoxynBSD/FoxynBSD.git
+# DragonFly BSD projects repository (FoxynBSD has none of its own)
 GITURL_PROJECTS?=git://git.dragonflybsd.org/projects.git
 # Branch to be fetched & checked out
-# * master - latest development branch
-# * DragonFly_RELEASE_x_y - stable release branch x.y
-BRANCH?=master
+# * dev - latest FoxynBSD development branch
+# * master - DragonFly BSD's own sources, as FoxynBSD mirrors them
+BRANCH?=dev
 BRANCH_PROJECTS?=master
 
-# DPorts source repository
+# DPorts source repository.  FoxynBSD runs DragonFly BSD's packages, so
+# dports and the pkg bootstrap below are DragonFly's.
 GITURL_DPORTS?=git://mirror-master.dragonflybsd.org/dports.git
 
 # Mirror from which to fetch the pkg bootstrap

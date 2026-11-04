@@ -15,6 +15,9 @@ when a tool needs it.
 | `/etc/os-release` | `ID=foxynbsd`, `ID_LIKE=dragonfly`, `NAME=FoxynBSD` |
 | `/etc/motd` first line | `FoxynBSD ...`; `rc.d/motd` also still updates a motd that starts with `DragonFly` |
 | Release snapshot names (`vers.txt`) | `FoxynBSD-<machine>-<date>-...` |
+| Manual page headers | `FoxynBSD General Commands Manual`, ... (`contrib/mdocml/msec.in`) |
+| Login tips (`fortune dragonfly-tips`) | tips about the running system say FoxynBSD; the file keeps its name, which `share/skel` dot files use |
+| `/usr/Makefile` (`etc/Makefile.usr`): `make src-create`, `src-update` | clone and update FoxynBSD's repository, branch `dev`; `nrelease` uses the same URL |
 
 ## What still says DragonFly, and why
 
@@ -24,6 +27,9 @@ when a tool needs it.
 | `__DragonFly__`, `__DragonFly_version` | About 1,300 places in the tree and most third-party code test them. FoxynBSD's own `__FoxynBSD__` (`<sys/cdefs.h>`) and `__FoxynBSD_version` (`<sys/param.h>`) are defined next to them; see CONTRIBUTING.md. |
 | `CPE_NAME` in `/etc/os-release` | Vulnerability data is published for the DragonFly code base. |
 | `dsynth` (`OPSYS`, `UNAME_s` for port builds) | DPorts tests for `OPSYS=DragonFly` and dsynth checks the name against the binaries' ELF note, so dsynth maps `FoxynBSD` to `DragonFly`. |
+| DPorts and the `pkg` bootstrap in `/usr/Makefile` (`dports-create`, `pkg-bootstrap`) | FoxynBSD runs DragonFly's packages (see below). |
+| The `.Dx` macro in manual pages ("first appeared in DragonFly 1.0") | It names the DragonFly releases where things appeared: history, not the running system. |
+| Login tips that point to DragonFly's web site, mailing list archives and DPorts | Those resources are DragonFly's and apply to FoxynBSD. |
 | Copyright and license notices | The BSD license requires keeping them. They never change. |
 
 ## ABI note and packages

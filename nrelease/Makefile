@@ -16,7 +16,7 @@ SRCDIR=		${.CURDIR}/..
 DPORTS_PATH?=	/usr/dports
 ISODIR?=	/usr/obj/release
 ISOROOT?=	${ISODIR}/root
-GITURL_SRC?=	git://git.dragonflybsd.org/dragonfly.git
+GITURL_SRC?=	https://github.com/FoxynBSD/FoxynBSD.git
 GITURL_DPORTS?=	git://mirror-master.dragonflybsd.org/dports.git
 NREL_MAKE_JOBS?=	$$(sysctl -n hw.ncpu)
 .if !defined(NOFSCHG)
