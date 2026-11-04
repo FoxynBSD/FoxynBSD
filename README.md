@@ -18,21 +18,23 @@ system can be built from an ordinary Linux machine.
 > [!WARNING]
 > **FoxynBSD is at an early stage.** There is no installable image yet,
 > and the desktop experience is the goal, not something you can use today.
-> What works now is building the kernel, its modules, the EFI boot
-> loader and a minimal userland on Linux, and booting them under QEMU to
-> a login prompt. See [Status](#status) before you plan anything around it.
+> What works now is building the whole system (kernel, modules, EFI
+> boot loader and the complete userland) on Linux and booting it under
+> QEMU to a login prompt. See [Status](#status) before you plan anything
+> around it.
 
 ## Status
 
 | Area | State |
 |------|-------|
-| Kernel (`X86_64_GENERIC`) and all modules | Build on Linux with GCC 16 |
+| Kernel (`X86_64_GENERIC`, `MINI64`, `LINT64`, `VKERNEL64`) and all modules | Build on Linux with gcc (default) or clang |
 | EFI boot loader (`loader.efi`) | Builds on Linux |
-| Boot under QEMU | Boots to a login prompt from a minimal read-only root image; kernel-only boots stop at `mountroot>`. Both checked in CI on every push |
-| Userland (`world`) | On Linux: libc, the runtime linker, init, sh and core utilities build with clang. The rest of the world still needs a DragonFly host |
+| Userland (`world`) | The whole world builds on Linux with clang, compiler runtime included |
+| Boot under QEMU | The full system boots through `rc.d` to a login prompt from a read-only root image; kernel-only boots stop at `mountroot>`. Checked in CI on every push |
+| Linux hosts | Omarchy, Arch Linux, Debian and Ubuntu |
 | Installable image / ISO | Not available yet |
 | Desktop defaults | Planned |
-| FoxynBSD identity (name, `uname`, ABI) | In progress, tracked in issues |
+| FoxynBSD identity | Name, boot menu fox, `os-release`, `__FoxynBSD__`; `uname -s` stays `DragonFly` for compatibility ([docs/compatibility.md](docs/compatibility.md)) |
 
 Plans and progress are tracked in
 [issues](https://github.com/FoxynBSD/FoxynBSD/issues), and ideas are
@@ -43,48 +45,40 @@ discussed in [Discussions](https://github.com/FoxynBSD/FoxynBSD/discussions).
 This path was developed on Omarchy (Arch Linux).
 Other distributions should work if they provide the same tools.
 
-1. Install the host tools:
+1. Install the host tools and check them:
 
    ```sh
-   sudo pacman -S --needed base-devel flex bison libbsd libtirpc qemu-base edk2-ovmf
-   # for the userland and the root image:
-   sudo pacman -S --needed clang lld compiler-rt libisoburn
+   sudo pacman -S --needed base-devel flex bison libbsd libtirpc \
+       clang lld libisoburn ncurses qemu-desktop edk2-ovmf
+   tools/linux/build.sh doctor
    ```
 
-2. Build the kernel and the EFI loader, and assemble a boot tree:
+   On Debian or Ubuntu: `build-essential flex bison libfl-dev libbsd-dev
+   libtirpc-dev pkg-config clang lld xorriso ncurses-bin qemu-system-x86
+   qemu-system-gui ovmf`.
+
+2. Build the whole system:
 
    ```sh
-   tools/linux/build.sh kernel
-   tools/linux/build.sh loader
-   tools/linux/build.sh esp
+   tools/linux/build.sh
    ```
 
-   The kernel takes a few minutes on an 8-core machine. Output goes to
-   `~/.cache/foxynbsd` by default.
+   This builds the kernel, the EFI loader, the whole userland and a root
+   image with it. The first run takes a while (the kernel is about ten
+   minutes on an 8-core machine, the world longer). Output goes to
+   `~/.cache/foxynbsd` (set `OBJDIR` to put it elsewhere).
 
-3. Boot it under QEMU on the serial console:
+3. Boot it:
 
    ```sh
    tools/linux/qemu.sh
    ```
 
-   With no root filesystem attached, a successful kernel-only boot ends
-   at the `mountroot>` prompt. Quit with `Ctrl-A X`.
-
-   To watch the boot in a QEMU window on the video console instead of the
-   terminal, run `tools/linux/qemu.sh --gui`.
-
-4. Build a minimal userland and boot to a login prompt:
-
-   ```sh
-   tools/linux/build.sh rootfs     # headers, libc, rtld, init, sh, login, utilities
-   tools/linux/qemu.sh --root
-   ```
-
-   The first `rootfs` builds everything it needs and takes a while.
-   The boot ends at a `login:` prompt. Log in as `root` with no
-   password to get a `#` prompt on a read-only root, with `ls`, `ps`,
-   `mount`, `sysctl`, `dmesg` and a few more; `halt -p` powers off.
+   A QEMU window opens. Wisdom, the FoxynBSD fox, greets you in the boot
+   menu, and the boot ends at a `login:` prompt: log in as `root` with no
+   password. `halt -p` powers off. `tools/linux/qemu.sh --serial` runs on
+   the terminal instead (quit with `Ctrl-A X`), and `--kernel-only` boots
+   just the kernel, which stops at the `mountroot>` prompt.
 
 Details, extra commands (`modules`, `subdir`, `env`) and the reasons
 behind the compiler wrapper are in [`tools/linux/README.md`](tools/linux/README.md).

@@ -32,9 +32,14 @@
 
 LC_ALL=C; export LC_ALL
 
-# What uname -s and kern.ostype report.  Binaries, packages and ports keep
-# DragonFly's ABI: see docs/compatibility.md.
-OSTYPE="FoxynBSD"
+# What uname -s and kern.ostype report: DragonFly, so that scripts and
+# build systems that recognise the system by name (config.guess, CMake,
+# DPorts) keep working.  Binaries, packages and ports keep DragonFly's
+# ABI too: see docs/compatibility.md.
+OSTYPE="DragonFly"
+# The system's name in the kernel banner, kern.version (uname -v, the
+# first line of /etc/motd) and the snapshot names (vers.txt).
+OSNAME="FoxynBSD"
 
 # Set the branch.
 # Examples: "DEVELOPMENT_6_5", "RELEASE_6_4"
@@ -96,7 +101,7 @@ t=$(date)
 sh ${SRCDIR}/tools/gencopyright.sh ${SRCDIR} > vers.c
 
 cat << EOF >> vers.c
-char version[] = "${OSTYPE} ${VERSION} #${v}: ${t}\\n    ${u}@${h}:${d}\\n";
+char version[] = "${OSNAME} ${VERSION} #${v}: ${t}\\n    ${u}@${h}:${d}\\n";
 char ostype[] = "${OSTYPE}";
 char osrelease[] = "${RELEASE}";
 int osreldate = ${RELDATE};
@@ -112,6 +117,6 @@ else
 fi
 
 stamp=$(date +%Y%m%d)
-echo ${OSTYPE}-${MACHINE}-${stamp}-${SBRANCH}-${GITREV} > vers.txt
+echo ${OSNAME}-${MACHINE}-${stamp}-${SBRANCH}-${GITREV} > vers.txt
 
 echo $((v + 1)) > version

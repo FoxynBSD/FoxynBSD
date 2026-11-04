@@ -10,11 +10,11 @@ when a tool needs it.
 
 | Where | Value |
 |-------|-------|
-| `uname -s`, `sysctl kern.ostype` | `FoxynBSD` (`sys/conf/newvers.sh`) |
-| Kernel banner, `uname -v` | `FoxynBSD 6.5-DEVELOPMENT #...` |
+| Kernel banner, `uname -v`, `sysctl kern.version` | `FoxynBSD 6.5-DEVELOPMENT #...` (`OSNAME` in `sys/conf/newvers.sh`) |
 | `/etc/os-release` | `ID=foxynbsd`, `ID_LIKE=dragonfly`, `NAME=FoxynBSD` |
 | `/etc/motd` first line | `FoxynBSD ...`; `rc.d/motd` also still updates a motd that starts with `DragonFly` |
 | Release snapshot names (`vers.txt`) | `FoxynBSD-<machine>-<date>-...` |
+| Boot menu logo (`loader_logo`) | Wisdom, the FoxynBSD fox (orange), by default; Fred stays one setting away (`loader_logo="fred"`) |
 | Manual page headers | `FoxynBSD General Commands Manual`, ... (`contrib/mdocml/msec.in`) |
 | Login tips (`fortune dragonfly-tips`) | tips about the running system say FoxynBSD; the file keeps its name, which `share/skel` dot files use |
 | `/usr/Makefile` (`etc/Makefile.usr`): `make src-create`, `src-update` | clone and update FoxynBSD's repository, branch `dev`; `nrelease` uses the same URL |
@@ -23,10 +23,12 @@ when a tool needs it.
 
 | Where | Why it stays |
 |-------|--------------|
+| `uname -s`, `sysctl kern.ostype` (`OSTYPE` in `sys/conf/newvers.sh`) | Scripts and build systems recognise the system by this name (autoconf's `config.guess`, CMake's `CMAKE_SYSTEM_NAME`, DPorts' `OPSYS`, hand-written `case $(uname -s)`). They keep working unchanged. `uname -a` reads `DragonFly <host> <release> FoxynBSD <version> ...`. |
+| Fred, DragonFly's mascot, in the boot menu (`loader_logo="fred"`) | Kept next to Wisdom, as DragonFly's mascot. |
 | The ELF note stamped into every base binary (`lib/csu/common/notes.h`) | Packages and `pkg`'s ABI string (`dragonfly:6.x:x86:64`) depend on it. See "ABI note and packages" below. |
 | `__DragonFly__`, `__DragonFly_version` | About 1,300 places in the tree and most third-party code test them. FoxynBSD's own `__FoxynBSD__` (`<sys/cdefs.h>`) and `__FoxynBSD_version` (`<sys/param.h>`) are defined next to them; see CONTRIBUTING.md. |
 | `CPE_NAME` in `/etc/os-release` | Vulnerability data is published for the DragonFly code base. |
-| `dsynth` (`OPSYS`, `UNAME_s` for port builds) | DPorts tests for `OPSYS=DragonFly` and dsynth checks the name against the binaries' ELF note, so dsynth maps `FoxynBSD` to `DragonFly`. |
+| `dsynth` (`OPSYS`, `UNAME_s` for port builds) | DPorts tests for `OPSYS=DragonFly` and dsynth checks the name against the binaries' ELF note. `uname -s` already says `DragonFly`; dsynth still maps `FoxynBSD` to `DragonFly` in case a system reports it. |
 | DPorts and the `pkg` bootstrap in `/usr/Makefile` (`dports-create`, `pkg-bootstrap`) | FoxynBSD runs DragonFly's packages (see below). |
 | The `.Dx` macro in manual pages ("first appeared in DragonFly 1.0") | It names the DragonFly releases where things appeared: history, not the running system. |
 | Login tips that point to DragonFly's web site, mailing list archives and DPorts | Those resources are DragonFly's and apply to FoxynBSD. |
@@ -64,16 +66,15 @@ Every upstream merge that touches these files has to keep both notes.
 
 ## Software that checks `uname -s`
 
-Build scripts that recognise the system by `uname -s` (autoconf's
-`config.guess`, CMake's `CMAKE_SYSTEM_NAME`, hand-written scripts) see
-`FoxynBSD` and may not know it. Until they do, give them the DragonFly
-answer:
+`uname -s` says `DragonFly`, so build scripts that recognise the system
+by name (autoconf's `config.guess`, CMake's `CMAKE_SYSTEM_NAME`,
+hand-written scripts) treat FoxynBSD as DragonFly with no changes. To
+tell FoxynBSD apart, use `uname -v` (it starts with `FoxynBSD`),
+`/etc/os-release` (`ID=foxynbsd`), or the `__FoxynBSD__` macro in C.
 
-- for one command: `UNAME_s=DragonFly ./configure`
-- for the whole system: `varsym -s UNAME_s=DragonFly` (see `uname(1)` and
-  `varsym(1)`; remove it with `varsym -su UNAME_s`)
-
-Port builds through `dsynth` already get `DragonFly`.
+(From issue #3 until this change, `uname -s` said `FoxynBSD`, and scripts
+needed `UNAME_s=DragonFly` to get the old answer. That still works, but
+is no longer needed.)
 
 ### Known places that test for DragonFly by name
 

@@ -11,8 +11,8 @@
 # Checks:
 #	rtld		dynamically linked programs ran (/etc/rc.local's marker)
 #	rcd		lists commands the rc.d scripts did not find (not fatal)
-#	identity	uname -a and /etc/os-release report FoxynBSD (ID_LIKE
-#			dragonfly)
+#	identity	uname -s says DragonFly, uname -v and /etc/os-release
+#			FoxynBSD (ID_LIKE dragonfly)
 #	basics		terminfo, tmpfs /tmp, login classes, devfs rules after
 #			the password database, pwd_mkdb
 #	syslogd		a logger(1) message reached /var/log/messages
@@ -53,8 +53,9 @@ check_rcd() {
 }
 
 check_identity() {
-	grep -aE '^FoxynBSD foxynbsd [^ ]+ FoxynBSD ' "$LOG" ||
-	    fail Identity "uname -a does not report FoxynBSD" || return
+	# uname -s says DragonFly (scripts test it); the version names FoxynBSD.
+	grep -aE '^DragonFly foxynbsd [^ ]+ FoxynBSD ' "$LOG" ||
+	    fail Identity "uname -a is not 'DragonFly foxynbsd <release> FoxynBSD ...'" || return
 	# FoxynBSD by name, DragonFly-compatible for tools that read ID_LIKE.
 	grep -aE '^os-release: FoxynBSD .*\(ID=foxynbsd, ID_LIKE=dragonfly\)' "$LOG" ||
 	    fail Identity "/etc/os-release does not name FoxynBSD like dragonfly"
