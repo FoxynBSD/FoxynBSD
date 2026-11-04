@@ -1,4 +1,4 @@
-/*	$OpenBSD: tls13_quic.c,v 1.6 2022/08/30 18:23:40 tb Exp $ */
+/*	$OpenBSD: tls13_quic.c,v 1.8 2024/09/09 03:55:55 tb Exp $ */
 /*
  * Copyright (c) 2022 Joel Sing <jsing@openbsd.org>
  *
@@ -15,8 +15,7 @@
  * OR IN CONNECTION WITH THE USE OR PERFORMANCE OF THIS SOFTWARE.
  */
 
-#include <ssl_locl.h>
-
+#include "ssl_local.h"
 #include "tls13_internal.h"
 
 static ssize_t
@@ -132,6 +131,8 @@ tls13_quic_alert_send_cb(int alert_desc, void *arg)
 {
 	struct tls13_ctx *ctx = arg;
 	SSL *ssl = ctx->ssl;
+	uint8_t alert_level = TLS13_ALERT_LEVEL_FATAL;
+	int ret = TLS13_IO_ALERT;
 
 	if (!ssl->quic_method->send_alert(ssl, ctx->hs->tls13.quic_write_level,
 	    alert_desc)) {
@@ -139,7 +140,15 @@ tls13_quic_alert_send_cb(int alert_desc, void *arg)
 		return TLS13_IO_FAILURE;
 	}
 
-	return TLS13_IO_SUCCESS;
+	if (alert_desc == TLS13_ALERT_CLOSE_NOTIFY ||
+	    alert_desc == TLS13_ALERT_USER_CANCELED) {
+		alert_level = TLS13_ALERT_LEVEL_WARNING;
+		ret = TLS13_IO_SUCCESS;
+	}
+
+	tls13_record_layer_alert_sent(ctx->rl, alert_level, alert_desc);
+
+	return ret;
 }
 
 static const struct tls13_record_layer_callbacks quic_rl_callbacks = {

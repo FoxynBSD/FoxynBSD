@@ -1,4 +1,4 @@
-/* $OpenBSD: p12_decr.c,v 1.21 2021/12/12 21:30:14 tb Exp $ */
+/* $OpenBSD: p12_decr.c,v 1.28 2026/01/27 14:03:01 tb Exp $ */
 /* Written by Dr Stephen N Henson (steve@openssl.org) for the OpenSSL
  * project 1999.
  */
@@ -59,10 +59,10 @@
 #include <stdio.h>
 #include <string.h>
 
-#include <openssl/err.h>
 #include <openssl/pkcs12.h>
 
-#include "evp_locl.h"
+#include "err_local.h"
+#include "evp_local.h"
 
 /* Encrypt/Decrypt a buffer based on password and algor, result in a
  * malloc'ed buffer
@@ -77,7 +77,7 @@ PKCS12_pbe_crypt(const X509_ALGOR *algor, const char *pass, int passlen,
 	int outlen, i;
 	EVP_CIPHER_CTX ctx;
 
-	EVP_CIPHER_CTX_init(&ctx);
+	EVP_CIPHER_CTX_legacy_clear(&ctx);
 	/* Decrypt data */
 	if (!EVP_PBE_CipherInit(algor->algorithm, pass, passlen,
 	    algor->parameter, &ctx, en_de)) {
@@ -129,6 +129,11 @@ PKCS12_item_decrypt_d2i(const X509_ALGOR *algor, const ASN1_ITEM *it,
 	const unsigned char *p;
 	void *ret;
 	int outlen;
+
+	if (oct == NULL) {
+		PKCS12error(ERR_R_PASSED_NULL_PARAMETER);
+		return NULL;
+	}
 
 	if (!PKCS12_pbe_crypt(algor, pass, passlen, oct->data, oct->length,
 	    &out, &outlen, 0)) {
@@ -182,5 +187,3 @@ err:
 	ASN1_OCTET_STRING_free(oct);
 	return NULL;
 }
-
-IMPLEMENT_PKCS12_STACK_OF(PKCS7)

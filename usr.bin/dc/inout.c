@@ -188,7 +188,7 @@ readnumber(struct source *src, u_int base)
 	BN_ULONG	v;
 
 	n = new_number();
-	bn_check(BN_zero(n->number));
+	BN_zero(n->number);
 
 	while ((ch = (*src->vtable->readchar)(src)) != EOF) {
 

@@ -1,4 +1,4 @@
-/* $OpenBSD: tls_internal.h,v 1.9 2022/07/24 14:28:16 jsing Exp $ */
+/* $OpenBSD: tls_internal.h,v 1.11 2025/12/04 21:03:42 beck Exp $ */
 /*
  * Copyright (c) 2018, 2019, 2021 Joel Sing <jsing@openbsd.org>
  *
@@ -64,6 +64,7 @@ void tls_buffer_free(struct tls_buffer *buf);
 void tls_buffer_set_capacity_limit(struct tls_buffer *buf, size_t limit);
 ssize_t tls_buffer_extend(struct tls_buffer *buf, size_t len,
     tls_read_cb read_cb, void *cb_arg);
+size_t tls_buffer_remaining(struct tls_buffer *buf);
 ssize_t tls_buffer_read(struct tls_buffer *buf, uint8_t *rbuf, size_t n);
 ssize_t tls_buffer_write(struct tls_buffer *buf, const uint8_t *wbuf, size_t n);
 int tls_buffer_append(struct tls_buffer *buf, const uint8_t *wbuf, size_t n);
@@ -84,12 +85,15 @@ int tls_key_share_nid(struct tls_key_share *ks);
 void tls_key_share_set_key_bits(struct tls_key_share *ks, size_t key_bits);
 int tls_key_share_set_dh_params(struct tls_key_share *ks, DH *dh_params);
 int tls_key_share_peer_pkey(struct tls_key_share *ks, EVP_PKEY *pkey);
-int tls_key_share_generate(struct tls_key_share *ks);
+int tls_key_share_client_generate(struct tls_key_share *ks);
+int tls_key_share_server_generate(struct tls_key_share *ks);
 int tls_key_share_params(struct tls_key_share *ks, CBB *cbb);
 int tls_key_share_public(struct tls_key_share *ks, CBB *cbb);
 int tls_key_share_peer_params(struct tls_key_share *ks, CBS *cbs,
     int *decode_error, int *invalid_params);
-int tls_key_share_peer_public(struct tls_key_share *ks, CBS *cbs,
+int tls_key_share_server_peer_public(struct tls_key_share *ks, CBS *cbs,
+    int *decode_error, int *invalid_key);
+int tls_key_share_client_peer_public(struct tls_key_share *ks, CBS *cbs,
     int *decode_error, int *invalid_key);
 int tls_key_share_derive(struct tls_key_share *ks, uint8_t **shared_key,
     size_t *shared_key_len);

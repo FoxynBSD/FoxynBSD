@@ -1,4 +1,4 @@
-/* $OpenBSD: err_all.c,v 1.27 2022/05/07 17:20:41 tb Exp $ */
+/* $OpenBSD: err_all.c,v 1.36 2024/03/29 02:22:18 jsing Exp $ */
 /* Copyright (C) 1995-1998 Eric Young (eay@cryptsoft.com)
  * All rights reserved.
  *
@@ -69,13 +69,12 @@
 #include <openssl/comp.h>
 #include <openssl/conf.h>
 #include <openssl/ct.h>
-#include <openssl/dso.h>
 #include <openssl/err.h>
 #include <openssl/evp.h>
 #include <openssl/kdf.h>
 #include <openssl/objects.h>
 #include <openssl/ocsp.h>
-#include <openssl/pem2.h>
+#include <openssl/pem.h>
 #include <openssl/pkcs12.h>
 #include <openssl/rand.h>
 #include <openssl/ts.h>
@@ -92,20 +91,8 @@
 #ifndef OPENSSL_NO_EC
 #include <openssl/ec.h>
 #endif
-#ifndef OPENSSL_NO_ECDH
-#include <openssl/ecdh.h>
-#endif
-#ifndef OPENSSL_NO_ECDSA
-#include <openssl/ecdsa.h>
-#endif
-#ifndef OPENSSL_NO_ENGINE
-#include <openssl/engine.h>
-#endif
 #ifndef OPENSSL_NO_RSA
 #include <openssl/rsa.h>
-#endif
-#ifndef OPENSSL_NO_GOST
-#include <openssl/gost.h>
 #endif
 
 void ERR_load_ERR_strings_internal(void);
@@ -123,9 +110,6 @@ ERR_load_crypto_strings_internal(void)
 #ifndef OPENSSL_NO_CMS
 	ERR_load_CMS_strings();
 #endif
-#ifdef ZLIB
-	ERR_load_COMP_strings();
-#endif
 	ERR_load_CONF_strings();
 	ERR_load_CRYPTO_strings();
 #ifndef OPENSSL_NO_CT
@@ -137,23 +121,10 @@ ERR_load_crypto_strings_internal(void)
 #ifndef OPENSSL_NO_DSA
 	ERR_load_DSA_strings();
 #endif
-	ERR_load_DSO_strings();
-#ifndef OPENSSL_NO_ECDH
-	ERR_load_ECDH_strings();
-#endif
-#ifndef OPENSSL_NO_ECDSA
-	ERR_load_ECDSA_strings();
-#endif
 #ifndef OPENSSL_NO_EC
 	ERR_load_EC_strings();
 #endif
-#ifndef OPENSSL_NO_ENGINE
-	ERR_load_ENGINE_strings();
-#endif
 	ERR_load_EVP_strings();
-#ifndef OPENSSL_NO_GOST
-	ERR_load_GOST_strings();
-#endif
 	ERR_load_KDF_strings();
 	ERR_load_OBJ_strings();
 	ERR_load_OCSP_strings();
@@ -177,3 +148,4 @@ ERR_load_crypto_strings(void)
 	static pthread_once_t loaded = PTHREAD_ONCE_INIT;
 	(void) pthread_once(&loaded, ERR_load_crypto_strings_internal);
 }
+LCRYPTO_ALIAS(ERR_load_crypto_strings);

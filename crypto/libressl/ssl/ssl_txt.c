@@ -1,4 +1,4 @@
-/* $OpenBSD: ssl_txt.c,v 1.35 2022/06/07 17:55:08 tb Exp $ */
+/* $OpenBSD: ssl_txt.c,v 1.39 2024/07/22 14:47:15 jsing Exp $ */
 /* Copyright (C) 1995-1998 Eric Young (eay@cryptsoft.com)
  * All rights reserved.
  *
@@ -82,12 +82,11 @@
  * OTHERWISE.
  */
 
-#include <inttypes.h>
 #include <stdio.h>
 
 #include <openssl/buffer.h>
 
-#include "ssl_locl.h"
+#include "ssl_local.h"
 
 int
 SSL_SESSION_print_fp(FILE *fp, const SSL_SESSION *x)
@@ -104,10 +103,12 @@ SSL_SESSION_print_fp(FILE *fp, const SSL_SESSION *x)
 	BIO_free(b);
 	return ret;
 }
+LSSL_ALIAS(SSL_SESSION_print_fp);
 
 int
 SSL_SESSION_print(BIO *bp, const SSL_SESSION *x)
 {
+	const SSL_CIPHER *cipher;
 	size_t i;
 	int ret = 0;
 
@@ -121,15 +122,15 @@ SSL_SESSION_print(BIO *bp, const SSL_SESSION *x)
 	    ssl_version_string(x->ssl_version)) <= 0)
 		goto err;
 
-	if (x->cipher == NULL) {
-		if (BIO_printf(bp, "    Cipher    : %04lX\n",
-		    x->cipher_id & SSL3_CK_VALUE_MASK) <= 0)
+	if ((cipher = ssl3_get_cipher_by_value(x->cipher_value)) == NULL) {
+		if (BIO_printf(bp, "    Cipher    : %04X\n",
+		    x->cipher_value) <= 0)
 			goto err;
 	} else {
 		const char *cipher_name = "unknown";
 
-		if (x->cipher->name != NULL)
-			cipher_name = x->cipher->name;
+		if (cipher->name != NULL)
+			cipher_name = cipher->name;
 
 		if (BIO_printf(bp, "    Cipher    : %s\n", cipher_name) <= 0)
 			goto err;
@@ -175,8 +176,8 @@ SSL_SESSION_print(BIO *bp, const SSL_SESSION *x)
 	}
 
 	if (x->time != 0) {
-		if (BIO_printf(bp, "\n    Start Time: %"PRId64,
-		    (int64_t)x->time) <= 0)
+		if (BIO_printf(bp, "\n    Start Time: %lld",
+		    (long long)x->time) <= 0)
 			goto err;
 	}
 
@@ -198,3 +199,4 @@ SSL_SESSION_print(BIO *bp, const SSL_SESSION *x)
  err:
 	return ret;
 }
+LSSL_ALIAS(SSL_SESSION_print);

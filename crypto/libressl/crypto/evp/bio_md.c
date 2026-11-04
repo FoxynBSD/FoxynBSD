@@ -1,4 +1,4 @@
-/* $OpenBSD: bio_md.c,v 1.18 2022/01/14 08:40:57 tb Exp $ */
+/* $OpenBSD: bio_md.c,v 1.22 2024/04/09 13:52:41 beck Exp $ */
 /* Copyright (C) 1995-1998 Eric Young (eay@cryptsoft.com)
  * All rights reserved.
  *
@@ -63,7 +63,7 @@
 #include <openssl/evp.h>
 
 #include "bio_local.h"
-#include "evp_locl.h"
+#include "evp_local.h"
 
 /* BIO_put and BIO_get both add to the digest,
  * BIO_gets returns the digest */
@@ -94,6 +94,7 @@ BIO_f_md(void)
 {
 	return (&methods_md);
 }
+LCRYPTO_ALIAS(BIO_f_md);
 
 static int
 md_new(BIO *bi)

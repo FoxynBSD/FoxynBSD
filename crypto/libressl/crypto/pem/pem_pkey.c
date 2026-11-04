@@ -1,4 +1,4 @@
-/* $OpenBSD: pem_pkey.c,v 1.25 2021/12/24 12:59:18 tb Exp $ */
+/* $OpenBSD: pem_pkey.c,v 1.29 2025/05/10 05:54:38 tb Exp $ */
 /* Copyright (C) 1995-1998 Eric Young (eay@cryptsoft.com)
  * All rights reserved.
  *
@@ -62,19 +62,15 @@
 #include <openssl/opensslconf.h>
 
 #include <openssl/buffer.h>
-#include <openssl/err.h>
 #include <openssl/evp.h>
 #include <openssl/objects.h>
 #include <openssl/pem.h>
 #include <openssl/pkcs12.h>
 #include <openssl/x509.h>
 
-#ifndef OPENSSL_NO_ENGINE
-#include <openssl/engine.h>
-#endif
-
-#include "asn1_locl.h"
-#include "evp_locl.h"
+#include "asn1_local.h"
+#include "err_local.h"
+#include "evp_local.h"
 
 int pem_check_suffix(const char *pem_str, const char *suffix);
 
@@ -147,6 +143,7 @@ err:
 	freezero(data, len);
 	return (ret);
 }
+LCRYPTO_ALIAS(PEM_read_bio_PrivateKey);
 
 int
 PEM_write_bio_PrivateKey(BIO *bp, EVP_PKEY *x, const EVP_CIPHER *enc,
@@ -159,6 +156,7 @@ PEM_write_bio_PrivateKey(BIO *bp, EVP_PKEY *x, const EVP_CIPHER *enc,
 	return PEM_write_bio_PrivateKey_traditional(bp, x, enc, kstr, klen, cb,
 	    u);
 }
+LCRYPTO_ALIAS(PEM_write_bio_PrivateKey);
 
 int
 PEM_write_bio_PrivateKey_traditional(BIO *bp, EVP_PKEY *x,
@@ -172,6 +170,7 @@ PEM_write_bio_PrivateKey_traditional(BIO *bp, EVP_PKEY *x,
 	return PEM_ASN1_write_bio((i2d_of_void *)i2d_PrivateKey,
 	    pem_str, bp, x, enc, kstr, klen, cb, u);
 }
+LCRYPTO_ALIAS(PEM_write_bio_PrivateKey_traditional);
 
 EVP_PKEY *
 PEM_read_bio_Parameters(BIO *bp, EVP_PKEY **x)
@@ -212,6 +211,7 @@ err:
 	free(data);
 	return (ret);
 }
+LCRYPTO_ALIAS(PEM_read_bio_Parameters);
 
 int
 PEM_write_bio_Parameters(BIO *bp, EVP_PKEY *x)
@@ -226,6 +226,7 @@ PEM_write_bio_Parameters(BIO *bp, EVP_PKEY *x)
 	return PEM_ASN1_write_bio((i2d_of_void *)x->ameth->param_encode,
 	    pem_str, bp, x, NULL, NULL, 0, 0, NULL);
 }
+LCRYPTO_ALIAS(PEM_write_bio_Parameters);
 
 EVP_PKEY *
 PEM_read_PrivateKey(FILE *fp, EVP_PKEY **x, pem_password_cb *cb, void *u)
@@ -242,6 +243,7 @@ PEM_read_PrivateKey(FILE *fp, EVP_PKEY **x, pem_password_cb *cb, void *u)
 	BIO_free(b);
 	return (ret);
 }
+LCRYPTO_ALIAS(PEM_read_PrivateKey);
 
 int
 PEM_write_PrivateKey(FILE *fp, EVP_PKEY *x, const EVP_CIPHER *enc,
@@ -258,4 +260,4 @@ PEM_write_PrivateKey(FILE *fp, EVP_PKEY *x, const EVP_CIPHER *enc,
 	BIO_free(b);
 	return ret;
 }
-
+LCRYPTO_ALIAS(PEM_write_PrivateKey);

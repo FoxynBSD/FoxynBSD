@@ -1,4 +1,4 @@
-/*	$OpenBSD: ct_log.c,v 1.5 2021/12/18 16:34:52 tb Exp $ */
+/*	$OpenBSD: ct_log.c,v 1.10 2025/05/10 05:54:38 tb Exp $ */
 /* Author: Adam Eijdenberg <adam.eijdenberg@gmail.com>. */
 /* ====================================================================
  * Copyright (c) 1998-2016 The OpenSSL Project.  All rights reserved.
@@ -58,16 +58,20 @@
  * https://www.openssl.org/source/license.html
  */
 
+#include <stdint.h>
 #include <stdlib.h>
 #include <string.h>
 
+#include <openssl/asn1.h>
 #include <openssl/conf.h>
 #include <openssl/ct.h>
-#include <openssl/err.h>
 #include <openssl/evp.h>
-#include <openssl/safestack.h>
+#include <openssl/sha.h>
+#include <openssl/x509.h>
 
-#include "cryptlib.h"
+#include "conf_local.h"
+#include "crypto_local.h"
+#include "err_local.h"
 
 
 /*
@@ -162,6 +166,7 @@ CTLOG_STORE_new(void)
 	free(ret);
 	return NULL;
 }
+LCRYPTO_ALIAS(CTLOG_STORE_new);
 
 void
 CTLOG_STORE_free(CTLOG_STORE *store)
@@ -171,6 +176,7 @@ CTLOG_STORE_free(CTLOG_STORE *store)
 		free(store);
 	}
 }
+LCRYPTO_ALIAS(CTLOG_STORE_free);
 
 static int
 ctlog_new_from_conf(CTLOG **ct_log, const CONF *conf, const char *section)
@@ -198,6 +204,7 @@ CTLOG_STORE_load_default_file(CTLOG_STORE *store)
 {
 	return CTLOG_STORE_load_file(store, CTLOG_FILE);
 }
+LCRYPTO_ALIAS(CTLOG_STORE_load_default_file);
 
 /*
  * Called by CONF_parse_list, which stops if this returns <= 0,
@@ -283,6 +290,7 @@ CTLOG_STORE_load_file(CTLOG_STORE *store, const char *file)
 	ctlog_store_load_ctx_free(load_ctx);
 	return ret;
 }
+LCRYPTO_ALIAS(CTLOG_STORE_load_file);
 
 /*
  * Initialize a new CTLOG object.
@@ -314,6 +322,7 @@ CTLOG_new(EVP_PKEY *public_key, const char *name)
 	CTLOG_free(ret);
 	return NULL;
 }
+LCRYPTO_ALIAS(CTLOG_new);
 
 /* Frees CT log and associated structures */
 void
@@ -325,12 +334,14 @@ CTLOG_free(CTLOG *log)
 		free(log);
 	}
 }
+LCRYPTO_ALIAS(CTLOG_free);
 
 const char *
 CTLOG_get0_name(const CTLOG *log)
 {
 	return log->name;
 }
+LCRYPTO_ALIAS(CTLOG_get0_name);
 
 void
 CTLOG_get0_log_id(const CTLOG *log, const uint8_t **log_id, size_t *log_id_len)
@@ -338,12 +349,14 @@ CTLOG_get0_log_id(const CTLOG *log, const uint8_t **log_id, size_t *log_id_len)
 	*log_id = log->log_id;
 	*log_id_len = CT_V1_HASHLEN;
 }
+LCRYPTO_ALIAS(CTLOG_get0_log_id);
 
 EVP_PKEY *
 CTLOG_get0_public_key(const CTLOG *log)
 {
 	return log->public_key;
 }
+LCRYPTO_ALIAS(CTLOG_get0_public_key);
 
 /*
  * Given a log ID, finds the matching log.
@@ -363,3 +376,4 @@ CTLOG_STORE_get0_log_by_id(const CTLOG_STORE *store, const uint8_t *log_id,
 
 	return NULL;
 }
+LCRYPTO_ALIAS(CTLOG_STORE_get0_log_by_id);

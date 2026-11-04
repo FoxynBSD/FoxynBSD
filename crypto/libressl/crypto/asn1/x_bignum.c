@@ -1,4 +1,4 @@
-/* $OpenBSD: x_bignum.c,v 1.12 2022/07/30 13:42:25 jsing Exp $ */
+/* $OpenBSD: x_bignum.c,v 1.15 2024/07/08 16:24:22 beck Exp $ */
 /* Written by Dr Stephen N Henson (steve@openssl.org) for the OpenSSL
  * project 2000.
  */
@@ -61,7 +61,7 @@
 #include <openssl/asn1t.h>
 #include <openssl/bn.h>
 
-#include "asn1_locl.h"
+#include "asn1_local.h"
 #include "bytestring.h"
 
 /*
@@ -79,7 +79,7 @@ static int bn_c2i(ASN1_VALUE **pval, const unsigned char *cont, int len,
 static int bn_print(BIO *out, ASN1_VALUE **pval, const ASN1_ITEM *it,
     int indent, const ASN1_PCTX *pctx);
 
-static ASN1_PRIMITIVE_FUNCS bignum_pf = {
+static const ASN1_PRIMITIVE_FUNCS bignum_pf = {
 	.app_data = NULL,
 	.flags = 0,
 	.prim_new = bn_new,
@@ -99,6 +99,7 @@ const ASN1_ITEM BIGNUM_it = {
         .size = 0,
         .sname = "BIGNUM",
 };
+LCRYPTO_ALIAS(BIGNUM_it);
 
 const ASN1_ITEM CBIGNUM_it = {
         .itype = ASN1_ITYPE_PRIMITIVE,
@@ -109,6 +110,7 @@ const ASN1_ITEM CBIGNUM_it = {
         .size = 0,
         .sname = "BIGNUM",
 };
+LCRYPTO_ALIAS(CBIGNUM_it);
 
 static int
 bn_new(ASN1_VALUE **pval, const ASN1_ITEM *it)

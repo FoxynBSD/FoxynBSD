@@ -1,4 +1,4 @@
-/* $OpenBSD: tls_conninfo.c,v 1.22 2021/01/05 15:57:38 tb Exp $ */
+/* $OpenBSD: tls_conninfo.c,v 1.29 2026/03/28 11:33:33 tb Exp $ */
 /*
  * Copyright (c) 2015 Joel Sing <jsing@openbsd.org>
  * Copyright (c) 2015 Bob Beck <beck@openbsd.org>
@@ -17,13 +17,29 @@
  */
 
 #include <stdio.h>
+#include <string.h>
 
+#include <openssl/posix_time.h>
 #include <openssl/x509.h>
 
 #include <tls.h>
 #include "tls_internal.h"
 
-int ASN1_time_tm_clamp_notafter(struct tm *tm);
+static int
+tls_convert_notafter(struct tm *tm, time_t *out_time)
+{
+	int64_t posix_time;
+
+	/* OPENSSL_timegm() fails if tm is not representable in a time_t */
+	if (OPENSSL_timegm(tm, out_time))
+		return 1;
+	if (!OPENSSL_tm_to_posix(tm, &posix_time))
+		return 0;
+	if (posix_time < INT32_MIN)
+		return 0;
+	*out_time = (posix_time > INT32_MAX) ? INT32_MAX : posix_time;
+	return 1;
+}
 
 int
 tls_hex_string(const unsigned char *in, size_t inlen, char **out,
@@ -63,7 +79,7 @@ tls_get_peer_cert_hash(struct tls *ctx, char **hash)
 		return (0);
 
 	if (tls_cert_hash(ctx->ssl_peer_cert, hash) == -1) {
-		tls_set_errorx(ctx, "unable to compute peer certificate hash - out of memory");
+		tls_set_errorx(ctx, TLS_ERROR_OUT_OF_MEMORY, "out of memory");
 		*hash = NULL;
 		return -1;
 	}
@@ -73,7 +89,7 @@ tls_get_peer_cert_hash(struct tls *ctx, char **hash)
 static int
 tls_get_peer_cert_issuer(struct tls *ctx,  char **issuer)
 {
-	X509_NAME *name = NULL;
+	const X509_NAME *name = NULL;
 
 	*issuer = NULL;
 	if (ctx->ssl_peer_cert == NULL)
@@ -89,7 +105,7 @@ tls_get_peer_cert_issuer(struct tls *ctx,  char **issuer)
 static int
 tls_get_peer_cert_subject(struct tls *ctx, char **subject)
 {
-	X509_NAME *name = NULL;
+	const X509_NAME *name = NULL;
 
 	*subject = NULL;
 	if (ctx->ssl_peer_cert == NULL)
@@ -100,6 +116,14 @@ tls_get_peer_cert_subject(struct tls *ctx, char **subject)
 	if (*subject == NULL)
 		return (-1);
 	return (0);
+}
+
+static int
+tls_get_peer_cert_common_name(struct tls *ctx, char **common_name)
+{
+	if (ctx->ssl_peer_cert == NULL)
+		return (-1);
+	return tls_get_common_name(ctx, ctx->ssl_peer_cert, NULL, common_name);
 }
 
 static int
@@ -116,17 +140,14 @@ tls_get_peer_cert_times(struct tls *ctx, time_t *notbefore,
 		goto err;
 	if ((after = X509_get_notAfter(ctx->ssl_peer_cert)) == NULL)
 		goto err;
-	if (ASN1_time_parse(before->data, before->length, &before_tm, 0) == -1)
+	if (!ASN1_TIME_to_tm(before, &before_tm))
 		goto err;
-	if (ASN1_time_parse(after->data, after->length, &after_tm, 0) == -1)
+	if (!ASN1_TIME_to_tm(after, &after_tm))
 		goto err;
-	if (!ASN1_time_tm_clamp_notafter(&after_tm))
+	if (!tls_convert_notafter(&after_tm, notafter))
 		goto err;
-	if ((*notbefore = timegm(&before_tm)) == -1)
+	if (!OPENSSL_timegm(&before_tm, notbefore))
 		goto err;
-	if ((*notafter = timegm(&after_tm)) == -1)
-		goto err;
-
 	return (0);
 
  err:
@@ -144,6 +165,9 @@ tls_get_peer_cert_info(struct tls *ctx)
 	if (tls_get_peer_cert_subject(ctx, &ctx->conninfo->subject) == -1)
 		goto err;
 	if (tls_get_peer_cert_issuer(ctx, &ctx->conninfo->issuer) == -1)
+		goto err;
+	if (tls_get_peer_cert_common_name(ctx,
+	    &ctx->conninfo->common_name) == -1)
 		goto err;
 	if (tls_get_peer_cert_times(ctx, &ctx->conninfo->notbefore,
 	    &ctx->conninfo->notafter) == -1)
@@ -232,7 +256,7 @@ tls_conninfo_populate(struct tls *ctx)
 	tls_conninfo_free(ctx->conninfo);
 
 	if ((ctx->conninfo = calloc(1, sizeof(struct tls_conninfo))) == NULL) {
-		tls_set_errorx(ctx, "out of memory");
+		tls_set_errorx(ctx, TLS_ERROR_OUT_OF_MEMORY, "out of memory");
 		goto err;
 	}
 
@@ -285,6 +309,7 @@ tls_conninfo_free(struct tls_conninfo *conninfo)
 	free(conninfo->servername);
 	free(conninfo->version);
 
+	free(conninfo->common_name);
 	free(conninfo->hash);
 	free(conninfo->issuer);
 	free(conninfo->subject);

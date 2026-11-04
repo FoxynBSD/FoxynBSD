@@ -1,4 +1,4 @@
-/* $OpenBSD: dhparam.c,v 1.14 2022/01/14 09:22:50 tb Exp $ */
+/* $OpenBSD: dhparam.c,v 1.19 2025/01/19 10:24:17 tb Exp $ */
 /* Copyright (C) 1995-1998 Eric Young (eay@cryptsoft.com)
  * All rights reserved.
  *
@@ -131,8 +131,7 @@
 
 #define DEFBITS	2048
 
-struct {
-	int C;
+static struct {
 	int check;
 	int dsaparam;
 	int g;
@@ -142,7 +141,7 @@ struct {
 	char *outfile;
 	int outformat;
 	int text;
-} dhparam_config;
+} cfg;
 
 static const struct option dhparam_options[] = {
 	{
@@ -150,82 +149,76 @@ static const struct option dhparam_options[] = {
 		.desc = "Generate DH parameters with a generator value of 2 "
 		    "(default)",
 		.type = OPTION_VALUE,
-		.opt.value = &dhparam_config.g,
+		.opt.value = &cfg.g,
 		.value = 2,
 	},
 	{
 		.name = "5",
 		.desc = "Generate DH parameters with a generator value of 5",
 		.type = OPTION_VALUE,
-		.opt.value = &dhparam_config.g,
+		.opt.value = &cfg.g,
 		.value = 5,
-	},
-	{
-		.name = "C",
-		.desc = "Convert DH parameters into C code",
-		.type = OPTION_FLAG,
-		.opt.flag = &dhparam_config.C,
 	},
 	{
 		.name = "check",
 		.desc = "Check the DH parameters",
 		.type = OPTION_FLAG,
-		.opt.flag = &dhparam_config.check,
+		.opt.flag = &cfg.check,
 	},
 	{
 		.name = "dsaparam",
 		.desc = "Read or generate DSA parameters and convert to DH",
 		.type = OPTION_FLAG,
-		.opt.flag = &dhparam_config.dsaparam,
+		.opt.flag = &cfg.dsaparam,
 	},
 	{
 		.name = "in",
 		.argname = "file",
 		.desc = "Input file (default stdin)",
 		.type = OPTION_ARG,
-		.opt.arg = &dhparam_config.infile,
+		.opt.arg = &cfg.infile,
 	},
 	{
 		.name = "inform",
 		.argname = "format",
 		.desc = "Input format (DER or PEM (default))",
 		.type = OPTION_ARG_FORMAT,
-		.opt.value = &dhparam_config.informat,
+		.opt.value = &cfg.informat,
 	},
 	{
 		.name = "noout",
 		.desc = "Do not output encoded version of DH parameters",
 		.type = OPTION_FLAG,
-		.opt.flag = &dhparam_config.noout,
+		.opt.flag = &cfg.noout,
 	},
 	{
 		.name = "out",
 		.argname = "file",
 		.desc = "Output file (default stdout)",
 		.type = OPTION_ARG,
-		.opt.arg = &dhparam_config.outfile,
+		.opt.arg = &cfg.outfile,
 	},
 	{
 		.name = "outform",
 		.argname = "format",
 		.desc = "Output format (DER or PEM (default))",
 		.type = OPTION_ARG_FORMAT,
-		.opt.value = &dhparam_config.outformat,
+		.opt.value = &cfg.outformat,
 	},
 	{
 		.name = "text",
 		.desc = "Print DH parameters in plain text",
 		.type = OPTION_FLAG,
-		.opt.flag = &dhparam_config.text,
+		.opt.flag = &cfg.text,
 	},
 	{ NULL },
 };
 
 static void
-dhparam_usage()
+dhparam_usage(void)
 {
 	fprintf(stderr,
-	    "usage: dhparam [-2 | -5] [-C] [-check] [-dsaparam]\n"
+	    "usage: dhparam [-2 | -5] [-check] [-dsaparam]\n"
 	    "    [-in file] [-inform DER | PEM] [-noout] [-out file]\n"
 	    "    [-outform DER | PEM] [-text] [numbits]\n\n");
 	options_usage(dhparam_options);
@@ -244,17 +237,15 @@ dhparam_main(int argc, char **argv)
 	int ret = 1;
 	int i;
 
-	if (single_execution) {
-		if (pledge("stdio cpath wpath rpath", NULL) == -1) {
-			perror("pledge");
-			exit(1);
-		}
+	if (pledge("stdio cpath wpath rpath", NULL) == -1) {
+		perror("pledge");
+		exit(1);
 	}
 
-	memset(&dhparam_config, 0, sizeof(dhparam_config));
+	memset(&cfg, 0, sizeof(cfg));
 
-	dhparam_config.informat = FORMAT_PEM;
-	dhparam_config.outformat = FORMAT_PEM;
+	cfg.informat = FORMAT_PEM;
+	cfg.outformat = FORMAT_PEM;
 
 	if (options_parse(argc, argv, dhparam_options, &num_bits, NULL) != 0) {
 		dhparam_usage();
@@ -269,18 +260,18 @@ dhparam_main(int argc, char **argv)
 		}
 	}
 
-	if (dhparam_config.g && !num)
+	if (cfg.g && !num)
 		num = DEFBITS;
 
-	if (dhparam_config.dsaparam) {
-		if (dhparam_config.g) {
+	if (cfg.dsaparam) {
+		if (cfg.g) {
 			BIO_printf(bio_err, "generator may not be chosen for DSA parameters\n");
 			goto end;
 		}
 	} else {
 		/* DH parameters */
-		if (num && !dhparam_config.g)
-			dhparam_config.g = 2;
+		if (num && !cfg.g)
+			cfg.g = 2;
 	}
 
 	if (num) {
@@ -291,7 +282,7 @@ dhparam_main(int argc, char **argv)
 		}
 
 		BN_GENCB_set(cb, dh_cb, bio_err);
-		if (dhparam_config.dsaparam) {
+		if (cfg.dsaparam) {
 			DSA *dsa = DSA_new();
 
 			BIO_printf(bio_err, "Generating DSA parameters, %d bit long prime\n", num);
@@ -309,9 +300,9 @@ dhparam_main(int argc, char **argv)
 			}
 		} else {
 			dh = DH_new();
-			BIO_printf(bio_err, "Generating DH parameters, %d bit long safe prime, generator %d\n", num, dhparam_config.g);
+			BIO_printf(bio_err, "Generating DH parameters, %d bit long safe prime, generator %d\n", num, cfg.g);
 			BIO_printf(bio_err, "This is going to take a long time\n");
-			if (!dh || !DH_generate_parameters_ex(dh, num, dhparam_config.g, cb)) {
+			if (!dh || !DH_generate_parameters_ex(dh, num, cfg.g, cb)) {
 				ERR_print_errors(bio_err);
 				goto end;
 			}
@@ -323,24 +314,24 @@ dhparam_main(int argc, char **argv)
 			ERR_print_errors(bio_err);
 			goto end;
 		}
-		if (dhparam_config.infile == NULL)
+		if (cfg.infile == NULL)
 			BIO_set_fp(in, stdin, BIO_NOCLOSE);
 		else {
-			if (BIO_read_filename(in, dhparam_config.infile) <= 0) {
-				perror(dhparam_config.infile);
+			if (BIO_read_filename(in, cfg.infile) <= 0) {
+				perror(cfg.infile);
 				goto end;
 			}
 		}
 
-		if (dhparam_config.informat != FORMAT_ASN1 &&
-		    dhparam_config.informat != FORMAT_PEM) {
+		if (cfg.informat != FORMAT_ASN1 &&
+		    cfg.informat != FORMAT_PEM) {
 			BIO_printf(bio_err, "bad input format specified\n");
 			goto end;
 		}
-		if (dhparam_config.dsaparam) {
+		if (cfg.dsaparam) {
 			DSA *dsa;
 
-			if (dhparam_config.informat == FORMAT_ASN1)
+			if (cfg.informat == FORMAT_ASN1)
 				dsa = d2i_DSAparams_bio(in, NULL);
 			else	/* informat == FORMAT_PEM */
 				dsa = PEM_read_bio_DSAparams(in, NULL, NULL, NULL);
@@ -358,7 +349,7 @@ dhparam_main(int argc, char **argv)
 			}
 		} else
 		{
-			if (dhparam_config.informat == FORMAT_ASN1)
+			if (cfg.informat == FORMAT_ASN1)
 				dh = d2i_DHparams_bio(in, NULL);
 			else	/* informat == FORMAT_PEM */
 				dh = PEM_read_bio_DHparams(in, NULL, NULL, NULL);
@@ -378,20 +369,20 @@ dhparam_main(int argc, char **argv)
 		ERR_print_errors(bio_err);
 		goto end;
 	}
-	if (dhparam_config.outfile == NULL) {
+	if (cfg.outfile == NULL) {
 		BIO_set_fp(out, stdout, BIO_NOCLOSE);
 	} else {
-		if (BIO_write_filename(out, dhparam_config.outfile) <= 0) {
-			perror(dhparam_config.outfile);
+		if (BIO_write_filename(out, cfg.outfile) <= 0) {
+			perror(cfg.outfile);
 			goto end;
 		}
 	}
 
 
-	if (dhparam_config.text) {
+	if (cfg.text) {
 		DHparams_print(out, dh);
 	}
-	if (dhparam_config.check) {
+	if (cfg.check) {
 		if (!DH_check(dh, &i)) {
 			ERR_print_errors(bio_err);
 			goto end;
@@ -407,59 +398,10 @@ dhparam_main(int argc, char **argv)
 		if (i == 0)
 			printf("DH parameters appear to be ok.\n");
 	}
-	if (dhparam_config.C) {
-		unsigned char *data;
-		int len, l, bits;
-
-		len = BN_num_bytes(DH_get0_p(dh));
-		bits = BN_num_bits(DH_get0_p(dh));
-		data = malloc(len);
-		if (data == NULL) {
-			perror("malloc");
-			goto end;
-		}
-		printf("#ifndef HEADER_DH_H\n"
-		    "#include <openssl/dh.h>\n"
-		    "#endif\n");
-		printf("DH *get_dh%d()\n\t{\n", bits);
-
-		l = BN_bn2bin(DH_get0_p(dh), data);
-		printf("\tstatic unsigned char dh%d_p[] = {", bits);
-		for (i = 0; i < l; i++) {
-			if ((i % 12) == 0)
-				printf("\n\t\t");
-			printf("0x%02X, ", data[i]);
-		}
-		printf("\n\t\t};\n");
-
-		l = BN_bn2bin(DH_get0_g(dh), data);
-		printf("\tstatic unsigned char dh%d_g[] = {", bits);
-		for (i = 0; i < l; i++) {
-			if ((i % 12) == 0)
-				printf("\n\t\t");
-			printf("0x%02X, ", data[i]);
-		}
-		printf("\n\t\t};\n");
-
-		printf("\tDH *dh;\n");
-		printf("\tBIGNUM *p = NULL, *g = NULL;\n\n");
-		printf("\tif ((dh = DH_new()) == NULL) return(NULL);\n");
-		printf("\tp = BN_bin2bn(dh%d_p, sizeof(dh%d_p), NULL);\n",
-		    bits, bits);
-		printf("\tg = BN_bin2bn(dh%d_g, sizeof(dh%d_g), NULL);\n",
-		    bits, bits);
-		printf("\tif (p == NULL || g == NULL)\n");
-		printf("\t\t{ BN_free(p); BN_free(g); DH_free(dh); return(NULL); }\n");
-		printf("\tDH_set0_pqg(dh, p, NULL, g);\n");
-		if (DH_get_length(dh) > 0)
-			printf("\tDH_set_length(dh, %ld);\n", DH_get_length(dh));
-		printf("\treturn(dh);\n\t}\n");
-		free(data);
-	}
-	if (!dhparam_config.noout) {
-		if (dhparam_config.outformat == FORMAT_ASN1)
+	if (!cfg.noout) {
+		if (cfg.outformat == FORMAT_ASN1)
 			i = i2d_DHparams_bio(out, dh);
-		else if (dhparam_config.outformat == FORMAT_PEM)
+		else if (cfg.outformat == FORMAT_PEM)
 			i = PEM_write_bio_DHparams(out, dh);
 		else {
 			BIO_printf(bio_err, "bad output format specified for outfile\n");

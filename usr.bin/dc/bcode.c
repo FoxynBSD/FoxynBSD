@@ -388,7 +388,7 @@ split_number(const struct number *n, BIGNUM *i, BIGNUM *f)
 	bn_checkp(BN_copy(i, n->number));
 
 	if (n->scale == 0 && f != NULL)
-		bn_check(BN_zero(f));
+		BN_zero(f);
 	else if (n->scale < sizeof(factors)/sizeof(factors[0])) {
 		rem = BN_div_word(i, factors[n->scale]);
 		if (f != NULL)
@@ -577,7 +577,7 @@ set_scale(void)
 			warnx("scale must be a nonnegative number");
 		else {
 			scale = get_ulong(n);
-			if (scale != BN_MASK2 && scale <= UINT_MAX)
+			if (scale != ULONG_MAX && scale <= UINT_MAX)
 				bmachine.scale = (u_int)scale;
 			else
 				warnx("scale too large");
@@ -605,7 +605,7 @@ set_obase(void)
 	n = pop_number();
 	if (n != NULL) {
 		base = get_ulong(n);
-		if (base != BN_MASK2 && base > 1 && base <= UINT_MAX)
+		if (base != ULONG_MAX && base > 1 && base <= UINT_MAX)
 			bmachine.obase = (u_int)base;
 		else
 			warnx("output base must be a number greater than 1");
@@ -632,7 +632,7 @@ set_ibase(void)
 	n = pop_number();
 	if (n != NULL) {
 		base = get_ulong(n);
-		if (base != BN_MASK2 && 2 <= base && base <= 16)
+		if (base != ULONG_MAX && 2 <= base && base <= 16)
 			bmachine.ibase = (u_int)base;
 		else
 			warnx("input base must be a number between 2 and 16 "
@@ -794,7 +794,7 @@ load(void)
 		v = stack_tos(&bmachine.reg[index]);
 		if (v == NULL) {
 			n = new_number();
-			bn_check(BN_zero(n->number));
+			BN_zero(n->number);
 			push_number(n);
 		} else
 			push(stack_dup_value(v, &copy));
@@ -871,14 +871,14 @@ load_array(void)
 		index = get_ulong(inumber);
 		if (BN_is_negative(inumber->number))
 			warnx("negative index");
-		else if (index == BN_MASK2 || index > MAX_ARRAY_INDEX)
+		else if (index == ULONG_MAX || index > MAX_ARRAY_INDEX)
 			warnx("index too big");
 		else {
 			stack = &bmachine.reg[reg];
 			v = frame_retrieve(stack, index);
 			if (v == NULL || v->type == BCODE_NONE ) {
 				n = new_number();
-				bn_check(BN_zero(n->number));
+				BN_zero(n->number);
 				push_number(n);
 			}
 			else
@@ -911,7 +911,7 @@ store_array(void)
 		if (BN_is_negative(inumber->number)) {
 			warnx("negative index");
 			stack_free_value(value);
-		} else if (index == BN_MASK2 || index > MAX_ARRAY_INDEX) {
+		} else if (index == ULONG_MAX || index > MAX_ARRAY_INDEX) {
 			warnx("index too big");
 			stack_free_value(value);
 		} else {
@@ -1205,7 +1205,7 @@ bexp(void)
 		b = BN_get_word(p->number);
 		m = max(a->scale, bmachine.scale);
 		rscale = a->scale * (u_int)b;
-		if (rscale > m || (a->scale > 0 && (b == BN_MASK2 ||
+		if (rscale > m || (a->scale > 0 && (b == ULONG_MAX ||
 		    b > UINT_MAX)))
 			rscale = m;
 	}
@@ -1572,7 +1572,7 @@ quitN(void)
 		return;
 	i = get_ulong(n);
 	free_number(n);
-	if (i == BN_MASK2 || i == 0)
+	if (i == ULONG_MAX || i == 0)
 		warnx("Q command requires a number >= 1");
 	else if (bmachine.readsp < i)
 		warnx("Q command argument exceeded string execution depth");
@@ -1594,7 +1594,7 @@ skipN(void)
 	if (n == NULL)
 		return;
 	i = get_ulong(n);
-	if (i == BN_MASK2)
+	if (i == ULONG_MAX)
 		warnx("J command requires a number >= 0");
 	else if (i > 0 && bmachine.readsp < i)
 		warnx("J command argument exceeded string execution depth");

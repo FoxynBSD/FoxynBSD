@@ -1,4 +1,4 @@
-/* $OpenBSD: bn_kron.c,v 1.10 2022/07/12 16:08:19 tb Exp $ */
+/* $OpenBSD: bn_kron.c,v 1.15 2023/07/08 12:21:58 beck Exp $ */
 /* ====================================================================
  * Copyright (c) 1998-2000 The OpenSSL Project.  All rights reserved.
  *
@@ -53,7 +53,7 @@
  *
  */
 
-#include "bn_lcl.h"
+#include "bn_local.h"
 
 /*
  * Kronecker symbol, implemented according to Henri Cohen, "A Course in
@@ -71,9 +71,6 @@ BN_kronecker(const BIGNUM *A, const BIGNUM *B, BN_CTX *ctx)
 	int k, v;
 	int ret = -2;
 
-	bn_check_top(A);
-	bn_check_top(B);
-
 	BN_CTX_start(ctx);
 
 	if ((a = BN_CTX_get(ctx)) == NULL)
@@ -81,9 +78,9 @@ BN_kronecker(const BIGNUM *A, const BIGNUM *B, BN_CTX *ctx)
 	if ((b = BN_CTX_get(ctx)) == NULL)
 		goto end;
 
-	if (BN_copy(a, A) == NULL)
+	if (!bn_copy(a, A))
 		goto end;
-	if (BN_copy(b, B) == NULL)
+	if (!bn_copy(b, B))
 		goto end;
 
 	/*
@@ -195,3 +192,4 @@ BN_kronecker(const BIGNUM *A, const BIGNUM *B, BN_CTX *ctx)
 
 	return ret;
 }
+LCRYPTO_ALIAS(BN_kronecker);

@@ -1,4 +1,4 @@
-/* $OpenBSD: a_object.c,v 1.48 2022/05/13 16:32:10 tb Exp $ */
+/* $OpenBSD: a_object.c,v 1.56 2025/05/10 05:54:38 tb Exp $ */
 /* Copyright (C) 1995-1998 Eric Young (eay@cryptsoft.com)
  * All rights reserved.
  *
@@ -62,17 +62,18 @@
 
 #include <openssl/asn1.h>
 #include <openssl/asn1t.h>
-#include <openssl/err.h>
 #include <openssl/buffer.h>
 #include <openssl/objects.h>
 
-#include "asn1_locl.h"
+#include "asn1_local.h"
+#include "err_local.h"
 
 const ASN1_ITEM ASN1_OBJECT_it = {
 	.itype = ASN1_ITYPE_PRIMITIVE,
 	.utype = V_ASN1_OBJECT,
 	.sname = "ASN1_OBJECT",
 };
+LCRYPTO_ALIAS(ASN1_OBJECT_it);
 
 ASN1_OBJECT *
 ASN1_OBJECT_new(void)
@@ -87,6 +88,7 @@ ASN1_OBJECT_new(void)
 
 	return a;
 }
+LCRYPTO_ALIAS(ASN1_OBJECT_new);
 
 void
 ASN1_OBJECT_free(ASN1_OBJECT *a)
@@ -106,6 +108,7 @@ ASN1_OBJECT_free(ASN1_OBJECT *a)
 	if (a->flags & ASN1_OBJECT_FLAG_DYNAMIC)
 		free(a);
 }
+LCRYPTO_ALIAS(ASN1_OBJECT_free);
 
 ASN1_OBJECT *
 ASN1_OBJECT_create(int nid, unsigned char *data, int len,
@@ -122,6 +125,7 @@ ASN1_OBJECT_create(int nid, unsigned char *data, int len,
 	    ASN1_OBJECT_FLAG_DYNAMIC_DATA;
 	return (OBJ_dup(&o));
 }
+LCRYPTO_ALIAS(ASN1_OBJECT_create);
 
 static int
 oid_add_arc(CBB *cbb, uint64_t arc)
@@ -367,6 +371,7 @@ a2d_ASN1_OBJECT(unsigned char *out, int out_len, const char *in, int in_len)
 
 	return ret;
 }
+LCRYPTO_ALIAS(a2d_ASN1_OBJECT);
 
 static int
 i2t_ASN1_OBJECT_oid(const ASN1_OBJECT *aobj, CBB *cbb)
@@ -433,6 +438,9 @@ i2t_ASN1_OBJECT_internal(const ASN1_OBJECT *aobj, char *buf, int buf_len, int no
 	if (buf_len > 0)
 		buf[0] = '\0';
 
+	if (aobj == NULL || aobj->data == NULL)
+		return 0;
+
 	if (!CBB_init(&cbb, 0))
 		goto err;
 	if (!i2t_ASN1_OBJECT_cbb(aobj, &cbb, no_name))
@@ -453,6 +461,7 @@ i2t_ASN1_OBJECT(char *buf, int buf_len, const ASN1_OBJECT *aobj)
 {
 	return i2t_ASN1_OBJECT_internal(aobj, buf, buf_len, 0);
 }
+LCRYPTO_ALIAS(i2t_ASN1_OBJECT);
 
 ASN1_OBJECT *
 t2i_ASN1_OBJECT_internal(const char *oid)
@@ -520,6 +529,7 @@ i2a_ASN1_OBJECT(BIO *bp, const ASN1_OBJECT *aobj)
 
 	return ret;
 }
+LCRYPTO_ALIAS(i2a_ASN1_OBJECT);
 
 int
 c2i_ASN1_OBJECT_cbs(ASN1_OBJECT **out_aobj, CBS *content)
@@ -606,24 +616,36 @@ c2i_ASN1_OBJECT(ASN1_OBJECT **out_aobj, const unsigned char **pp, long len)
 int
 i2d_ASN1_OBJECT(const ASN1_OBJECT *a, unsigned char **pp)
 {
-	unsigned char *p;
+	unsigned char *buf, *p;
 	int objsize;
 
-	if ((a == NULL) || (a->data == NULL))
-		return (0);
+	if (a == NULL || a->data == NULL)
+		return -1;
 
 	objsize = ASN1_object_size(0, a->length, V_ASN1_OBJECT);
+
 	if (pp == NULL)
 		return objsize;
 
-	p = *pp;
+	if ((buf = *pp) == NULL)
+		buf = calloc(1, objsize);
+	if (buf == NULL)
+		return -1;
+
+	p = buf;
 	ASN1_put_object(&p, 0, a->length, V_ASN1_OBJECT, V_ASN1_UNIVERSAL);
 	memcpy(p, a->data, a->length);
 	p += a->length;
 
+	/* If buf was allocated, return it, otherwise return the advanced p. */
+	if (*pp == NULL)
+		p = buf;
+
 	*pp = p;
-	return (objsize);
+
+	return objsize;
 }
+LCRYPTO_ALIAS(i2d_ASN1_OBJECT);
 
 ASN1_OBJECT *
 d2i_ASN1_OBJECT(ASN1_OBJECT **out_aobj, const unsigned char **pp, long length)
@@ -663,3 +685,4 @@ d2i_ASN1_OBJECT(ASN1_OBJECT **out_aobj, const unsigned char **pp, long length)
 
 	return aobj;
 }
+LCRYPTO_ALIAS(d2i_ASN1_OBJECT);

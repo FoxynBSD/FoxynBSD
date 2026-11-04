@@ -4,23 +4,45 @@ LIBRESSL
 Original source can be downloaded from:
 https://ftp.openbsd.org/pub/OpenBSD/LibreSSL/
 
-file = libressl-3.6.1.tar.gz
-date = 25 October 2022
-size = 4240343
-sha1 = 60ac9dc4abe32d139b4ca461f3c80e1b4d0ed938
+file   = libressl-4.3.4.tar.gz
+size   = 9311161
+sha256 = 57c8b2f8c6f9505587abaeddab003ea243d615edb7ed71957968121fc6316bd6
 
-The file README.DELETED contains a list of deleted files and directories.
-
-Use "git diff vendor/LIBRESSL crypto/libressl" to see local modifications.
+The file README.DELETED contains a list of deleted files and directories:
+the autotools and CMake build files, the tests, the compat sources the
+system does not need (all but crypto/compat/syslog_r.c) and the files for
+Windows, MinGW and macOS.
 
 These sources are used in:
-	lib/librecrypto
-	lib/libressl
+	lib/librecrypto		libprivate_crypto.so.57
+	lib/libressl		libprivate_ssl.so.60
 	usr.bin/openssl
-	usr.bin/nc
+	usr.bin/nc		(with the libtls sources built in)
 
-Configured with:
+Local modifications (git log crypto/libressl shows them):
+	crypto/chacha/chacha-merged.c		__bounded__ for compilers other
+						than OpenBSD's
+	include/openssl/md5.h			no <stddef.h> or opensslconf.h
+						under _KERNEL
+	include/openssl/opensslfeatures.h	OPENSSL_NO_HW_PADLOCK
 
-  --enable-nc ac_cv_header_dlfcn_h=no ac_cv_lib_dl_dlopen=no
+The portable LibreSSL's include/compat headers are kept and used: they
+provide pledge, unveil, syslog_r, timespecsub and the like, according to
+the HAVE_* settings in lib/librecrypto/Makefile.inc.
 
-NOTE: The configure script misdetects HOST_ABI=elf and disables ASM versions.
+The source lists in lib/librecrypto/Makefile, lib/libressl/Makefile,
+usr.bin/openssl/Makefile and usr.bin/nc/Makefile, and the HAVE_* and
+assembly settings, are what LibreSSL's own configure produces for an
+x86_64 DragonFly target (the libc's functions; the x86_64 ELF assembly).
+To regenerate them on a Linux host with tools/linux/build.sh tools done:
+
+	PATH=$OBJDIR/host/bin:$PATH ./configure \
+	    --host=x86_64-unknown-freebsd14 --build=x86_64-pc-linux-gnu \
+	    CC=xcc --enable-nc ac_cv_header_dlfcn_h=no ac_cv_lib_dl_dlopen=no
+
+(DragonFly is not in LibreSSL's list of hosts; freebsd gives the ELF
+x86_64 assembly.)  Then print libcrypto_la_SOURCES, libcompat_la_SOURCES
+and the CPPFLAGS from crypto/Makefile, libssl_la_SOURCES and
+libbs_la_SOURCES from ssl/Makefile, libtls_la_SOURCES from tls/Makefile,
+openssl_SOURCES and nc_SOURCES from apps/*/Makefile, and DEFS.  The
+compat arc4random sources it lists are left out: libc has arc4random.

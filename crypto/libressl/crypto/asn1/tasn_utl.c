@@ -1,4 +1,4 @@
-/* $OpenBSD: tasn_utl.c,v 1.17 2022/05/12 19:55:58 jsing Exp $ */
+/* $OpenBSD: tasn_utl.c,v 1.19 2025/05/10 05:54:38 tb Exp $ */
 /* Written by Dr Stephen N Henson (steve@openssl.org) for the OpenSSL
  * project 2000.
  */
@@ -63,9 +63,9 @@
 #include <openssl/asn1.h>
 #include <openssl/asn1t.h>
 #include <openssl/objects.h>
-#include <openssl/err.h>
 
 #include "bytestring.h"
+#include "err_local.h"
 
 /* Utility functions for manipulating fields and offsets */
 
@@ -100,7 +100,7 @@ asn1_set_choice_selector(ASN1_VALUE **pval, int value, const ASN1_ITEM *it)
 /* Do reference counting. The value 'op' decides what to do.
  * if it is +1 then the count is incremented. If op is 0 count is
  * set to 1. If op is -1 count is decremented and the return value
- * is the current refrence count or 0 if no reference count exists.
+ * is the current reference count or 0 if no reference count exists.
  */
 
 int

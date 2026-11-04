@@ -1,4 +1,4 @@
-/* $OpenBSD: err_prn.c,v 1.19 2022/01/07 09:02:18 tb Exp $ */
+/* $OpenBSD: err_prn.c,v 1.24 2024/11/02 08:54:40 tb Exp $ */
 /* Copyright (C) 1995-1998 Eric Young (eay@cryptsoft.com)
  * All rights reserved.
  *
@@ -56,6 +56,8 @@
  * [including the GNU Public Licence.]
  */
 
+#include <limits.h>
+#include <pthread.h>
 #include <stdio.h>
 #include <string.h>
 
@@ -75,10 +77,8 @@ ERR_print_errors_cb(int (*cb)(const char *str, size_t len, void *u), void *u)
 	const char *file, *data;
 	int line, flags;
 	unsigned long es;
-	CRYPTO_THREADID cur;
 
-	CRYPTO_THREADID_current(&cur);
-	es = CRYPTO_THREADID_hash(&cur);
+	es = (unsigned long)pthread_self();
 	while ((l = ERR_get_error_line_data(&file, &line, &data,
 	    &flags)) != 0) {
 		ERR_error_string_n(l, buf, sizeof buf);
@@ -88,16 +88,14 @@ ERR_print_errors_cb(int (*cb)(const char *str, size_t len, void *u), void *u)
 			break; /* abort outputting the error report */
 	}
 }
+LCRYPTO_ALIAS(ERR_print_errors_cb);
 
 static int
 print_fp(const char *str, size_t len, void *fp)
 {
-	BIO bio;
-
-	BIO_set(&bio, BIO_s_file());
-	BIO_set_fp(&bio, fp, BIO_NOCLOSE);
-
-	return BIO_printf(&bio, "%s", str);
+	if (len > INT_MAX)
+		return -1;
+	return fprintf(fp, "%.*s", (int)len, str);
 }
 
 void
@@ -105,11 +103,12 @@ ERR_print_errors_fp(FILE *fp)
 {
 	ERR_print_errors_cb(print_fp, fp);
 }
+LCRYPTO_ALIAS(ERR_print_errors_fp);
 
 static int
 print_bio(const char *str, size_t len, void *bp)
 {
-	return BIO_write((BIO *)bp, str, len);
+	return BIO_write(bp, str, len);
 }
 
 void
@@ -117,3 +116,4 @@ ERR_print_errors(BIO *bp)
 {
 	ERR_print_errors_cb(print_bio, bp);
 }
+LCRYPTO_ALIAS(ERR_print_errors);

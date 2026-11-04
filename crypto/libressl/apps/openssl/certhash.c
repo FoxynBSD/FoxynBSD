@@ -1,4 +1,4 @@
-/*	$OpenBSD: certhash.c,v 1.19 2021/10/23 08:13:48 tb Exp $ */
+/*	$OpenBSD: certhash.c,v 1.22 2025/07/27 14:46:20 joshua Exp $ */
 /*
  * Copyright (c) 2014, 2015 Joel Sing <jsing@openbsd.org>
  *
@@ -36,20 +36,20 @@
 static struct {
 	int dryrun;
 	int verbose;
-} certhash_config;
+} cfg;
 
 static const struct option certhash_options[] = {
 	{
 		.name = "n",
 		.desc = "Perform a dry-run - do not make any changes",
 		.type = OPTION_FLAG,
-		.opt.flag = &certhash_config.dryrun,
+		.opt.flag = &cfg.dryrun,
 	},
 	{
 		.name = "v",
 		.desc = "Verbose",
 		.type = OPTION_FLAG,
-		.opt.flag = &certhash_config.verbose,
+		.opt.flag = &cfg.verbose,
 	},
 	{ NULL },
 };
@@ -297,11 +297,10 @@ hashinfo_from_linkname(const char *linkname, const char *target)
 }
 
 static struct hashinfo *
-certhash_cert(BIO *bio, const char *filename)
+certhash_cert(BIO *bio, const char *filename, const EVP_MD *digest)
 {
 	unsigned char fingerprint[EVP_MAX_MD_SIZE];
 	struct hashinfo *hi = NULL;
-	const EVP_MD *digest;
 	X509 *cert = NULL;
 	unsigned long hash;
 	unsigned int len;
@@ -311,7 +310,6 @@ certhash_cert(BIO *bio, const char *filename)
 
 	hash = X509_subject_name_hash(cert);
 
-	digest = EVP_sha256();
 	if (X509_digest(cert, digest, fingerprint, &len) != 1) {
 		fprintf(stderr, "out of memory\n");
 		goto err;
@@ -326,11 +324,10 @@ certhash_cert(BIO *bio, const char *filename)
 }
 
 static struct hashinfo *
-certhash_crl(BIO *bio, const char *filename)
+certhash_crl(BIO *bio, const char *filename, const EVP_MD *digest)
 {
 	unsigned char fingerprint[EVP_MAX_MD_SIZE];
 	struct hashinfo *hi = NULL;
-	const EVP_MD *digest;
 	X509_CRL *crl = NULL;
 	unsigned long hash;
 	unsigned int len;
@@ -340,7 +337,6 @@ certhash_crl(BIO *bio, const char *filename)
 
 	hash = X509_NAME_hash(X509_CRL_get_issuer(crl));
 
-	digest = EVP_sha256();
 	if (X509_CRL_digest(crl, digest, fingerprint, &len) != 1) {
 		fprintf(stderr, "out of memory\n");
 		goto err;
@@ -509,7 +505,7 @@ certhash_link(struct dirent *dep, struct hashinfo **links)
 
 static int
 certhash_file(struct dirent *dep, struct hashinfo **certs,
-    struct hashinfo **crls)
+    struct hashinfo **crls, const EVP_MD *digest)
 {
 	struct hashinfo *hi = NULL;
 	int has_cert, has_crl;
@@ -529,7 +525,7 @@ certhash_file(struct dirent *dep, struct hashinfo **certs,
 		goto err;
 	}
 
-	if ((hi = certhash_cert(bio, dep->d_name)) != NULL) {
+	if ((hi = certhash_cert(bio, dep->d_name, digest)) != NULL) {
 		has_cert = 1;
 		*certs = hashinfo_chain(*certs, hi);
 	}
@@ -539,7 +535,7 @@ certhash_file(struct dirent *dep, struct hashinfo **certs,
 		goto err;
 	}
 
-	if ((hi = certhash_crl(bio, dep->d_name)) != NULL) {
+	if ((hi = certhash_crl(bio, dep->d_name, digest)) != NULL) {
 		has_crl = hi->is_crl = 1;
 		*crls = hashinfo_chain(*crls, hi);
 	}
@@ -557,7 +553,7 @@ certhash_file(struct dirent *dep, struct hashinfo **certs,
 }
 
 static int
-certhash_directory(const char *path)
+certhash_directory(const char *path, const EVP_MD *digest)
 {
 	struct hashinfo *links = NULL, *certs = NULL, *crls = NULL, *link;
 	int ret = 0;
@@ -569,7 +565,7 @@ certhash_directory(const char *path)
 		goto err;
 	}
 
-	if (certhash_config.verbose)
+	if (cfg.verbose)
 		fprintf(stdout, "scanning directory %s\n", path);
 
 	/* Create lists of existing hash links, certs and CRLs. */
@@ -579,7 +575,7 @@ certhash_directory(const char *path)
 				goto err;
 		}
 		if (filename_is_pem(dep->d_name)) {
-			if (certhash_file(dep, &certs, &crls) == -1)
+			if (certhash_file(dep, &certs, &crls, digest) == -1)
 				goto err;
 		}
 	}
@@ -594,11 +590,11 @@ certhash_directory(const char *path)
 		if (link->exists == 0 ||
 		    (link->reference != NULL && link->changed == 0))
 			continue;
-		if (certhash_config.verbose)
+		if (cfg.verbose)
 			fprintf(stdout, "%s link %s -> %s\n",
-			    (certhash_config.dryrun ? "would remove" :
+			    (cfg.dryrun ? "would remove" :
 				"removing"), link->filename, link->target);
-		if (certhash_config.dryrun)
+		if (cfg.dryrun)
 			continue;
 		if (unlink(link->filename) == -1) {
 			fprintf(stderr, "failed to remove link %s\n",
@@ -611,12 +607,12 @@ certhash_directory(const char *path)
 	for (link = links; link != NULL; link = link->next) {
 		if (link->exists == 1 && link->changed == 0)
 			continue;
-		if (certhash_config.verbose)
+		if (cfg.verbose)
 			fprintf(stdout, "%s link %s -> %s\n",
-			    (certhash_config.dryrun ? "would create" :
+			    (cfg.dryrun ? "would create" :
 				"creating"), link->filename,
 			    link->reference->filename);
-		if (certhash_config.dryrun)
+		if (cfg.dryrun)
 			continue;
 		if (symlink(link->reference->filename, link->filename) == -1) {
 			fprintf(stderr, "failed to create link %s -> %s\n",
@@ -653,14 +649,12 @@ certhash_main(int argc, char **argv)
 	int argsused;
 	int i, cwdfd, ret = 0;
 
-	if (single_execution) {
-		if (pledge("stdio cpath wpath rpath", NULL) == -1) {
-			perror("pledge");
-			exit(1);
-		}
+	if (pledge("stdio cpath wpath rpath", NULL) == -1) {
+		perror("pledge");
+		exit(1);
 	}
 
-	memset(&certhash_config, 0, sizeof(certhash_config));
+	memset(&cfg, 0, sizeof(cfg));
 
 	if (options_parse(argc, argv, certhash_options, NULL, &argsused) != 0) {
                 certhash_usage();
@@ -680,7 +674,7 @@ certhash_main(int argc, char **argv)
 			ret = 1;
 			continue;
 		}
-		ret |= certhash_directory(argv[i]);
+		ret |= certhash_directory(argv[i], EVP_sha256());
 		if (fchdir(cwdfd) == -1) {
 			perror("failed to restore current directory");
 			ret = 1;

@@ -1,4 +1,4 @@
-/* $OpenBSD: buffer.c,v 1.27 2017/05/02 03:59:44 deraadt Exp $ */
+/* $OpenBSD: buffer.c,v 1.29 2025/05/10 05:54:38 tb Exp $ */
 /* Copyright (C) 1995-1998 Eric Young (eay@cryptsoft.com)
  * All rights reserved.
  *
@@ -61,7 +61,8 @@
 #include <string.h>
 
 #include <openssl/buffer.h>
-#include <openssl/err.h>
+
+#include "err_local.h"
 
 /*
  * LIMIT_BEFORE_EXPANSION is the maximum n such that (n + 3) / 3 * 4 < 2**31.
@@ -82,6 +83,7 @@ BUF_MEM_new(void)
 
 	return (ret);
 }
+LCRYPTO_ALIAS(BUF_MEM_new);
 
 void
 BUF_MEM_free(BUF_MEM *a)
@@ -92,12 +94,14 @@ BUF_MEM_free(BUF_MEM *a)
 	freezero(a->data, a->max);
 	free(a);
 }
+LCRYPTO_ALIAS(BUF_MEM_free);
 
 int
 BUF_MEM_grow(BUF_MEM *str, size_t len)
 {
 	return BUF_MEM_grow_clean(str, len);
 }
+LCRYPTO_ALIAS(BUF_MEM_grow);
 
 int
 BUF_MEM_grow_clean(BUF_MEM *str, size_t len)
@@ -128,6 +132,7 @@ BUF_MEM_grow_clean(BUF_MEM *str, size_t len)
 
 	return (len);
 }
+LCRYPTO_ALIAS(BUF_MEM_grow_clean);
 
 void
 BUF_reverse(unsigned char *out, const unsigned char *in, size_t size)

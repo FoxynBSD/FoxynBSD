@@ -681,7 +681,10 @@ static void esp_init(netdissect_options *ndo _U_)
 #if !defined(OPENSSL_API_COMPAT) || OPENSSL_API_COMPAT < 0x10100000L
 	OpenSSL_add_all_algorithms();
 #endif
+#if !defined(LIBRESSL_VERSION_NUMBER) || LIBRESSL_VERSION_NUMBER < 0x40000000L
+	/* LibreSSL 4 removed cipher aliases: "3des" is then not a name. */
 	EVP_add_cipher_alias(SN_des_ede3_cbc, "3des");
+#endif
 }
 USES_APPLE_RST
 

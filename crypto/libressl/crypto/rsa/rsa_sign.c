@@ -1,4 +1,4 @@
-/* $OpenBSD: rsa_sign.c,v 1.34 2022/01/07 11:13:55 tb Exp $ */
+/* $OpenBSD: rsa_sign.c,v 1.38 2025/05/10 05:54:38 tb Exp $ */
 /* Copyright (C) 1995-1998 Eric Young (eay@cryptsoft.com)
  * All rights reserved.
  *
@@ -60,14 +60,14 @@
 #include <string.h>
 
 #include <openssl/bn.h>
-#include <openssl/err.h>
 #include <openssl/objects.h>
 #include <openssl/rsa.h>
 #include <openssl/x509.h>
 
-#include "asn1_locl.h"
-#include "rsa_locl.h"
-#include "x509_lcl.h"
+#include "asn1_local.h"
+#include "err_local.h"
+#include "rsa_local.h"
+#include "x509_local.h"
 
 /* Size of an SSL signature: MD5+SHA1 */
 #define SSL_SIG_LENGTH	36
@@ -130,7 +130,7 @@ RSA_sign(int type, const unsigned char *m, unsigned int m_len,
 	unsigned char *tmps = NULL;
 	int encrypt_len, encoded_len = 0, ret = 0;
 
-	if ((rsa->flags & RSA_FLAG_SIGN_VER) && rsa->meth->rsa_sign != NULL)
+	if (rsa->meth->rsa_sign != NULL)
 		return rsa->meth->rsa_sign(type, m, m_len, sigret, siglen, rsa);
 
 	/* Compute the encoded digest. */
@@ -166,6 +166,7 @@ RSA_sign(int type, const unsigned char *m, unsigned int m_len,
 	freezero(tmps, (size_t)encoded_len);
 	return (ret);
 }
+LCRYPTO_ALIAS(RSA_sign);
 
 /*
  * int_rsa_verify verifies an RSA signature in `sigbuf' using `rsa'. It may be
@@ -270,9 +271,10 @@ int
 RSA_verify(int dtype, const unsigned char *m, unsigned int m_len,
     const unsigned char *sigbuf, unsigned int siglen, RSA *rsa)
 {
-	if ((rsa->flags & RSA_FLAG_SIGN_VER) && rsa->meth->rsa_verify)
+	if (rsa->meth->rsa_verify != NULL)
 		return rsa->meth->rsa_verify(dtype, m, m_len, sigbuf, siglen,
 		    rsa);
 
 	return int_rsa_verify(dtype, m, m_len, NULL, NULL, sigbuf, siglen, rsa);
 }
+LCRYPTO_ALIAS(RSA_verify);

@@ -1,4 +1,4 @@
-/* $OpenBSD: m_md4.c,v 1.18 2022/01/14 08:38:05 tb Exp $ */
+/* $OpenBSD: m_md4.c,v 1.22 2024/04/09 13:52:41 beck Exp $ */
 /* Copyright (C) 1995-1998 Eric Young (eay@cryptsoft.com)
  * All rights reserved.
  *
@@ -71,7 +71,7 @@
 #include <openssl/rsa.h>
 #endif
 
-#include "evp_locl.h"
+#include "evp_local.h"
 
 static int
 init(EVP_MD_CTX *ctx)
@@ -110,4 +110,5 @@ EVP_md4(void)
 {
 	return (&md4_md);
 }
+LCRYPTO_ALIAS(EVP_md4);
 #endif

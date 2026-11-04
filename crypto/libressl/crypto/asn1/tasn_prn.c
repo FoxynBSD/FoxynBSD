@@ -1,4 +1,4 @@
-/* $OpenBSD: tasn_prn.c,v 1.22 2021/12/03 17:10:49 jsing Exp $ */
+/* $OpenBSD: tasn_prn.c,v 1.29 2025/06/07 09:28:00 tb Exp $ */
 /* Written by Dr Stephen N Henson (steve@openssl.org) for the OpenSSL
  * project 2000.
  */
@@ -61,106 +61,19 @@
 #include <openssl/asn1.h>
 #include <openssl/asn1t.h>
 #include <openssl/buffer.h>
-#include <openssl/err.h>
 #include <openssl/objects.h>
 #include <openssl/x509v3.h>
 
-#include "asn1_locl.h"
+#include "asn1_local.h"
 
 /* Print routines.
  */
 
 /* ASN1_PCTX routines */
 
-ASN1_PCTX default_pctx = {
-	ASN1_PCTX_FLAGS_SHOW_ABSENT,	/* flags */
-	0,				/* nm_flags */
-	0,				/* cert_flags */
-	0,				/* oid_flags */
-	0				/* str_flags */
+static const ASN1_PCTX default_pctx = {
+	.flags = ASN1_PCTX_FLAGS_SHOW_ABSENT,
 };
-
-
-ASN1_PCTX *
-ASN1_PCTX_new(void)
-{
-	ASN1_PCTX *p;
-
-	if ((p = calloc(1, sizeof(ASN1_PCTX))) == NULL) {
-		ASN1error(ERR_R_MALLOC_FAILURE);
-		return NULL;
-	}
-
-	return p;
-}
-
-void
-ASN1_PCTX_free(ASN1_PCTX *p)
-{
-	free(p);
-}
-
-unsigned long
-ASN1_PCTX_get_flags(const ASN1_PCTX *p)
-{
-	return p->flags;
-}
-
-void
-ASN1_PCTX_set_flags(ASN1_PCTX *p, unsigned long flags)
-{
-	p->flags = flags;
-}
-
-unsigned long
-ASN1_PCTX_get_nm_flags(const ASN1_PCTX *p)
-{
-	return p->nm_flags;
-}
-
-void
-ASN1_PCTX_set_nm_flags(ASN1_PCTX *p, unsigned long flags)
-{
-	p->nm_flags = flags;
-}
-
-unsigned long
-ASN1_PCTX_get_cert_flags(const ASN1_PCTX *p)
-{
-	return p->cert_flags;
-}
-
-void
-ASN1_PCTX_set_cert_flags(ASN1_PCTX *p, unsigned long flags)
-{
-	p->cert_flags = flags;
-}
-
-unsigned long
-ASN1_PCTX_get_oid_flags(const ASN1_PCTX *p)
-{
-	return p->oid_flags;
-}
-
-void
-ASN1_PCTX_set_oid_flags(ASN1_PCTX *p, unsigned long flags)
-{
-	p->oid_flags = flags;
-}
-
-unsigned long
-ASN1_PCTX_get_str_flags(const ASN1_PCTX *p)
-{
-	return p->str_flags;
-}
-
-void
-ASN1_PCTX_set_str_flags(ASN1_PCTX *p, unsigned long flags)
-{
-	p->str_flags = flags;
-}
-
-/* Main print routines */
 
 static int asn1_item_print_ctx(BIO *out, ASN1_VALUE **fld, int indent,
     const ASN1_ITEM *it, const char *fname, const char *sname, int nohdr,
@@ -191,6 +104,7 @@ ASN1_item_print(BIO *out, ASN1_VALUE *ifld, int indent, const ASN1_ITEM *it,
 	return asn1_item_print_ctx(out, &ifld, indent, it, NULL, sname,
 	    0, pctx);
 }
+LCRYPTO_ALIAS(ASN1_item_print);
 
 static int
 asn1_item_print_ctx(BIO *out, ASN1_VALUE **fld, int indent, const ASN1_ITEM *it,
@@ -387,15 +301,9 @@ static int
 asn1_print_fsname(BIO *out, int indent, const char *fname, const char *sname,
     const ASN1_PCTX *pctx)
 {
-	static char spaces[] = "                    ";
-	const int nspaces = sizeof(spaces) - 1;
-
-	while (indent > nspaces) {
-		if (BIO_write(out, spaces, nspaces) != nspaces)
-			return 0;
-		indent -= nspaces;
-	}
-	if (BIO_write(out, spaces, indent) != indent)
+	if (indent < 0)
+		return 0;
+	if (!BIO_indent(out, indent, indent))
 		return 0;
 	if (pctx->flags & ASN1_PCTX_FLAGS_NO_STRUCT_NAME)
 		sname = NULL;
@@ -502,7 +410,7 @@ asn1_primitive_print(BIO *out, ASN1_VALUE **fld, const ASN1_ITEM *it,
 	if (!asn1_print_fsname(out, indent, fname, sname, pctx))
 		return 0;
 
-	if (it != NULL && it->funcs != NULL) {
+	if (it->funcs != NULL) {
 		const ASN1_PRIMITIVE_FUNCS *pf = it->funcs;
 
 		if (pf->prim_print == NULL)

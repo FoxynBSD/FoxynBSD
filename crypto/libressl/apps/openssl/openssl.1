@@ -1,4 +1,4 @@
-.\" $OpenBSD: openssl.1,v 1.139 2022/07/19 16:08:09 tb Exp $
+.\" $OpenBSD: openssl.1,v 1.170 2026/03/14 06:06:48 tb Exp $
 .\" ====================================================================
 .\" Copyright (c) 1998-2002 The OpenSSL Project.  All rights reserved.
 .\"
@@ -110,7 +110,7 @@
 .\" copied and put under another distribution licence
 .\" [including the GNU Public Licence.]
 .\"
-.Dd $Mdocdate: July 19 2022 $
+.Dd $Mdocdate: March 14 2026 $
 .Dt OPENSSL 1
 .Os
 .Sh NAME
@@ -119,8 +119,8 @@
 .Sh SYNOPSIS
 .Nm
 .Ar command
-.Op Ar command_opts
-.Op Ar command_args
+.Op Ar command_opt ...
+.Op Ar command_arg ...
 .Pp
 .Nm
 .Cm list-standard-commands |
@@ -136,7 +136,7 @@
 .Nm OpenSSL
 is a cryptography toolkit implementing the
 Transport Layer Security
-.Pq TLS v1
+.Pq TLS
 network protocol,
 as well as related cryptography standards.
 .Pp
@@ -325,7 +325,6 @@ into a nested structure.
 .Op Fl keyfile Ar file
 .Op Fl keyform Cm pem | der
 .Op Fl md Ar alg
-.Op Fl msie_hack
 .Op Fl multivalue-rdn
 .Op Fl name Ar section
 .Op Fl noemailDN
@@ -338,7 +337,6 @@ into a nested structure.
 .Op Fl revoke Ar file
 .Op Fl selfsign
 .Op Fl sigopt Ar nm:v
-.Op Fl spkac Ar file
 .Op Fl ss_cert Ar file
 .Op Fl startdate Ar date
 .Op Fl status Ar serial
@@ -423,17 +421,6 @@ Possible values include
 and
 .Ar sha1 .
 This option also applies to CRLs.
-.It Fl msie_hack
-This is a legacy option to make
-.Nm ca
-work with very old versions of the IE certificate enrollment control
-.Qq certenr3 .
-It used UniversalStrings for almost everything.
-Since the old control has various security bugs,
-its use is strongly discouraged.
-The newer control
-.Qq Xenroll
-does not need this option.
 .It Fl multivalue-rdn
 This option causes the
 .Fl subj
@@ -469,9 +456,7 @@ Don't output the text form of a certificate to the output file.
 The output file to output certificates to.
 The default is standard output.
 The certificate details will also be printed out to this file in
-PEM format, except that
-.Fl spkac
-outputs DER format.
+PEM format.
 .It Fl outdir Ar directory
 The
 .Ar directory
@@ -514,8 +499,7 @@ certificate requests were signed with, given with
 .Fl keyfile .
 Certificate requests signed with a different key are ignored.
 If
-.Fl gencrl ,
-.Fl spkac ,
+.Fl gencrl
 or
 .Fl ss_cert
 are given,
@@ -532,20 +516,6 @@ signed with the self-signed certificate.
 .It Fl sigopt Ar nm:v
 Pass options to the signature algorithm during sign or certify operations.
 The names and values of these options are algorithm-specific.
-.It Fl spkac Ar file
-A file containing a single Netscape signed public key and challenge,
-and additional field values to be signed by the CA.
-This will usually come from the
-KEYGEN tag in an HTML form to create a new private key.
-It is, however, possible to create SPKACs using the
-.Nm spkac
-utility.
-.Pp
-The file should contain the variable SPKAC set to the value of
-the SPKAC and also the required DN components as name value pairs.
-If it's necessary to include the same component twice,
-then it can be preceded by a number and a
-.Sq \&. .
 .It Fl ss_cert Ar file
 A single self-signed certificate to be signed by the CA.
 .It Fl startdate Ar date
@@ -647,11 +617,9 @@ specified using
 .Cm default_ca
 or
 .Fl name .
-The options
+The
 .Cm preserve
-and
-.Cm msie_hack
-are read directly from the
+option is read directly from the
 .Cm ca
 section.
 .Pp
@@ -764,9 +732,6 @@ simply set this to
 .Qq no .
 If not present, the default is to allow for the EMAIL field in the
 certificate's DN.
-.It Cm msie_hack
-The same as
-.Fl msie_hack .
 .It Cm name_opt , cert_opt
 These options allow the format used to display the certificate details
 when asking the user to confirm signing.
@@ -911,8 +876,6 @@ Specify the directories to process.
 .Sh CIPHERS
 .Nm openssl ciphers
 .Op Fl hsVv
-.Op Fl tls1
-.Op Fl tls1_1
 .Op Fl tls1_2
 .Op Fl tls1_3
 .Op Ar control
@@ -936,7 +899,7 @@ The options are as follows:
 Print a brief usage message.
 .It Fl s
 Only list ciphers that are supported by the TLS method.
-.It Fl tls1 | tls1_1 | tls1_2 | tls1_3
+.It Fl tls1_2 | tls1_3
 In combination with the
 .Fl s
 option, list the ciphers which could be used
@@ -963,11 +926,11 @@ but without cipher suite codes.
 .Oc
 .Op Fl CAfile Ar file
 .Op Fl CApath Ar directory
+.Op Fl CRLfile Ar file
 .Op Fl binary
 .Op Fl certfile Ar file
 .Op Fl certsout Ar file
 .Op Fl cmsout
-.Op Fl compress
 .Op Fl content Ar file
 .Op Fl crlfeol
 .Op Fl data_create
@@ -1021,7 +984,6 @@ but without cipher suite codes.
 .Op Fl subject Ar s
 .Op Fl text
 .Op Fl to Ar addr
-.Op Fl uncompress
 .Op Fl verify
 .Op Fl verify_receipt Ar file
 .Op Fl verify_retcode
@@ -1032,8 +994,7 @@ but without cipher suite codes.
 The
 .Nm cms
 command handles S/MIME v3.1 mail.
-It can encrypt, decrypt, sign and verify, compress and uncompress S/MIME
-messages.
+It can encrypt, decrypt, sign and verify S/MIME messages.
 .Pp
 The MIME message must be sent without any blank lines between the headers and
 the output.
@@ -1089,12 +1050,6 @@ Output a content from the input CMS Data type.
 Create a CMS DigestedData type.
 .It Fl digest_verify
 Verify a CMS DigestedData type and output the content.
-.It Fl compress
-Create a CMS CompressedData type.
-Must be compiled with zlib support for this option to work.
-.It Fl uncompress
-Uncompress a CMS CompressedData type and output the content.
-Must be compiled with zlib support for this option to work.
 .It Fl EncryptedData_encrypt
 Encrypt a content using supplied symmetric key and algorithm using a
 CMS EncryptedData type.
@@ -1127,7 +1082,7 @@ The encryption algorithm to use.
 128-, 192-, or 256-bit AES, 128-, 192-, or 256-bit CAMELLIA,
 DES (56 bits), triple DES (168 bits),
 or 40-, 64-, or 128-bit RC2, respectively;
-if not specified, triple DES is
+if not specified, 256-bit AES is
 used.
 Only used with
 .Fl encrypt
@@ -1153,6 +1108,9 @@ This directory must be a standard certificate directory: that is a hash
 of each subject name (using
 .Nm x509 Fl hash )
 should be linked to each certificate.
+.It Fl CRLfile Ar file
+Allows additional certificate revocation lists to be specified for verification.
+The CRLs should be in PEM format.
 .It Ar cert.pem ...
 One or more certificates of message recipients: used when encrypting a message.
 .It Fl certfile Ar file
@@ -1526,8 +1484,9 @@ The input format.
 Output the issuer name.
 .It Fl lastupdate
 Output the
-.Cm lastUpdate
+.Cm thisUpdate
 field.
+This option is misnamed for historical reasons.
 .It Fl nameopt Ar option
 Specify certificate name options.
 .It Fl nextupdate
@@ -1712,7 +1671,6 @@ If no files are specified then standard input is used.
 .It Nm openssl dhparam
 .Bk -words
 .Op Fl 2 | 5
-.Op Fl C
 .Op Fl check
 .Op Fl dsaparam
 .Op Fl in Ar file
@@ -1737,11 +1695,6 @@ The options are as follows:
 The generator to use;
 2 is the default.
 If present, the input file is ignored and parameters are generated instead.
-.It Fl C
-Convert the parameters into C code.
-The parameters can then be loaded by calling the
-.No get_dh Ns Ar numbits
-function.
 .It Fl check
 Check the DH parameters.
 .It Fl dsaparam
@@ -1877,7 +1830,6 @@ Print the public/private key in plain text.
 .Bl -hang -width "openssl dsaparam"
 .It Nm openssl dsaparam
 .Bk -words
-.Op Fl C
 .Op Fl genkey
 .Op Fl in Ar file
 .Op Fl inform Cm der | pem
@@ -1895,11 +1847,6 @@ command is used to manipulate or generate DSA parameter files.
 .Pp
 The options are as follows:
 .Bl -tag -width Ds
-.It Fl C
-Convert the parameters into C code.
-The parameters can then be loaded by calling the
-.No get_dsa Ns Ar XXX
-function.
 .It Fl genkey
 Generate a DSA key either using the specified or generated
 parameters.
@@ -1975,13 +1922,6 @@ and
 .Cm hybrid .
 For more information regarding
 the point conversion forms see the X9.62 standard.
-Note:
-Due to patent issues the
-.Cm compressed
-option is disabled by default for binary curves
-and can be enabled by defining the preprocessor macro
-.Dv OPENSSL_EC_BIN_PT_COMP
-at compile time.
 .It Fl des | des3
 Encrypt the private key with DES, triple DES, or
 any other cipher supported by
@@ -2043,7 +1983,6 @@ Print the public/private key in plain text.
 .Bl -hang -width "openssl ecparam"
 .It Nm openssl ecparam
 .Bk -words
-.Op Fl C
 .Op Fl check
 .Op Fl conv_form Ar arg
 .Op Fl genkey
@@ -2070,11 +2009,6 @@ can only create EC parameters from known (named) curves.
 .Pp
 The options are as follows:
 .Bl -tag -width Ds
-.It Fl C
-Convert the EC parameters into C code.
-The parameters can then be loaded by calling the
-.No get_ec_group_ Ns Ar XXX
-function.
 .It Fl check
 Validate the elliptic curve parameters.
 .It Fl conv_form Ar arg
@@ -2088,13 +2022,6 @@ and
 .Cm hybrid .
 For more information regarding
 the point conversion forms see the X9.62 standard.
-Note:
-Due to patent issues the
-.Cm compressed
-option is disabled by default for binary curves
-and can be enabled by defining the preprocessor macro
-.Dv OPENSSL_EC_BIN_PT_COMP
-at compile time.
 .It Fl genkey
 Generate an EC private key using the specified parameters.
 .It Fl in Ar file
@@ -2301,7 +2228,6 @@ Print extra details about the processing.
 .Tg errstr
 .Sh ERRSTR
 .Nm openssl errstr
-.Op Fl stats
 .Ar errno ...
 .Pp
 The
@@ -2323,12 +2249,6 @@ The remaining fields
 and
 .Bq reason string
 are all ASCII text.
-.Pp
-The options are as follows:
-.Bl -tag -width Ds
-.It Fl stats
-Print debugging statistics about various aspects of the hash table.
-.El
 .Tg gendsa
 .Sh GENDSA
 .Bl -hang -width "openssl gendsa"
@@ -2541,37 +2461,6 @@ The output file password source.
 The size of the private key to generate in bits.
 This must be the last option specified.
 The default is 2048.
-.El
-.Tg nseq
-.Sh NSEQ
-.Nm openssl nseq
-.Op Fl in Ar file
-.Op Fl out Ar file
-.Op Fl toseq
-.Pp
-The
-.Nm nseq
-command takes a file containing a Netscape certificate sequence
-(an alternative to the standard PKCS#7 format)
-and prints out the certificates contained in it,
-or takes a file of certificates
-and converts it into a Netscape certificate sequence.
-.Pp
-The options are as follows:
-.Bl -tag -width Ds
-.It Fl in Ar file
-The input file to read from,
-or standard input if not specified.
-.It Fl out Ar file
-The output file to write to,
-or standard output if not specified.
-.It Fl toseq
-Normally, a Netscape certificate sequence will be input and the output
-is the certificates contained in it.
-With the
-.Fl toseq
-option the situation is reversed:
-a Netscape certificate sequence is created from a file of certificates.
 .El
 .Tg ocsp
 .Sh OCSP
@@ -3061,9 +2950,6 @@ command processes private keys
 (both encrypted and unencrypted)
 in PKCS#8 format
 with a variety of PKCS#5 (v1.5 and v2.0) and PKCS#12 algorithms.
-The default encryption is only 56 bits;
-keys encrypted using PKCS#5 v2.0 algorithms and high iteration counts
-are more secure.
 .Pp
 The options are as follows:
 .Bl -tag -width Ds
@@ -3109,16 +2995,12 @@ which allow strong encryption algorithms like triple DES or 128-bit RC2.
 .El
 .It Fl v2 Ar alg
 Use PKCS#5 v2.0 algorithms.
-Supports algorithms such as 168-bit triple DES or 128-bit RC2,
-however not many implementations support PKCS#5 v2.0 yet
-(if using private keys with
-.Nm openssl
-this doesn't matter).
-.Pp
-.Ar alg
-is the encryption algorithm to use;
-valid values include des, des3, and rc2.
-It is recommended that des3 is used.
+These are block ciphers used in CBC mode.
+The default is AES-256-CBC.
+With the exception of AES, the choices available in RFC 8018
+are considered decrepit.
+They can be enabled with des, des3, and rc2
+(rc5 is no longer supported).
 .El
 .Tg pkcs12
 .Sh PKCS12
@@ -3137,7 +3019,6 @@ It is recommended that des3 is used.
 .Op Fl certpbe Ar alg
 .Op Fl chain
 .Op Fl clcerts
-.Op Fl CSP Ar name
 .Op Fl descert
 .Op Fl export
 .Op Fl in Ar file
@@ -3146,7 +3027,6 @@ It is recommended that des3 is used.
 .Op Fl keyex
 .Op Fl keypbe Ar alg
 .Op Fl keysig
-.Op Fl LMK
 .Op Fl macalg Ar alg
 .Op Fl maciter
 .Op Fl name Ar name
@@ -3255,10 +3135,6 @@ For interoperability reasons it is advisable to only use PKCS#12 algorithms.
 Include the entire certificate chain of the user certificate.
 The standard CA store is used for this search.
 If the search fails, it is considered a fatal error.
-.It Fl CSP Ar name
-Write
-.Ar name
-as a Microsoft CSP name.
 .It Fl descert
 Encrypt the certificate using triple DES; this may render the PKCS#12
 file unreadable by some
@@ -3290,8 +3166,6 @@ option marks the key for signing only.
 Signing only keys can be used for S/MIME signing, authenticode
 (ActiveX control signing)
 and SSL client authentication.
-.It Fl LMK
-Add local machine keyset attribute to private key.
 .It Fl macalg Ar alg
 Specify the MAC digest algorithm.
 The default is SHA1.
@@ -3343,7 +3217,6 @@ is equivalent to
 .Bl -hang -width "openssl pkey"
 .It Nm openssl pkey
 .Bk -words
-.Op Fl check
 .Op Ar cipher
 .Op Fl in Ar file
 .Op Fl inform Cm der | pem
@@ -3352,7 +3225,6 @@ is equivalent to
 .Op Fl outform Cm der | pem
 .Op Fl passin Ar arg
 .Op Fl passout Ar arg
-.Op Fl pubcheck
 .Op Fl pubin
 .Op Fl pubout
 .Op Fl text
@@ -3368,8 +3240,6 @@ and their components printed out.
 .Pp
 The options are as follows:
 .Bl -tag -width Ds
-.It Fl check
-Check the validity of a key pair.
 .It Ar cipher
 Encrypt the private key with the specified cipher.
 Any algorithm name accepted by
@@ -3395,9 +3265,6 @@ The output format.
 The key password source.
 .It Fl passout Ar arg
 The output file password source.
-.It Fl pubcheck
-Check the validity of a public key
-or the public component of a key pair.
 .It Fl pubin
 Read in a public key, not a private key.
 .It Fl pubout
@@ -3412,7 +3279,6 @@ even if a private key is being processed.
 .Tg pkeyparam
 .Sh PKEYPARAM
 .Cm openssl pkeyparam
-.Op Fl check
 .Op Fl in Ar file
 .Op Fl noout
 .Op Fl out Ar file
@@ -3425,8 +3291,6 @@ The key type is determined by the PEM headers.
 .Pp
 The options are as follows:
 .Bl -tag -width Ds
-.It Fl check
-check the correctness of parameters.
 .It Fl in Ar file
 The input file to read from,
 or standard input if not specified.
@@ -4295,7 +4159,6 @@ Verify the input data and output the recovered data.
 .Op Fl crlf
 .Op Fl debug
 .Op Fl dtls
-.Op Fl dtls1
 .Op Fl dtls1_2
 .Op Fl extended_crl
 .Op Fl groups Ar list
@@ -4316,12 +4179,9 @@ Verify the input data and output the recovered data.
 .Op Fl no_ign_eof
 .Op Fl no_legacy_server_connect
 .Op Fl no_ticket
-.Op Fl no_tls1
-.Op Fl no_tls1_1
 .Op Fl no_tls1_2
 .Op Fl no_tls1_3
 .Op Fl pass Ar arg
-.Op Fl pause
 .Op Fl policy_check
 .Op Fl port Ar port
 .Op Fl prexit
@@ -4337,8 +4197,6 @@ Verify the input data and output the recovered data.
 .Op Fl state
 .Op Fl status
 .Op Fl timeout
-.Op Fl tls1
-.Op Fl tls1_1
 .Op Fl tls1_2
 .Op Fl tls1_3
 .Op Fl tlsextdebug
@@ -4442,8 +4300,6 @@ as required by some servers.
 Print extensive debugging information, including a hex dump of all traffic.
 .It Fl dtls
 Permit any version of DTLS.
-.It Fl dtls1
-Permit only DTLS1.0.
 .It Fl dtls1_2
 Permit only DTLS1.2.
 .It Fl groups Ar list
@@ -4485,14 +4341,12 @@ Can be used to override the implicit
 .Fl ign_eof
 after
 .Fl quiet .
-.It Fl no_tls1 | no_tls1_1 | no_tls1_2 | no_tls1_3
-Disable the use of TLS1.0, 1.1, 1.2 and 1.3 respectively.
+.It Fl no_tls1_2 | no_tls1_3
+Disable the use of TLS1.2 and 1.3, respectively.
 .It Fl no_ticket
 Disable RFC 4507 session ticket support.
 .It Fl pass Ar arg
 The private key password source.
-.It Fl pause
-Pause 1 second between each read and write call.
 .It Fl port Ar port
 The
 .Ar port
@@ -4548,6 +4402,7 @@ is a keyword for the intended protocol.
 Currently, the supported keywords are
 .Qq ftp ,
 .Qq imap ,
+.Qq sieve ,
 .Qq smtp ,
 .Qq pop3 ,
 and
@@ -4559,8 +4414,8 @@ Send a certificate status request to the server (OCSP stapling).
 The server response (if any) is printed out.
 .It Fl timeout
 Enable send/receive timeout on DTLS connections.
-.It Fl tls1 | tls1_1 | tls1_2 | tls1_3
-Permit only TLS1.0, 1.1, 1.2 or 1.3 respectively.
+.It Fl tls1_2 | tls1_3
+Permit only TLS1.2 or 1.3 respectively.
 .It Fl tlsextdebug
 Print a hex dump of any TLS extensions received from the server.
 .It Fl use_srtp Ar profiles
@@ -4629,8 +4484,6 @@ will be used.
 .Op Fl no_dhe
 .Op Fl no_ecdhe
 .Op Fl no_ticket
-.Op Fl no_tls1
-.Op Fl no_tls1_1
 .Op Fl no_tls1_2
 .Op Fl no_tls1_3
 .Op Fl no_tmp_rsa
@@ -4646,8 +4499,6 @@ will be used.
 .Op Fl status_url Ar url
 .Op Fl status_verbose
 .Op Fl timeout
-.Op Fl tls1
-.Op Fl tls1_1
 .Op Fl tls1_2
 .Op Fl tls1_3
 .Op Fl tlsextdebug
@@ -4779,8 +4630,6 @@ If this fails, a static set of parameters hard coded into the
 program will be used.
 .It Fl dtls
 Permit any version of DTLS.
-.It Fl dtls1
-Permit only DTLS1.0.
 .It Fl dtls1_2
 Permit only DTLS1.2.
 .It Fl groups Ar list
@@ -4843,8 +4692,8 @@ Disable ephemeral DH cipher suites.
 Disable ephemeral ECDH cipher suites.
 .It Fl no_ticket
 Disable RFC 4507 session ticket support.
-.It Fl no_tls1 | no_tls1_1 | no_tls1_2 | no_tls1_3
-Disable the use of TLS1.0, 1.1, 1.2, and 1.3, respectively.
+.It Fl no_tls1_2 | no_tls1_3
+Disable the use of TLS1.2 and 1.3, respectively.
 .It Fl no_tmp_rsa
 Disable temporary RSA key generation.
 .It Fl nocert
@@ -4879,8 +4728,8 @@ Enables certificate status request support (OCSP stapling) and gives a verbose
 printout of the OCSP response.
 .It Fl timeout
 Enable send/receive timeout on DTLS connections.
-.It Fl tls1 | tls1_1 | tls1_2 | tls1_3
-Permit only TLS1.0, 1.1, 1.2, or 1.3, respectively.
+.It Fl tls1_2 | tls1_3
+Permit only TLS1.2, or 1.3, respectively.
 .It Fl tlsextdebug
 Print a hex dump of any TLS extensions received from the server.
 .It Fl use_srtp Ar profiles
@@ -5227,7 +5076,7 @@ The remaining options are as follows:
 The encryption algorithm to use.
 128-, 192-, or 256-bit AES, DES (56 bits), triple DES (168 bits),
 or 40-, 64-, or 128-bit RC2, respectively;
-if not specified, 40-bit RC2 is
+if not specified, 256-bit AES is
 used.
 Only used with
 .Fl encrypt .
@@ -5398,7 +5247,7 @@ The exit codes for
 .Nm smime
 are as follows:
 .Pp
-.Bl -tag -width "XXXX"  -offset 3n -compact
+.Bl -tag -width "XXXX" -offset 3n -compact
 .It 0
 The operation was completely successful.
 .It 1
@@ -5423,6 +5272,7 @@ An error occurred writing certificates.
 .Op Fl evp Ar algorithm
 .Op Fl mr
 .Op Fl multi Ar number
+.Op Fl unaligned Ar number
 .Ek
 .El
 .Pp
@@ -5449,68 +5299,13 @@ Produce machine readable output.
 Run
 .Ar number
 benchmarks in parallel.
-.El
-.Tg spkac
-.Sh SPKAC
-.Bl -hang -width "openssl spkac"
-.It Nm openssl spkac
-.Bk -words
-.Op Fl challenge Ar string
-.Op Fl in Ar file
-.Op Fl key Ar keyfile
-.Op Fl noout
-.Op Fl out Ar file
-.Op Fl passin Ar arg
-.Op Fl pubkey
-.Op Fl spkac Ar spkacname
-.Op Fl spksect Ar section
-.Op Fl verify
-.Ek
-.El
-.Pp
-The
-.Nm spkac
-command processes signed public key and challenge (SPKAC) files.
-It can print out their contents, verify the signature,
-and produce its own SPKACs from a supplied private key.
-.Pp
-The options are as follows:
-.Bl -tag -width Ds
-.It Fl challenge Ar string
-The challenge string, if an SPKAC is being created.
-.It Fl in Ar file
-The input file to read from,
-or standard input if not specified.
-Ignored if the
-.Fl key
-option is used.
-.It Fl key Ar keyfile
-Create an SPKAC file using the private key in
-.Ar keyfile .
-The
-.Fl in , noout , spksect ,
-and
-.Fl verify
-options are ignored, if present.
-.It Fl noout
-Do not output the text version of the SPKAC.
-.It Fl out Ar file
-The output file to write to,
-or standard output if not specified.
-.It Fl passin Ar arg
-The key password source.
-.It Fl pubkey
-Output the public key of an SPKAC.
-.It Fl spkac Ar spkacname
-An alternative name for the variable containing the SPKAC.
-The default is "SPKAC".
-This option affects both generated and input SPKAC files.
-.It Fl spksect Ar section
-An alternative name for the
-.Ar section
-containing the SPKAC.
-.It Fl verify
-Verify the digital signature on the supplied SPKAC.
+.It Fl unaligned Ar number
+Use allocated buffers with an offset of
+.Ar number
+bytes from the alignment provided by
+.Xr malloc 3 .
+.Ar number
+should be between 0 and 16.
 .El
 .Tg ts
 .Sh TS
@@ -6080,136 +5875,20 @@ error 24 at 1 depth lookup:invalid CA certificate
 .Pp
 The first line contains the name of the certificate being verified, followed by
 the subject name of the certificate.
-The second line contains the error number and the depth.
+The second line contains the error number as defined by the
+.Dv X509_V_ERR_*
+constants in
+.In openssl/x509_vfy.h ,
+the associated error message documented in
+.Xr X509_STORE_CTX_get_error 3 ,
+and the depth.
 The depth is the number of the certificate being verified when a
 problem was detected starting with zero for the certificate being verified
 itself, then 1 for the CA that signed the certificate and so on.
-Finally a text version of the error number is presented.
-.Pp
-An exhaustive list of the error codes and messages is shown below; this also
-includes the name of the error code as defined in the header file
-.In openssl/x509_vfy.h .
-Some of the error codes are defined but never returned: these are described as
-.Qq unused .
-.Bl -tag -width "XXXX"
-.It 0 X509_V_OK
-The operation was successful.
-.It 2 X509_V_ERR_UNABLE_TO_GET_ISSUER_CERT
-The issuer certificate of an untrusted certificate could not be found.
-.It 3 X509_V_ERR_UNABLE_TO_GET_CRL
-The CRL of a certificate could not be found.
-.It 4 X509_V_ERR_UNABLE_TO_DECRYPT_CERT_SIGNATURE
-The certificate signature could not be decrypted.
-This means that the actual signature value could not be determined
-rather than it not matching the expected value.
-This is only meaningful for RSA keys.
-.It 5 X509_V_ERR_UNABLE_TO_DECRYPT_CRL_SIGNATURE
-The CRL signature could not be decrypted.
-This means that the actual signature value could not be determined
-rather than it not matching the expected value.
-Unused.
-.It 6 X509_V_ERR_UNABLE_TO_DECODE_ISSUER_PUBLIC_KEY
-The public key in the certificate
-.Cm SubjectPublicKeyInfo
-could not be read.
-.It 7 X509_V_ERR_CERT_SIGNATURE_FAILURE
-The signature of the certificate is invalid.
-.It 8 X509_V_ERR_CRL_SIGNATURE_FAILURE
-The signature of the certificate is invalid.
-.It 9 X509_V_ERR_CERT_NOT_YET_VALID
-The certificate is not yet valid: the
-.Cm notBefore
-date is after the current time.
-.It 10 X509_V_ERR_CERT_HAS_EXPIRED
-The certificate has expired; that is, the
-.Cm notAfter
-date is before the current time.
-.It 11 X509_V_ERR_CRL_NOT_YET_VALID
-The CRL is not yet valid.
-.It 12 X509_V_ERR_CRL_HAS_EXPIRED
-The CRL has expired.
-.It 13 X509_V_ERR_ERROR_IN_CERT_NOT_BEFORE_FIELD
-The certificate
-.Cm notBefore
-field contains an invalid time.
-.It 14 X509_V_ERR_ERROR_IN_CERT_NOT_AFTER_FIELD
-The certificate
-.Cm notAfter
-field contains an invalid time.
-.It 15 X509_V_ERR_ERROR_IN_CRL_LAST_UPDATE_FIELD
-The CRL
-.Cm lastUpdate
-field contains an invalid time.
-.It 16 X509_V_ERR_ERROR_IN_CRL_NEXT_UPDATE_FIELD
-The CRL
-.Cm nextUpdate
-field contains an invalid time.
-.It 17 X509_V_ERR_OUT_OF_MEM
-An error occurred trying to allocate memory.
-This should never happen.
-.It 18 X509_V_ERR_DEPTH_ZERO_SELF_SIGNED_CERT
-The passed certificate is self-signed and the same certificate cannot be
-found in the list of trusted certificates.
-.It 19 X509_V_ERR_SELF_SIGNED_CERT_IN_CHAIN
-The certificate chain could be built up using the untrusted certificates but
-the root could not be found locally.
-.It 20 X509_V_ERR_UNABLE_TO_GET_ISSUER_CERT_LOCALLY
-The issuer certificate of a locally looked up certificate could not be found.
-This normally means the list of trusted certificates is not complete.
-.It 21 X509_V_ERR_UNABLE_TO_VERIFY_LEAF_SIGNATURE
-No signatures could be verified because the chain contains only one
-certificate and it is not self-signed.
-.It 22 X509_V_ERR_CERT_CHAIN_TOO_LONG
-The certificate chain length is greater than the supplied maximum depth.
-Unused.
-.It 23 X509_V_ERR_CERT_REVOKED
-The certificate has been revoked.
-.It 24 X509_V_ERR_INVALID_CA
-A CA certificate is invalid.
-Either it is not a CA or its extensions are not consistent
-with the supplied purpose.
-.It 25 X509_V_ERR_PATH_LENGTH_EXCEEDED
-The
-.Cm basicConstraints
-pathlength parameter has been exceeded.
-.It 26 X509_V_ERR_INVALID_PURPOSE
-The supplied certificate cannot be used for the specified purpose.
-.It 27 X509_V_ERR_CERT_UNTRUSTED
-The root CA is not marked as trusted for the specified purpose.
-.It 28 X509_V_ERR_CERT_REJECTED
-The root CA is marked to reject the specified purpose.
-.It 29 X509_V_ERR_SUBJECT_ISSUER_MISMATCH
-The current candidate issuer certificate was rejected because its subject name
-did not match the issuer name of the current certificate.
-Only displayed when the
-.Fl issuer_checks
-option is set.
-.It 30 X509_V_ERR_AKID_SKID_MISMATCH
-The current candidate issuer certificate was rejected because its subject key
-identifier was present and did not match the authority key identifier current
-certificate.
-Only displayed when the
-.Fl issuer_checks
-option is set.
-.It 31 X509_V_ERR_AKID_ISSUER_SERIAL_MISMATCH
-The current candidate issuer certificate was rejected because its issuer name
-and serial number were present and did not match the authority key identifier
-of the current certificate.
-Only displayed when the
-.Fl issuer_checks
-option is set.
-.It 32 X509_V_ERR_KEYUSAGE_NO_CERTSIGN
-The current candidate issuer certificate was rejected because its
-.Cm keyUsage
-extension does not permit certificate signing.
-.It 50 X509_V_ERR_APPLICATION_VERIFICATION
-An application specific error.
-Unused.
-.El
 .Tg version
 .Sh VERSION
 .Nm openssl version
-.Op Fl abdfopv
+.Op Fl abdfpv
 .Pp
 The
 .Nm version
@@ -6229,8 +5908,6 @@ was built.
 setting.
 .It Fl f
 Compilation flags.
-.It Fl o
-Option information: various options set when the library was built.
 .It Fl p
 Platform setting.
 .It Fl v
@@ -6243,7 +5920,6 @@ version.
 .Bl -hang -width "openssl x509"
 .It Nm openssl x509
 .Bk -words
-.Op Fl C
 .Op Fl addreject Ar arg
 .Op Fl addtrust Ar arg
 .Op Fl alias
@@ -6265,6 +5941,7 @@ version.
 .Op Fl extensions Ar section
 .Op Fl extfile Ar file
 .Op Fl fingerprint
+.Op Fl force_pubkey Ar key
 .Op Fl hash
 .Op Fl in Ar file
 .Op Fl inform Cm der | net | pem
@@ -6274,7 +5951,9 @@ version.
 .Op Fl keyform Cm der | pem
 .Op Fl md5 | sha1
 .Op Fl modulus
+.Op Fl multivalue-rdn
 .Op Fl nameopt Ar option
+.Op Fl new
 .Op Fl next_serial
 .Op Fl noout
 .Op Fl ocsp_uri
@@ -6286,7 +5965,9 @@ version.
 .Op Fl purpose
 .Op Fl req
 .Op Fl serial
+.Op Fl set_issuer Ar name
 .Op Fl set_serial Ar n
+.Op Fl set_subject Ar name
 .Op Fl setalias Ar arg
 .Op Fl signkey Ar file
 .Op Fl sigopt Ar nm:v
@@ -6296,6 +5977,7 @@ version.
 .Op Fl subject_hash_old
 .Op Fl text
 .Op Fl trustout
+.Op Fl utf8
 .Op Fl x509toreq
 .Ek
 .El
@@ -6313,10 +5995,14 @@ The following are x509 input, output, and general purpose options:
 .It Fl in Ar file
 The input file to read from,
 or standard input if not specified.
+This option cannot be used with
+.Fl new .
 .It Fl inform Cm der | net | pem
 The input format.
 Normally, the command will expect an X.509 certificate,
 but this can change if other options such as
+.Fl in
+or
 .Fl req
 are present.
 .It Fl md5 | sha1
@@ -6340,8 +6026,6 @@ The key password source.
 .Pp
 The following are x509 display options:
 .Bl -tag -width "XXXX"
-.It Fl C
-Output the certificate in the form of a C source file.
 .It Fl certopt Ar option
 Customise the output format used with
 .Fl text ,
@@ -6419,13 +6103,23 @@ using the older algorithm as used by
 versions before 1.0.0.
 .It Fl modulus
 Print the value of the modulus of the public key contained in the certificate.
+.It Fl multivalue-rdn
+This option causes the
+.Fl subj
+argument to be interpreted with full support for multivalued RDNs,
+for example
+.Qq "/DC=org/DC=OpenSSL/DC=users/UID=123456+CN=John Doe" .
+If
+.Fl multivalue-rdn
+is not used, the UID value is set to
+.Qq "123456+CN=John Doe" .
 .It Fl nameopt Ar option
 Customise how the subject or issuer names are displayed,
 either using a list of comma-separated options or by specifying
 .Fl nameopt
 multiple times.
 The default behaviour is to use the
-.Cm oneline
+.Cm compat
 format.
 The options,
 which can be preceded by a dash to turn them off,
@@ -6507,7 +6201,7 @@ A one line format which is more readable than
 .Cm RFC2253 .
 Equivalent to
 .Cm esc_2253 , esc_ctrl , esc_msb , utf8 ,
-.Cm dump_nostr , dump_der , use_quote , sep_comma_plus_spc ,
+.Cm dump_nostr , dump_der , use_quote , sep_comma_plus_space ,
 .Cm space_eq ,
 and
 .Cm sname .
@@ -6531,6 +6225,9 @@ uses a linefeed character for the RDN separator and a spaced
 .Sq +
 for the AVA separator,
 as well as indenting the fields by four characters.
+If no field separator is specified then
+.Cm sep_comma_plus_space
+is used by default.
 .It Cm show_type
 Show the type of the ASN.1 character string.
 The type precedes the field contents.
@@ -6848,12 +6545,39 @@ which contains the section to use.
 .It Fl extfile Ar file
 File containing certificate extensions to use.
 If not specified, no extensions are added to the certificate.
+.It Fl force_pubkey Ar key
+Set the public key of the certificate to the public key contained in
+.Ar key .
 .It Fl keyform Cm der | pem
-The format of the private key file used in the
+The format of the key file used in the
+.Fl force_pubkey
+and
 .Fl signkey
-option.
+options.
+.It Fl new
+Generate a new certificate using the subject given by
+.Fl set_subject
+and signed by
+.Fl signkey .
+If no public key is provided with
+.Fl force_pubkey ,
+the resulting certificate is self-signed.
+This option cannot be used with
+.Fl in
+or
+.Fl req .
 .It Fl req
 Expect a certificate request on input instead of a certificate.
+This option cannot be used with
+.Fl new .
+.It Fl set_issuer Ar name
+The issuer name to use.
+.Ar name
+must be formatted as /type0=value0/type1=value1/type2=...;
+characters may be escaped by
+.Sq \e
+(backslash);
+no spaces are skipped.
 .It Fl set_serial Ar n
 The serial number to use.
 This option can be used with either the
@@ -6872,6 +6596,14 @@ options) is not used.
 The serial number can be decimal or hex (if preceded by
 .Sq 0x ) .
 Negative serial numbers can also be specified but their use is not recommended.
+.It Fl set_subject Ar name
+The subject name to use.
+.Ar name
+must be formatted as /type0=value0/type1=value1/type2=...;
+characters may be escaped by
+.Sq \e
+(backslash);
+no spaces are skipped.
 .It Fl signkey Ar file
 Self-sign
 .Ar file
@@ -6892,6 +6624,10 @@ option is supplied.
 If the input is a certificate request, a self-signed certificate
 is created using the supplied private key using the subject name in
 the request.
+.It Fl utf8
+Interpret field values read from a terminal or obtained from a configuration
+file as UTF-8 strings.
+By default, they are interpreted as ASCII.
 .It Fl x509toreq
 Convert a certificate into a certificate request.
 The

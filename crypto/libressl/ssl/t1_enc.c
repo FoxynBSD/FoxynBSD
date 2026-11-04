@@ -1,4 +1,4 @@
-/* $OpenBSD: t1_enc.c,v 1.154 2022/02/05 14:54:10 jsing Exp $ */
+/* $OpenBSD: t1_enc.c,v 1.159 2026/04/03 13:11:00 jsing Exp $ */
 /* Copyright (C) 1995-1998 Eric Young (eay@cryptsoft.com)
  * All rights reserved.
  *
@@ -143,8 +143,8 @@
 #include <openssl/md5.h>
 #include <openssl/opensslconf.h>
 
-#include "dtls_locl.h"
-#include "ssl_locl.h"
+#include "dtls_local.h"
+#include "ssl_local.h"
 
 void
 tls1_cleanup_key_block(SSL *s)
@@ -311,13 +311,13 @@ tls1_change_cipher_state(SSL *s, int is_write)
 	}
 
 	if (!is_write) {
-		if (!tls12_record_layer_change_read_cipher_state(s->internal->rl,
+		if (!tls12_record_layer_change_read_cipher_state(s->rl,
 		    &mac_key, &key, &iv))
 			goto err;
 		if (SSL_is_dtls(s))
 			dtls1_reset_read_seq_numbers(s);
 	} else {
-		if (!tls12_record_layer_change_write_cipher_state(s->internal->rl,
+		if (!tls12_record_layer_change_write_cipher_state(s->rl,
 		    &mac_key, &key, &iv))
 			goto err;
 	}
@@ -357,15 +357,17 @@ tls1_setup_key_block(SSL *s)
 	if (s->s3->hs.tls12.key_block != NULL)
 		return (1);
 
-	if (s->session->cipher &&
-	    (s->session->cipher->algorithm_mac & SSL_AEAD)) {
-		if (!ssl_cipher_get_evp_aead(s->session, &aead)) {
+	if (s->s3->hs.cipher == NULL)
+		return (0);
+
+	if ((s->s3->hs.cipher->algorithm_mac & SSL_AEAD) != 0) {
+		if (!ssl_cipher_get_evp_aead(s, &aead)) {
 			SSLerror(s, SSL_R_CIPHER_OR_HASH_UNAVAILABLE);
 			return (0);
 		}
 	} else {
 		/* XXX - mac_type and mac_secret_size are now unused. */
-		if (!ssl_cipher_get_evp(s->session, &cipher, &mac_hash,
+		if (!ssl_cipher_get_evp(s, &cipher, &mac_hash,
 		    &mac_type, &mac_secret_size)) {
 			SSLerror(s, SSL_R_CIPHER_OR_HASH_UNAVAILABLE);
 			return (0);
@@ -375,8 +377,8 @@ tls1_setup_key_block(SSL *s)
 	if (!ssl_get_handshake_evp_md(s, &handshake_hash))
 		return (0);
 
-	tls12_record_layer_set_aead(s->internal->rl, aead);
-	tls12_record_layer_set_cipher_hash(s->internal->rl, cipher,
+	tls12_record_layer_set_aead(s->rl, aead);
+	tls12_record_layer_set_cipher_hash(s->rl, cipher,
 	    handshake_hash, mac_hash);
 
 	if ((key_block = tls12_key_block_new()) == NULL)
@@ -387,109 +389,10 @@ tls1_setup_key_block(SSL *s)
 	s->s3->hs.tls12.key_block = key_block;
 	key_block = NULL;
 
-	if (!(s->internal->options & SSL_OP_DONT_INSERT_EMPTY_FRAGMENTS) &&
-	    s->method->version <= TLS1_VERSION) {
-		/*
-		 * Enable vulnerability countermeasure for CBC ciphers with
-		 * known-IV problem (http://www.openssl.org/~bodo/tls-cbc.txt)
-		 */
-		s->s3->need_empty_fragments = 1;
-
-		if (s->session->cipher != NULL) {
-			if (s->session->cipher->algorithm_enc == SSL_eNULL)
-				s->s3->need_empty_fragments = 0;
-
-#ifndef OPENSSL_NO_RC4
-			if (s->session->cipher->algorithm_enc == SSL_RC4)
-				s->s3->need_empty_fragments = 0;
-#endif
-		}
-	}
-
 	ret = 1;
 
  err:
 	tls12_key_block_free(key_block);
 
 	return (ret);
-}
-
-int
-tls1_export_keying_material(SSL *s, unsigned char *out, size_t olen,
-    const char *label, size_t llen, const unsigned char *context,
-    size_t contextlen, int use_context)
-{
-	unsigned char *val = NULL;
-	size_t vallen, currentvalpos;
-	int rv;
-
-	if (!SSL_is_init_finished(s)) {
-		SSLerror(s, SSL_R_BAD_STATE);
-		return 0;
-	}
-
-	/* construct PRF arguments
-	 * we construct the PRF argument ourself rather than passing separate
-	 * values into the TLS PRF to ensure that the concatenation of values
-	 * does not create a prohibited label.
-	 */
-	vallen = llen + SSL3_RANDOM_SIZE * 2;
-	if (use_context) {
-		vallen += 2 + contextlen;
-	}
-
-	val = malloc(vallen);
-	if (val == NULL)
-		goto err2;
-	currentvalpos = 0;
-	memcpy(val + currentvalpos, (unsigned char *) label, llen);
-	currentvalpos += llen;
-	memcpy(val + currentvalpos, s->s3->client_random, SSL3_RANDOM_SIZE);
-	currentvalpos += SSL3_RANDOM_SIZE;
-	memcpy(val + currentvalpos, s->s3->server_random, SSL3_RANDOM_SIZE);
-	currentvalpos += SSL3_RANDOM_SIZE;
-
-	if (use_context) {
-		val[currentvalpos] = (contextlen >> 8) & 0xff;
-		currentvalpos++;
-		val[currentvalpos] = contextlen & 0xff;
-		currentvalpos++;
-		if ((contextlen > 0) || (context != NULL)) {
-			memcpy(val + currentvalpos, context, contextlen);
-		}
-	}
-
-	/* disallow prohibited labels
-	 * note that SSL3_RANDOM_SIZE > max(prohibited label len) =
-	 * 15, so size of val > max(prohibited label len) = 15 and the
-	 * comparisons won't have buffer overflow
-	 */
-	if (memcmp(val, TLS_MD_CLIENT_FINISH_CONST,
-	    TLS_MD_CLIENT_FINISH_CONST_SIZE) == 0)
-		goto err1;
-	if (memcmp(val, TLS_MD_SERVER_FINISH_CONST,
-	    TLS_MD_SERVER_FINISH_CONST_SIZE) == 0)
-		goto err1;
-	if (memcmp(val, TLS_MD_MASTER_SECRET_CONST,
-	    TLS_MD_MASTER_SECRET_CONST_SIZE) == 0)
-		goto err1;
-	if (memcmp(val, TLS_MD_KEY_EXPANSION_CONST,
-	    TLS_MD_KEY_EXPANSION_CONST_SIZE) == 0)
-		goto err1;
-
-	rv = tls1_PRF(s, s->session->master_key, s->session->master_key_length,
-	    val, vallen, NULL, 0, NULL, 0, NULL, 0, NULL, 0, out, olen);
-
-	goto ret;
- err1:
-	SSLerror(s, SSL_R_TLS_ILLEGAL_EXPORTER_LABEL);
-	rv = 0;
-	goto ret;
- err2:
-	SSLerror(s, ERR_R_MALLOC_FAILURE);
-	rv = 0;
- ret:
-	free(val);
-
-	return (rv);
 }

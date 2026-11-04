@@ -1,4 +1,4 @@
-/* $OpenBSD: a_pubkey.c,v 1.3 2021/12/25 13:17:48 jsing Exp $ */
+/* $OpenBSD: a_pubkey.c,v 1.8 2025/05/10 05:54:38 tb Exp $ */
 /* Copyright (C) 1995-1998 Eric Young (eay@cryptsoft.com)
  * All rights reserved.
  *
@@ -62,7 +62,6 @@
 
 #include <openssl/asn1.h>
 #include <openssl/bn.h>
-#include <openssl/err.h>
 #include <openssl/evp.h>
 #include <openssl/objects.h>
 
@@ -76,7 +75,8 @@
 #include <openssl/rsa.h>
 #endif
 
-#include "evp_locl.h"
+#include "err_local.h"
+#include "evp_local.h"
 
 EVP_PKEY *
 d2i_PublicKey(int type, EVP_PKEY **a, const unsigned char **pp, long length)
@@ -136,6 +136,7 @@ d2i_PublicKey(int type, EVP_PKEY **a, const unsigned char **pp, long length)
 		EVP_PKEY_free(ret);
 	return (NULL);
 }
+LCRYPTO_ALIAS(d2i_PublicKey);
 
 int
 i2d_PublicKey(EVP_PKEY *a, unsigned char **pp)
@@ -158,3 +159,4 @@ i2d_PublicKey(EVP_PKEY *a, unsigned char **pp)
 		return (-1);
 	}
 }
+LCRYPTO_ALIAS(i2d_PublicKey);

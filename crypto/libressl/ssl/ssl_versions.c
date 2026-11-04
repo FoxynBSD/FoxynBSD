@@ -1,4 +1,4 @@
-/* $OpenBSD: ssl_versions.c,v 1.24 2022/09/11 18:13:30 jsing Exp $ */
+/* $OpenBSD: ssl_versions.c,v 1.27 2023/07/02 17:21:32 beck Exp $ */
 /*
  * Copyright (c) 2016, 2017 Joel Sing <jsing@openbsd.org>
  *
@@ -15,7 +15,7 @@
  * OR IN CONNECTION WITH THE USE OR PERFORMANCE OF THIS SOFTWARE.
  */
 
-#include "ssl_locl.h"
+#include "ssl_local.h"
 
 static uint16_t
 ssl_dtls_to_tls_version(uint16_t dtls_ver)
@@ -140,21 +140,17 @@ ssl_enabled_tls_version_range(SSL *s, uint16_t *min_ver, uint16_t *max_ver)
 
 	min_version = 0;
 	max_version = TLS1_3_VERSION;
-	options = s->internal->options;
+	options = s->options;
 
 	if (SSL_is_dtls(s)) {
 		options = 0;
-		if (s->internal->options & SSL_OP_NO_DTLSv1)
+		if (s->options & SSL_OP_NO_DTLSv1)
 			options |= SSL_OP_NO_TLSv1 | SSL_OP_NO_TLSv1_1;
-		if (s->internal->options & SSL_OP_NO_DTLSv1_2)
+		if (s->options & SSL_OP_NO_DTLSv1_2)
 			options |= SSL_OP_NO_TLSv1 | SSL_OP_NO_TLSv1_2;
 	}
 
-	if ((options & SSL_OP_NO_TLSv1) == 0)
-		min_version = TLS1_VERSION;
-	else if ((options & SSL_OP_NO_TLSv1_1) == 0)
-		min_version = TLS1_1_VERSION;
-	else if ((options & SSL_OP_NO_TLSv1_2) == 0)
+	if ((options & SSL_OP_NO_TLSv1_2) == 0)
 		min_version = TLS1_2_VERSION;
 	else if ((options & SSL_OP_NO_TLSv1_3) == 0)
 		min_version = TLS1_3_VERSION;
@@ -162,10 +158,6 @@ ssl_enabled_tls_version_range(SSL *s, uint16_t *min_ver, uint16_t *max_ver)
 	if ((options & SSL_OP_NO_TLSv1_3) && min_version < TLS1_3_VERSION)
 		max_version = TLS1_2_VERSION;
 	if ((options & SSL_OP_NO_TLSv1_2) && min_version < TLS1_2_VERSION)
-		max_version = TLS1_1_VERSION;
-	if ((options & SSL_OP_NO_TLSv1_1) && min_version < TLS1_1_VERSION)
-		max_version = TLS1_VERSION;
-	if ((options & SSL_OP_NO_TLSv1) && min_version < TLS1_VERSION)
 		max_version = 0;
 
 	/* Everything has been disabled... */
@@ -174,7 +166,7 @@ ssl_enabled_tls_version_range(SSL *s, uint16_t *min_ver, uint16_t *max_ver)
 
 	/* Limit to configured version range. */
 	if (!ssl_clamp_tls_version_range(&min_version, &max_version,
-	    s->internal->min_tls_version, s->internal->max_tls_version))
+	    s->min_tls_version, s->max_tls_version))
 		return 0;
 
 	/* QUIC requires a minimum of TLSv1.3. */

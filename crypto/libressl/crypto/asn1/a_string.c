@@ -1,4 +1,4 @@
-/* $OpenBSD: a_string.c,v 1.11 2022/05/20 08:04:21 tb Exp $ */
+/* $OpenBSD: a_string.c,v 1.18 2025/05/10 05:54:38 tb Exp $ */
 /* Copyright (C) 1995-1998 Eric Young (eay@cryptsoft.com)
  * All rights reserved.
  *
@@ -61,15 +61,16 @@
 #include <string.h>
 
 #include <openssl/asn1.h>
-#include <openssl/err.h>
 
-#include "asn1_locl.h"
+#include "asn1_local.h"
+#include "err_local.h"
 
 ASN1_STRING *
 ASN1_STRING_new(void)
 {
 	return ASN1_STRING_type_new(V_ASN1_OCTET_STRING);
 }
+LCRYPTO_ALIAS(ASN1_STRING_new);
 
 ASN1_STRING *
 ASN1_STRING_type_new(int type)
@@ -84,6 +85,7 @@ ASN1_STRING_type_new(int type)
 
 	return astr;
 }
+LCRYPTO_ALIAS(ASN1_STRING_type_new);
 
 static void
 ASN1_STRING_clear(ASN1_STRING *astr)
@@ -106,6 +108,7 @@ ASN1_STRING_free(ASN1_STRING *astr)
 
 	free(astr);
 }
+LCRYPTO_ALIAS(ASN1_STRING_free);
 
 int
 ASN1_STRING_cmp(const ASN1_STRING *a, const ASN1_STRING *b)
@@ -116,11 +119,14 @@ ASN1_STRING_cmp(const ASN1_STRING *a, const ASN1_STRING *b)
 		return -1;
 	if ((cmp = (a->length - b->length)) != 0)
 		return cmp;
-	if ((cmp = memcmp(a->data, b->data, a->length)) != 0)
-		return cmp;
+	if (a->length != 0) {
+		if ((cmp = memcmp(a->data, b->data, a->length)) != 0)
+			return cmp;
+	}
 
-	return (a->type - b->type);
+	return a->type - b->type;
 }
+LCRYPTO_ALIAS(ASN1_STRING_cmp);
 
 int
 ASN1_STRING_copy(ASN1_STRING *dst, const ASN1_STRING *src)
@@ -136,6 +142,7 @@ ASN1_STRING_copy(ASN1_STRING *dst, const ASN1_STRING *src)
 
 	return 1;
 }
+LCRYPTO_ALIAS(ASN1_STRING_copy);
 
 ASN1_STRING *
 ASN1_STRING_dup(const ASN1_STRING *src)
@@ -153,6 +160,7 @@ ASN1_STRING_dup(const ASN1_STRING *src)
 	}
 	return astr;
 }
+LCRYPTO_ALIAS(ASN1_STRING_dup);
 
 int
 ASN1_STRING_set(ASN1_STRING *astr, const void *_data, int len)
@@ -178,7 +186,7 @@ ASN1_STRING_set(ASN1_STRING *astr, const void *_data, int len)
 
 	if ((astr->data = calloc(1, len + 1)) == NULL) {
 		ASN1error(ERR_R_MALLOC_FAILURE);
-		return (0);
+		return 0;
 	}
 	astr->length = len;
 
@@ -189,6 +197,7 @@ ASN1_STRING_set(ASN1_STRING *astr, const void *_data, int len)
 
 	return 1;
 }
+LCRYPTO_ALIAS(ASN1_STRING_set);
 
 void
 ASN1_STRING_set0(ASN1_STRING *astr, void *data, int len)
@@ -198,18 +207,14 @@ ASN1_STRING_set0(ASN1_STRING *astr, void *data, int len)
 	astr->data = data;
 	astr->length = len;
 }
-
-void
-asn1_add_error(const unsigned char *address, int offset)
-{
-	ERR_asprintf_error_data("offset=%d", offset);
-}
+LCRYPTO_ALIAS(ASN1_STRING_set0);
 
 int
 ASN1_STRING_length(const ASN1_STRING *astr)
 {
 	return astr->length;
 }
+LCRYPTO_ALIAS(ASN1_STRING_length);
 
 void
 ASN1_STRING_length_set(ASN1_STRING *astr, int len)
@@ -217,24 +222,28 @@ ASN1_STRING_length_set(ASN1_STRING *astr, int len)
 	/* This is dangerous and unfixable. */
 	astr->length = len;
 }
+LCRYPTO_ALIAS(ASN1_STRING_length_set);
 
 int
 ASN1_STRING_type(const ASN1_STRING *astr)
 {
 	return astr->type;
 }
+LCRYPTO_ALIAS(ASN1_STRING_type);
 
 unsigned char *
 ASN1_STRING_data(ASN1_STRING *astr)
 {
 	return astr->data;
 }
+LCRYPTO_ALIAS(ASN1_STRING_data);
 
 const unsigned char *
 ASN1_STRING_get0_data(const ASN1_STRING *astr)
 {
 	return astr->data;
 }
+LCRYPTO_ALIAS(ASN1_STRING_get0_data);
 
 int
 ASN1_STRING_print(BIO *bp, const ASN1_STRING *astr)
@@ -268,6 +277,7 @@ ASN1_STRING_print(BIO *bp, const ASN1_STRING *astr)
 
 	return 1;
 }
+LCRYPTO_ALIAS(ASN1_STRING_print);
 
 /*
  * Utility function: convert any string type to UTF8, returns number of bytes
@@ -310,6 +320,7 @@ ASN1_STRING_to_UTF8(unsigned char **out, const ASN1_STRING *in)
 
 	return ret;
 }
+LCRYPTO_ALIAS(ASN1_STRING_to_UTF8);
 
 int
 i2a_ASN1_STRING(BIO *bp, const ASN1_STRING *astr, int type)
@@ -344,6 +355,7 @@ i2a_ASN1_STRING(BIO *bp, const ASN1_STRING *astr, int type)
  err:
 	return -1;
 }
+LCRYPTO_ALIAS(i2a_ASN1_STRING);
 
 int
 a2i_ASN1_STRING(BIO *bp, ASN1_STRING *astr, char *buf, int size)
@@ -435,3 +447,4 @@ a2i_ASN1_STRING(BIO *bp, ASN1_STRING *astr, char *buf, int size)
 
 	return ret;
 }
+LCRYPTO_ALIAS(a2i_ASN1_STRING);

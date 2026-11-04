@@ -1,4 +1,4 @@
-/* $OpenBSD: m_md5_sha1.c,v 1.4 2022/01/14 08:38:06 tb Exp $ */
+/* $OpenBSD: m_md5_sha1.c,v 1.9 2024/04/09 13:52:41 beck Exp $ */
 /*
  * Copyright (c) 2017 Joel Sing <jsing@openbsd.org>
  *
@@ -24,7 +24,7 @@
 #include <openssl/rsa.h>
 #endif
 
-#include "evp_locl.h"
+#include "evp_local.h"
 
 struct md5_sha1_ctx {
 	MD5_CTX md5;
@@ -44,7 +44,7 @@ md5_sha1_init(EVP_MD_CTX *ctx)
 	return 1;
 }
 
-static int 
+static int
 md5_sha1_update(EVP_MD_CTX *ctx, const void *data, size_t count)
 {
 	struct md5_sha1_ctx *mdctx = ctx->md_data;
@@ -87,3 +87,4 @@ EVP_md5_sha1(void)
 {
 	return &md5_sha1_md;
 }
+LCRYPTO_ALIAS(EVP_md5_sha1);

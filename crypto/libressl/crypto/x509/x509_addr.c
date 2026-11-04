@@ -1,4 +1,4 @@
-/*	$OpenBSD: x509_addr.c,v 1.83 2022/05/25 17:10:30 tb Exp $ */
+/*	$OpenBSD: x509_addr.c,v 1.94 2025/05/10 05:54:39 tb Exp $ */
 /*
  * Contributed to the OpenSSL Project by the American Registry for
  * Internet Numbers ("ARIN").
@@ -69,13 +69,13 @@
 #include <openssl/asn1t.h>
 #include <openssl/buffer.h>
 #include <openssl/conf.h>
-#include <openssl/err.h>
 #include <openssl/x509.h>
 #include <openssl/x509v3.h>
 
-#include "asn1_locl.h"
+#include "asn1_local.h"
 #include "bytestring.h"
-#include "x509_lcl.h"
+#include "err_local.h"
+#include "x509_local.h"
 
 #ifndef OPENSSL_NO_RFC3779
 
@@ -109,6 +109,7 @@ const ASN1_ITEM IPAddressRange_it = {
 	.size = sizeof(IPAddressRange),
 	.sname = "IPAddressRange",
 };
+LCRYPTO_ALIAS(IPAddressRange_it);
 
 static const ASN1_TEMPLATE IPAddressOrRange_ch_tt[] = {
 	{
@@ -136,6 +137,7 @@ const ASN1_ITEM IPAddressOrRange_it = {
 	.size = sizeof(IPAddressOrRange),
 	.sname = "IPAddressOrRange",
 };
+LCRYPTO_ALIAS(IPAddressOrRange_it);
 
 static const ASN1_TEMPLATE IPAddressChoice_ch_tt[] = {
 	{
@@ -163,6 +165,7 @@ const ASN1_ITEM IPAddressChoice_it = {
 	.size = sizeof(IPAddressChoice),
 	.sname = "IPAddressChoice",
 };
+LCRYPTO_ALIAS(IPAddressChoice_it);
 
 static const ASN1_TEMPLATE IPAddressFamily_seq_tt[] = {
 	{
@@ -190,6 +193,7 @@ const ASN1_ITEM IPAddressFamily_it = {
 	.size = sizeof(IPAddressFamily),
 	.sname = "IPAddressFamily",
 };
+LCRYPTO_ALIAS(IPAddressFamily_it);
 
 static const ASN1_TEMPLATE IPAddrBlocks_item_tt = {
 	.flags = ASN1_TFLG_SEQUENCE_OF,
@@ -215,24 +219,28 @@ d2i_IPAddressRange(IPAddressRange **a, const unsigned char **in, long len)
 	return (IPAddressRange *)ASN1_item_d2i((ASN1_VALUE **)a, in, len,
 	    &IPAddressRange_it);
 }
+LCRYPTO_ALIAS(d2i_IPAddressRange);
 
 int
 i2d_IPAddressRange(IPAddressRange *a, unsigned char **out)
 {
 	return ASN1_item_i2d((ASN1_VALUE *)a, out, &IPAddressRange_it);
 }
+LCRYPTO_ALIAS(i2d_IPAddressRange);
 
 IPAddressRange *
 IPAddressRange_new(void)
 {
 	return (IPAddressRange *)ASN1_item_new(&IPAddressRange_it);
 }
+LCRYPTO_ALIAS(IPAddressRange_new);
 
 void
 IPAddressRange_free(IPAddressRange *a)
 {
 	ASN1_item_free((ASN1_VALUE *)a, &IPAddressRange_it);
 }
+LCRYPTO_ALIAS(IPAddressRange_free);
 
 IPAddressOrRange *
 d2i_IPAddressOrRange(IPAddressOrRange **a, const unsigned char **in, long len)
@@ -240,24 +248,28 @@ d2i_IPAddressOrRange(IPAddressOrRange **a, const unsigned char **in, long len)
 	return (IPAddressOrRange *)ASN1_item_d2i((ASN1_VALUE **)a, in, len,
 	    &IPAddressOrRange_it);
 }
+LCRYPTO_ALIAS(d2i_IPAddressOrRange);
 
 int
 i2d_IPAddressOrRange(IPAddressOrRange *a, unsigned char **out)
 {
 	return ASN1_item_i2d((ASN1_VALUE *)a, out, &IPAddressOrRange_it);
 }
+LCRYPTO_ALIAS(i2d_IPAddressOrRange);
 
 IPAddressOrRange *
 IPAddressOrRange_new(void)
 {
 	return (IPAddressOrRange *)ASN1_item_new(&IPAddressOrRange_it);
 }
+LCRYPTO_ALIAS(IPAddressOrRange_new);
 
 void
 IPAddressOrRange_free(IPAddressOrRange *a)
 {
 	ASN1_item_free((ASN1_VALUE *)a, &IPAddressOrRange_it);
 }
+LCRYPTO_ALIAS(IPAddressOrRange_free);
 
 IPAddressChoice *
 d2i_IPAddressChoice(IPAddressChoice **a, const unsigned char **in, long len)
@@ -265,24 +277,28 @@ d2i_IPAddressChoice(IPAddressChoice **a, const unsigned char **in, long len)
 	return (IPAddressChoice *)ASN1_item_d2i((ASN1_VALUE **)a, in, len,
 	    &IPAddressChoice_it);
 }
+LCRYPTO_ALIAS(d2i_IPAddressChoice);
 
 int
 i2d_IPAddressChoice(IPAddressChoice *a, unsigned char **out)
 {
 	return ASN1_item_i2d((ASN1_VALUE *)a, out, &IPAddressChoice_it);
 }
+LCRYPTO_ALIAS(i2d_IPAddressChoice);
 
 IPAddressChoice *
 IPAddressChoice_new(void)
 {
 	return (IPAddressChoice *)ASN1_item_new(&IPAddressChoice_it);
 }
+LCRYPTO_ALIAS(IPAddressChoice_new);
 
 void
 IPAddressChoice_free(IPAddressChoice *a)
 {
 	ASN1_item_free((ASN1_VALUE *)a, &IPAddressChoice_it);
 }
+LCRYPTO_ALIAS(IPAddressChoice_free);
 
 IPAddressFamily *
 d2i_IPAddressFamily(IPAddressFamily **a, const unsigned char **in, long len)
@@ -290,24 +306,28 @@ d2i_IPAddressFamily(IPAddressFamily **a, const unsigned char **in, long len)
 	return (IPAddressFamily *)ASN1_item_d2i((ASN1_VALUE **)a, in, len,
 	    &IPAddressFamily_it);
 }
+LCRYPTO_ALIAS(d2i_IPAddressFamily);
 
 int
 i2d_IPAddressFamily(IPAddressFamily *a, unsigned char **out)
 {
 	return ASN1_item_i2d((ASN1_VALUE *)a, out, &IPAddressFamily_it);
 }
+LCRYPTO_ALIAS(i2d_IPAddressFamily);
 
 IPAddressFamily *
 IPAddressFamily_new(void)
 {
 	return (IPAddressFamily *)ASN1_item_new(&IPAddressFamily_it);
 }
+LCRYPTO_ALIAS(IPAddressFamily_new);
 
 void
 IPAddressFamily_free(IPAddressFamily *a)
 {
 	ASN1_item_free((ASN1_VALUE *)a, &IPAddressFamily_it);
 }
+LCRYPTO_ALIAS(IPAddressFamily_free);
 
 /*
  * Convenience accessors for IPAddressFamily.
@@ -372,14 +392,17 @@ IPAddressFamily_set_inheritance(IPAddressFamily *af)
  * What's the address length associated with this AFI?
  */
 static int
-length_from_afi(const unsigned afi)
+length_from_afi(const unsigned afi, int *length)
 {
 	switch (afi) {
 	case IANA_AFI_IPV4:
-		return 4;
+		*length = 4;
+		return 1;
 	case IANA_AFI_IPV6:
-		return 16;
+		*length = 16;
+		return 1;
 	default:
+		*length = 0;
 		return 0;
 	}
 }
@@ -397,9 +420,19 @@ IPAddressFamily_afi_safi(const IPAddressFamily *af, uint16_t *out_afi,
 	uint8_t safi = 0;
 	int got_safi = 0;
 
+	if (out_afi != NULL)
+		*out_afi = 0;
+	if (out_safi != NULL) {
+		*out_safi = 0;
+		*safi_is_set = 0;
+	}
+
 	CBS_init(&cbs, af->addressFamily->data, af->addressFamily->length);
 
 	if (!CBS_get_u16(&cbs, &afi))
+		return 0;
+
+	if (afi != IANA_AFI_IPV4 && afi != IANA_AFI_IPV6)
 		return 0;
 
 	/* Fetch the optional SAFI. */
@@ -448,9 +481,7 @@ IPAddressFamily_afi_length(const IPAddressFamily *af, int *out_length)
 	if (!IPAddressFamily_afi(af, &afi))
 		return 0;
 
-	*out_length = length_from_afi(afi);
-
-	return 1;
+	return length_from_afi(afi, out_length);
 }
 
 #define MINIMUM(a, b) (((a) < (b)) ? (a) : (b))
@@ -518,6 +549,7 @@ X509v3_addr_get_afi(const IPAddressFamily *af)
 
 	return afi;
 }
+LCRYPTO_ALIAS(X509v3_addr_get_afi);
 
 /*
  * Expand the bitstring form (RFC 3779, section 2.1.2) of an address into
@@ -855,16 +887,15 @@ make_addressPrefix(IPAddressOrRange **out_aor, uint8_t *addr, uint32_t afi,
     int prefix_len)
 {
 	IPAddressOrRange *aor = NULL;
-	int afi_len, max_len, num_bits, num_octets;
+	int afi_len, num_bits, num_octets;
 	uint8_t unused_bits;
 
 	if (prefix_len < 0)
 		goto err;
 
-	max_len = 16;
-	if ((afi_len = length_from_afi(afi)) > 0)
-		max_len = afi_len;
-	if (prefix_len > 8 * max_len)
+	if (!length_from_afi(afi, &afi_len))
+		goto err;
+	if (prefix_len > 8 * afi_len)
 		goto err;
 
 	num_octets = (prefix_len + 7) / 8;
@@ -1038,11 +1069,14 @@ make_IPAddressFamily(IPAddrBlocks *addr, const unsigned afi,
 	if (!CBB_init(&cbb, 0))
 		goto err;
 
-	/* XXX - should afi <= 65535 and *safi <= 255 be checked here? */
-
+	if (afi != IANA_AFI_IPV4 && afi != IANA_AFI_IPV6)
+		goto err;
 	if (!CBB_add_u16(&cbb, afi))
 		goto err;
+
 	if (safi != NULL) {
+		if (*safi > 255)
+			goto err;
 		if (!CBB_add_u8(&cbb, *safi))
 			goto err;
 	}
@@ -1093,6 +1127,7 @@ X509v3_addr_add_inherit(IPAddrBlocks *addr, const unsigned afi,
 
 	return IPAddressFamily_set_inheritance(af);
 }
+LCRYPTO_ALIAS(X509v3_addr_add_inherit);
 
 /*
  * Construct an IPAddressOrRange sequence, or return an existing one.
@@ -1156,6 +1191,7 @@ X509v3_addr_add_prefix(IPAddrBlocks *addr, const unsigned afi,
 
 	return 1;
 }
+LCRYPTO_ALIAS(X509v3_addr_add_prefix);
 
 /*
  * Add a range.
@@ -1171,7 +1207,8 @@ X509v3_addr_add_range(IPAddrBlocks *addr, const unsigned afi,
 	if ((aors = make_prefix_or_range(addr, afi, safi)) == NULL)
 		return 0;
 
-	length = length_from_afi(afi);
+	if (!length_from_afi(afi, &length))
+		return 0;
 
 	if (!make_addressRange(&aor, min, max, afi, length))
 		return 0;
@@ -1183,6 +1220,7 @@ X509v3_addr_add_range(IPAddrBlocks *addr, const unsigned afi,
 
 	return 1;
 }
+LCRYPTO_ALIAS(X509v3_addr_add_range);
 
 static int
 extract_min_max_bitstr(IPAddressOrRange *aor, ASN1_BIT_STRING **out_min,
@@ -1231,7 +1269,7 @@ X509v3_addr_get_range(IPAddressOrRange *aor, const unsigned afi,
 {
 	int afi_len;
 
-	if ((afi_len = length_from_afi(afi)) == 0)
+	if (!length_from_afi(afi, &afi_len))
 		return 0;
 
 	if (length < afi_len)
@@ -1242,6 +1280,7 @@ X509v3_addr_get_range(IPAddressOrRange *aor, const unsigned afi,
 
 	return afi_len;
 }
+LCRYPTO_ALIAS(X509v3_addr_get_range);
 
 /*
  * Check whether an IPAddrBLocks is in canonical form.
@@ -1360,6 +1399,7 @@ X509v3_addr_is_canonical(IPAddrBlocks *addr)
 	 */
 	return 1;
 }
+LCRYPTO_ALIAS(X509v3_addr_is_canonical);
 
 /*
  * Whack an IPAddressOrRanges into canonical form.
@@ -1372,7 +1412,8 @@ IPAddressOrRanges_canonize(IPAddressOrRanges *aors, const unsigned afi)
 	unsigned char b_min[ADDR_RAW_BUF_LEN], b_max[ADDR_RAW_BUF_LEN];
 	int i, j, length;
 
-	length = length_from_afi(afi);
+	if (!length_from_afi(afi, &length))
+		return 0;
 
 	/*
 	 * Sort the IPAddressOrRanges sequence.
@@ -1466,6 +1507,7 @@ X509v3_addr_canonize(IPAddrBlocks *addr)
 
 	return X509v3_addr_is_canonical(addr);
 }
+LCRYPTO_ALIAS(X509v3_addr_canonize);
 
 /*
  * v2i handler for the IPAddrBlocks extension.
@@ -1518,7 +1560,8 @@ v2i_IPAddrBlocks(const struct v3_ext_method *method, struct v3_ext_ctx *ctx,
 			break;
 		}
 
-		length = length_from_afi(afi);
+		if (!length_from_afi(afi, &length))
+			goto err;
 
 		/*
 		 * Handle SAFI, if any, and strdup() so we can null-terminate
@@ -1628,7 +1671,7 @@ v2i_IPAddrBlocks(const struct v3_ext_method *method, struct v3_ext_ctx *ctx,
 				X509V3_conf_err(val);
 				goto err;
 			}
-			if (memcmp(min, max, length_from_afi(afi)) > 0) {
+			if (memcmp(min, max, length) > 0) {
 				X509V3error(X509V3_R_EXTENSION_VALUE_ERROR);
 				X509V3_conf_err(val);
 				goto err;
@@ -1671,7 +1714,7 @@ v2i_IPAddrBlocks(const struct v3_ext_method *method, struct v3_ext_ctx *ctx,
 /*
  * OpenSSL dispatch
  */
-const X509V3_EXT_METHOD v3_addr = {
+static const X509V3_EXT_METHOD x509v3_ext_sbgp_ipAddrBlock = {
 	.ext_nid = NID_sbgp_ipAddrBlock,
 	.ext_flags = 0,
 	.it = &IPAddrBlocks_it,
@@ -1687,6 +1730,12 @@ const X509V3_EXT_METHOD v3_addr = {
 	.r2i = NULL,
 	.usr_data = NULL,
 };
+
+const X509V3_EXT_METHOD *
+x509v3_ext_method_sbgp_ipAddrBlock(void)
+{
+	return &x509v3_ext_sbgp_ipAddrBlock;
+}
 
 /*
  * Figure out whether extension uses inheritance.
@@ -1709,6 +1758,7 @@ X509v3_addr_inherits(IPAddrBlocks *addr)
 
 	return 0;
 }
+LCRYPTO_ALIAS(X509v3_addr_inherits);
 
 /*
  * Figure out whether parent contains child.
@@ -1792,6 +1842,7 @@ X509v3_addr_subset(IPAddrBlocks *child, IPAddrBlocks *parent)
 	}
 	return 1;
 }
+LCRYPTO_ALIAS(X509v3_addr_subset);
 
 static int
 verify_error(X509_STORE_CTX *ctx, X509 *cert, int error, int depth)
@@ -1845,8 +1896,11 @@ addr_validate_path_internal(X509_STORE_CTX *ctx, STACK_OF(X509) *chain,
 	if (ext == NULL) {
 		depth = 0;
 		cert = sk_X509_value(chain, depth);
-		if ((X509_get_extension_flags(cert) & EXFLAG_INVALID) != 0)
-			goto done;
+		if ((X509_get_extension_flags(cert) & EXFLAG_INVALID) != 0) {
+			if ((ret = verify_error(ctx, cert,
+			    X509_V_ERR_INVALID_EXTENSION, depth)) == 0)
+				goto done;
+		}
 		if ((ext = cert->rfc3779_addr) == NULL)
 			goto done;
 	} else if (!X509v3_addr_is_canonical(ext)) {
@@ -1997,6 +2051,7 @@ X509v3_addr_validate_path(X509_STORE_CTX *ctx)
 	}
 	return addr_validate_path_internal(ctx, ctx->chain, NULL);
 }
+LCRYPTO_ALIAS(X509v3_addr_validate_path);
 
 /*
  * RFC 3779 2.3 path validation of an extension.
@@ -2014,5 +2069,6 @@ X509v3_addr_validate_resource_set(STACK_OF(X509) *chain, IPAddrBlocks *ext,
 		return 0;
 	return addr_validate_path_internal(NULL, chain, ext);
 }
+LCRYPTO_ALIAS(X509v3_addr_validate_resource_set);
 
 #endif /* OPENSSL_NO_RFC3779 */

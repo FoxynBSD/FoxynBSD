@@ -1,4 +1,4 @@
-/* $OpenBSD: x509_lu.c,v 1.55 2022/01/14 07:53:45 tb Exp $ */
+/* $OpenBSD: x509_lu.c,v 1.68 2025/05/10 05:54:39 tb Exp $ */
 /* Copyright (C) 1995-1998 Eric Young (eay@cryptsoft.com)
  * All rights reserved.
  *
@@ -59,14 +59,17 @@
 #include <stdio.h>
 #include <string.h>
 
-#include <openssl/err.h>
 #include <openssl/lhash.h>
 #include <openssl/x509.h>
 #include <openssl/x509v3.h>
-#include "x509_lcl.h"
 
-X509_LOOKUP *
-X509_LOOKUP_new(X509_LOOKUP_METHOD *method)
+#include "err_local.h"
+#include "x509_local.h"
+
+static int X509_OBJECT_up_ref_count(X509_OBJECT *a);
+
+static X509_LOOKUP *
+X509_LOOKUP_new(const X509_LOOKUP_METHOD *method)
 {
 	X509_LOOKUP *lu;
 
@@ -94,26 +97,7 @@ X509_LOOKUP_free(X509_LOOKUP *ctx)
 		ctx->method->free(ctx);
 	free(ctx);
 }
-
-int
-X509_LOOKUP_init(X509_LOOKUP *ctx)
-{
-	if (ctx->method == NULL)
-		return 0;
-	if (ctx->method->init == NULL)
-		return 1;
-	return ctx->method->init(ctx);
-}
-
-int
-X509_LOOKUP_shutdown(X509_LOOKUP *ctx)
-{
-	if (ctx->method == NULL)
-		return 0;
-	if (ctx->method->shutdown == NULL)
-		return 1;
-	return ctx->method->shutdown(ctx);
-}
+LCRYPTO_ALIAS(X509_LOOKUP_free);
 
 int
 X509_LOOKUP_ctrl(X509_LOOKUP *ctx, int cmd, const char *argc, long argl,
@@ -125,41 +109,15 @@ X509_LOOKUP_ctrl(X509_LOOKUP *ctx, int cmd, const char *argc, long argl,
 		return 1;
 	return ctx->method->ctrl(ctx, cmd, argc, argl, ret);
 }
+LCRYPTO_ALIAS(X509_LOOKUP_ctrl);
 
-int
+static int
 X509_LOOKUP_by_subject(X509_LOOKUP *ctx, X509_LOOKUP_TYPE type, X509_NAME *name,
     X509_OBJECT *ret)
 {
 	if (ctx->method == NULL || ctx->method->get_by_subject == NULL)
 		return 0;
 	return ctx->method->get_by_subject(ctx, type, name, ret);
-}
-
-int
-X509_LOOKUP_by_issuer_serial(X509_LOOKUP *ctx, X509_LOOKUP_TYPE type,
-    X509_NAME *name, ASN1_INTEGER *serial, X509_OBJECT *ret)
-{
-	if (ctx->method == NULL || ctx->method->get_by_issuer_serial == NULL)
-		return 0;
-	return ctx->method->get_by_issuer_serial(ctx, type, name, serial, ret);
-}
-
-int
-X509_LOOKUP_by_fingerprint(X509_LOOKUP *ctx, X509_LOOKUP_TYPE type,
-    const unsigned char *bytes, int len, X509_OBJECT *ret)
-{
-	if (ctx->method == NULL || ctx->method->get_by_fingerprint == NULL)
-		return 0;
-	return ctx->method->get_by_fingerprint(ctx, type, bytes, len, ret);
-}
-
-int
-X509_LOOKUP_by_alias(X509_LOOKUP *ctx, X509_LOOKUP_TYPE type, const char *str,
-    int len, X509_OBJECT *ret)
-{
-	if (ctx->method == NULL || ctx->method->get_by_alias == NULL)
-		return 0;
-	return ctx->method->get_by_alias(ctx, type, str, len, ret);
 }
 
 static int
@@ -208,6 +166,7 @@ X509_STORE_new(void)
 
 	return NULL;
 }
+LCRYPTO_ALIAS(X509_STORE_new);
 
 X509_OBJECT *
 X509_OBJECT_new(void)
@@ -223,6 +182,7 @@ X509_OBJECT_new(void)
 
 	return obj;
 }
+LCRYPTO_ALIAS(X509_OBJECT_new);
 
 void
 X509_OBJECT_free(X509_OBJECT *a)
@@ -241,42 +201,53 @@ X509_OBJECT_free(X509_OBJECT *a)
 
 	free(a);
 }
+LCRYPTO_ALIAS(X509_OBJECT_free);
+
+static X509_OBJECT *
+x509_object_dup(const X509_OBJECT *obj)
+{
+	X509_OBJECT *copy;
+
+	if ((copy = X509_OBJECT_new()) == NULL) {
+		X509error(ERR_R_MALLOC_FAILURE);
+		return NULL;
+	}
+
+	copy->type = obj->type;
+	copy->data = obj->data;
+
+	X509_OBJECT_up_ref_count(copy);
+
+	return copy;
+}
 
 void
 X509_STORE_free(X509_STORE *store)
 {
-	STACK_OF(X509_LOOKUP) *sk;
-	X509_LOOKUP *lu;
-	int i;
-
 	if (store == NULL)
 		return;
 
 	if (CRYPTO_add(&store->references, -1, CRYPTO_LOCK_X509_STORE) > 0)
 		return;
 
-	sk = store->get_cert_methods;
-	for (i = 0; i < sk_X509_LOOKUP_num(sk); i++) {
-		lu = sk_X509_LOOKUP_value(sk, i);
-		X509_LOOKUP_shutdown(lu);
-		X509_LOOKUP_free(lu);
-	}
-	sk_X509_LOOKUP_free(sk);
+	sk_X509_LOOKUP_pop_free(store->get_cert_methods, X509_LOOKUP_free);
 	sk_X509_OBJECT_pop_free(store->objs, X509_OBJECT_free);
 
 	CRYPTO_free_ex_data(CRYPTO_EX_INDEX_X509_STORE, store, &store->ex_data);
 	X509_VERIFY_PARAM_free(store->param);
 	free(store);
 }
+LCRYPTO_ALIAS(X509_STORE_free);
 
 int
 X509_STORE_up_ref(X509_STORE *store)
 {
 	return CRYPTO_add(&store->references, 1, CRYPTO_LOCK_X509_STORE) > 1;
 }
+LCRYPTO_ALIAS(X509_STORE_up_ref);
 
 X509_LOOKUP *
-X509_STORE_add_lookup(X509_STORE *store, X509_LOOKUP_METHOD *method)
+X509_STORE_add_lookup(X509_STORE *store, const X509_LOOKUP_METHOD *method)
 {
 	STACK_OF(X509_LOOKUP) *sk;
 	X509_LOOKUP *lu;
@@ -302,6 +273,7 @@ X509_STORE_add_lookup(X509_STORE *store, X509_LOOKUP_METHOD *method)
 
 	return lu;
 }
+LCRYPTO_ALIAS(X509_STORE_add_lookup);
 
 X509_OBJECT *
 X509_STORE_CTX_get_obj_by_subject(X509_STORE_CTX *vs, X509_LOOKUP_TYPE type,
@@ -318,6 +290,7 @@ X509_STORE_CTX_get_obj_by_subject(X509_STORE_CTX *vs, X509_LOOKUP_TYPE type,
 
 	return obj;
 }
+LCRYPTO_ALIAS(X509_STORE_CTX_get_obj_by_subject);
 
 int
 X509_STORE_CTX_get_by_subject(X509_STORE_CTX *vs, X509_LOOKUP_TYPE type,
@@ -356,6 +329,7 @@ X509_STORE_CTX_get_by_subject(X509_STORE_CTX *vs, X509_LOOKUP_TYPE type,
 
 	return 1;
 }
+LCRYPTO_ALIAS(X509_STORE_CTX_get_by_subject);
 
 /* Add obj to the store. Takes ownership of obj. */
 static int
@@ -407,6 +381,7 @@ X509_STORE_add_cert(X509_STORE *store, X509 *x)
 
 	return X509_STORE_add_object(store, obj);
 }
+LCRYPTO_ALIAS(X509_STORE_add_cert);
 
 int
 X509_STORE_add_crl(X509_STORE *store, X509_CRL *x)
@@ -429,8 +404,9 @@ X509_STORE_add_crl(X509_STORE *store, X509_CRL *x)
 
 	return X509_STORE_add_object(store, obj);
 }
+LCRYPTO_ALIAS(X509_STORE_add_crl);
 
-int
+static int
 X509_OBJECT_up_ref_count(X509_OBJECT *a)
 {
 	switch (a->type) {
@@ -447,6 +423,7 @@ X509_OBJECT_get_type(const X509_OBJECT *a)
 {
 	return a->type;
 }
+LCRYPTO_ALIAS(X509_OBJECT_get_type);
 
 static int
 x509_object_idx_cnt(STACK_OF(X509_OBJECT) *h, X509_LOOKUP_TYPE type,
@@ -498,6 +475,7 @@ X509_OBJECT_idx_by_subject(STACK_OF(X509_OBJECT) *h, X509_LOOKUP_TYPE type,
 {
 	return x509_object_idx_cnt(h, type, name, NULL);
 }
+LCRYPTO_ALIAS(X509_OBJECT_idx_by_subject);
 
 X509_OBJECT *
 X509_OBJECT_retrieve_by_subject(STACK_OF(X509_OBJECT) *h, X509_LOOKUP_TYPE type,
@@ -510,6 +488,7 @@ X509_OBJECT_retrieve_by_subject(STACK_OF(X509_OBJECT) *h, X509_LOOKUP_TYPE type,
 		return NULL;
 	return sk_X509_OBJECT_value(h, idx);
 }
+LCRYPTO_ALIAS(X509_OBJECT_retrieve_by_subject);
 
 X509 *
 X509_OBJECT_get0_X509(const X509_OBJECT *xo)
@@ -518,6 +497,7 @@ X509_OBJECT_get0_X509(const X509_OBJECT *xo)
 		return xo->data.x509;
 	return NULL;
 }
+LCRYPTO_ALIAS(X509_OBJECT_get0_X509);
 
 X509_CRL *
 X509_OBJECT_get0_X509_CRL(X509_OBJECT *xo)
@@ -526,6 +506,7 @@ X509_OBJECT_get0_X509_CRL(X509_OBJECT *xo)
 		return xo->data.crl;
 	return NULL;
 }
+LCRYPTO_ALIAS(X509_OBJECT_get0_X509_CRL);
 
 static STACK_OF(X509) *
 X509_get1_certs_from_cache(X509_STORE *store, X509_NAME *name)
@@ -569,7 +550,7 @@ X509_get1_certs_from_cache(X509_STORE *store, X509_NAME *name)
 }
 
 STACK_OF(X509) *
-X509_STORE_get1_certs(X509_STORE_CTX *ctx, X509_NAME *name)
+X509_STORE_CTX_get1_certs(X509_STORE_CTX *ctx, X509_NAME *name)
 {
 	X509_STORE *store = ctx->store;
 	STACK_OF(X509) *sk;
@@ -589,9 +570,10 @@ X509_STORE_get1_certs(X509_STORE_CTX *ctx, X509_NAME *name)
 
 	return X509_get1_certs_from_cache(store, name);
 }
+LCRYPTO_ALIAS(X509_STORE_CTX_get1_certs);
 
 STACK_OF(X509_CRL) *
-X509_STORE_get1_crls(X509_STORE_CTX *ctx, X509_NAME *name)
+X509_STORE_CTX_get1_crls(X509_STORE_CTX *ctx, X509_NAME *name)
 {
 	X509_STORE *store = ctx->store;
 	STACK_OF(X509_CRL) *sk = NULL;
@@ -639,6 +621,7 @@ X509_STORE_get1_crls(X509_STORE_CTX *ctx, X509_NAME *name)
 	sk_X509_CRL_pop_free(sk, X509_CRL_free);
 	return NULL;
 }
+LCRYPTO_ALIAS(X509_STORE_CTX_get1_crls);
 
 X509_OBJECT *
 X509_OBJECT_retrieve_match(STACK_OF(X509_OBJECT) *h, X509_OBJECT *x)
@@ -667,6 +650,7 @@ X509_OBJECT_retrieve_match(STACK_OF(X509_OBJECT) *h, X509_OBJECT *x)
 	}
 	return NULL;
 }
+LCRYPTO_ALIAS(X509_OBJECT_retrieve_match);
 
 /* Try to get issuer certificate from store. Due to limitations
  * of the API this can only retrieve a single certificate matching
@@ -757,30 +741,82 @@ X509_STORE_CTX_get1_issuer(X509 **out_issuer, X509_STORE_CTX *ctx, X509 *x)
 	CRYPTO_w_unlock(CRYPTO_LOCK_X509_STORE);
 	return ret;
 }
+LCRYPTO_ALIAS(X509_STORE_CTX_get1_issuer);
 
 STACK_OF(X509_OBJECT) *
 X509_STORE_get0_objects(X509_STORE *xs)
 {
 	return xs->objs;
 }
+LCRYPTO_ALIAS(X509_STORE_get0_objects);
+
+static STACK_OF(X509_OBJECT) *
+sk_X509_OBJECT_deep_copy(const STACK_OF(X509_OBJECT) *objs)
+{
+	STACK_OF(X509_OBJECT) *copy = NULL;
+	X509_OBJECT *obj = NULL;
+	int i;
+
+	if ((copy = sk_X509_OBJECT_new(x509_object_cmp)) == NULL) {
+		X509error(ERR_R_MALLOC_FAILURE);
+		goto err;
+	}
+
+	for (i = 0; i < sk_X509_OBJECT_num(objs); i++) {
+		if ((obj = x509_object_dup(sk_X509_OBJECT_value(objs, i))) == NULL)
+			goto err;
+		if (!sk_X509_OBJECT_push(copy, obj))
+			goto err;
+		obj = NULL;
+	}
+
+	return copy;
+
+ err:
+	X509_OBJECT_free(obj);
+	sk_X509_OBJECT_pop_free(copy, X509_OBJECT_free);
+
+	return NULL;
+}
+
+STACK_OF(X509_OBJECT) *
+X509_STORE_get1_objects(X509_STORE *store)
+{
+	STACK_OF(X509_OBJECT) *objs;
+
+	if (store == NULL) {
+		X509error(ERR_R_PASSED_NULL_PARAMETER);
+		return NULL;
+	}
+
+	CRYPTO_r_lock(CRYPTO_LOCK_X509_STORE);
+	objs = sk_X509_OBJECT_deep_copy(store->objs);
+	CRYPTO_r_unlock(CRYPTO_LOCK_X509_STORE);
+
+	return objs;
+}
+LCRYPTO_ALIAS(X509_STORE_get1_objects);
 
 void *
 X509_STORE_get_ex_data(X509_STORE *xs, int idx)
 {
 	return CRYPTO_get_ex_data(&xs->ex_data, idx);
 }
+LCRYPTO_ALIAS(X509_STORE_get_ex_data);
 
 int
 X509_STORE_set_ex_data(X509_STORE *xs, int idx, void *data)
 {
 	return CRYPTO_set_ex_data(&xs->ex_data, idx, data);
 }
+LCRYPTO_ALIAS(X509_STORE_set_ex_data);
 
 int
 X509_STORE_set_flags(X509_STORE *ctx, unsigned long flags)
 {
 	return X509_VERIFY_PARAM_set_flags(ctx->param, flags);
 }
+LCRYPTO_ALIAS(X509_STORE_set_flags);
 
 int
 X509_STORE_set_depth(X509_STORE *ctx, int depth)
@@ -788,51 +824,60 @@ X509_STORE_set_depth(X509_STORE *ctx, int depth)
 	X509_VERIFY_PARAM_set_depth(ctx->param, depth);
 	return 1;
 }
+LCRYPTO_ALIAS(X509_STORE_set_depth);
 
 int
 X509_STORE_set_purpose(X509_STORE *ctx, int purpose)
 {
 	return X509_VERIFY_PARAM_set_purpose(ctx->param, purpose);
 }
+LCRYPTO_ALIAS(X509_STORE_set_purpose);
 
 int
 X509_STORE_set_trust(X509_STORE *ctx, int trust)
 {
 	return X509_VERIFY_PARAM_set_trust(ctx->param, trust);
 }
+LCRYPTO_ALIAS(X509_STORE_set_trust);
 
 int
 X509_STORE_set1_param(X509_STORE *ctx, X509_VERIFY_PARAM *param)
 {
 	return X509_VERIFY_PARAM_set1(ctx->param, param);
 }
+LCRYPTO_ALIAS(X509_STORE_set1_param);
 
 X509_VERIFY_PARAM *
 X509_STORE_get0_param(X509_STORE *ctx)
 {
 	return ctx->param;
 }
+LCRYPTO_ALIAS(X509_STORE_get0_param);
 
 void
 X509_STORE_set_verify(X509_STORE *store, X509_STORE_CTX_verify_fn verify)
 {
 	store->verify = verify;
 }
+LCRYPTO_ALIAS(X509_STORE_set_verify);
 
 X509_STORE_CTX_verify_fn
 X509_STORE_get_verify(X509_STORE *store)
 {
 	return store->verify;
 }
+LCRYPTO_ALIAS(X509_STORE_get_verify);
 
 void
 X509_STORE_set_verify_cb(X509_STORE *store, X509_STORE_CTX_verify_cb verify_cb)
 {
 	store->verify_cb = verify_cb;
 }
+LCRYPTO_ALIAS(X509_STORE_set_verify_cb);
 
 X509_STORE_CTX_verify_cb
 X509_STORE_get_verify_cb(X509_STORE *store)
 {
 	return store->verify_cb;
 }
+LCRYPTO_ALIAS(X509_STORE_get_verify_cb);

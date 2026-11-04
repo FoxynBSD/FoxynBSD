@@ -1,4 +1,4 @@
-/* $OpenBSD: bss_mem.c,v 1.21 2022/02/19 15:59:12 jsing Exp $ */
+/* $OpenBSD: bss_mem.c,v 1.27 2025/05/31 11:31:16 tb Exp $ */
 /* Copyright (C) 1995-1998 Eric Young (eay@cryptsoft.com)
  * All rights reserved.
  *
@@ -62,10 +62,10 @@
 #include <string.h>
 
 #include <openssl/bio.h>
-#include <openssl/err.h>
 #include <openssl/buffer.h>
 
 #include "bio_local.h"
+#include "err_local.h"
 
 struct bio_mem {
 	BUF_MEM *buf;
@@ -117,6 +117,7 @@ BIO_s_mem(void)
 {
 	return &mem_method;
 }
+LCRYPTO_ALIAS(BIO_s_mem);
 
 BIO *
 BIO_new_mem_buf(const void *buf, int buf_len)
@@ -139,6 +140,7 @@ BIO_new_mem_buf(const void *buf, int buf_len)
 		return NULL;
 
 	bm = bio->ptr;
+	free(bm->buf->data);
 	bm->buf->data = (void *)buf; /* Trust in the BIO_FLAGS_MEM_RDONLY flag. */
 	bm->buf->length = buf_len;
 	bm->buf->max = buf_len;
@@ -148,6 +150,7 @@ BIO_new_mem_buf(const void *buf, int buf_len)
 
 	return bio;
 }
+LCRYPTO_ALIAS(BIO_new_mem_buf);
 
 static int
 mem_new(BIO *bio)
@@ -160,6 +163,12 @@ mem_new(BIO *bio)
 		free(bm);
 		return 0;
 	}
+	if (BUF_MEM_grow_clean(bm->buf, 64) != 64) {
+		BUF_MEM_free(bm->buf);
+		free(bm);
+		return 0;
+	}
+	bm->buf->length = 0;
 
 	bio->shutdown = 1;
 	bio->init = 1;

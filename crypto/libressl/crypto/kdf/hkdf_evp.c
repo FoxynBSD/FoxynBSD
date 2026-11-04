@@ -1,4 +1,4 @@
-/*	$OpenBSD: hkdf_evp.c,v 1.18 2022/05/05 19:48:06 tb Exp $ */
+/*	$OpenBSD: hkdf_evp.c,v 1.22 2025/05/21 03:53:20 kenjiro Exp $ */
 /* ====================================================================
  * Copyright (c) 2016-2018 The OpenSSL Project.  All rights reserved.
  *
@@ -50,13 +50,12 @@
 #include <stdlib.h>
 #include <string.h>
 
-#include <openssl/err.h>
-#include <openssl/evp.h>
 #include <openssl/hmac.h>
 #include <openssl/hkdf.h>
 #include <openssl/kdf.h>
 
-#include "evp_locl.h"
+#include "err_local.h"
+#include "evp_local.h"
 
 #define HKDF_MAXBUF 1024
 
@@ -90,6 +89,9 @@ static void
 pkey_hkdf_cleanup(EVP_PKEY_CTX *ctx)
 {
 	HKDF_PKEY_CTX *kctx = ctx->data;
+
+	if (kctx == NULL)
+		return;
 
 	freezero(kctx->salt, kctx->salt_len);
 	freezero(kctx->key, kctx->key_len);
@@ -129,10 +131,17 @@ pkey_hkdf_ctrl(EVP_PKEY_CTX *ctx, int type, int p1, void *p2)
 		return 1;
 
 	case EVP_PKEY_CTRL_HKDF_KEY:
-		if (p1 <= 0)
+		if (p1 < 0)
 			return 0;
 
 		freezero(kctx->key, kctx->key_len);
+		kctx->key = NULL;
+		kctx->key_len = 0;
+
+		/* Match OpenSSL's behavior. */
+		if (p1 == 0 || p2 == NULL)
+			return 0;
+
 		if ((kctx->key = malloc(p1)) == NULL)
 			return 0;
 		memcpy(kctx->key, p2, p1);

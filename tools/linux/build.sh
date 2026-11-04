@@ -1454,6 +1454,17 @@ if openssl req -x509 -newkey rsa:2048 -nodes -days 1 -subj /CN=localhost \
 else
 	tls=fail; echo "tls-check: FAIL openssl req"; sed 's/^/tls-check: /' $d/req.log
 fi
+# OpenSSH's use of libcrypto (the image with the world has it).
+if command -v ssh-keygen >/dev/null 2>&1; then
+	if ssh-keygen -q -t rsa -b 2048 -N '' -f $d/id_rsa &&
+	    ssh-keygen -q -t ed25519 -N '' -f $d/id_ed25519; then
+		for k in $d/id_rsa.pub $d/id_ed25519.pub; do
+			ssh-keygen -l -f $k | sed 's/^/tls-check: ssh-keygen: /'
+		done
+	else
+		tls=fail; echo "tls-check: FAIL ssh-keygen"
+	fi
+fi
 rm -rf $d
 echo "tls-check: $tls"
 [ $net = ok ] && [ $tls = ok ]

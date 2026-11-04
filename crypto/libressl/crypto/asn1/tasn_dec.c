@@ -1,4 +1,4 @@
-/* $OpenBSD: tasn_dec.c,v 1.83 2022/09/03 19:15:23 jsing Exp $ */
+/* $OpenBSD: tasn_dec.c,v 1.89 2025/05/10 05:54:38 tb Exp $ */
 /* Written by Dr Stephen N Henson (steve@openssl.org) for the OpenSSL
  * project 2000.
  */
@@ -63,11 +63,11 @@
 #include <openssl/asn1.h>
 #include <openssl/asn1t.h>
 #include <openssl/buffer.h>
-#include <openssl/err.h>
 #include <openssl/objects.h>
 
-#include "asn1_locl.h"
+#include "asn1_local.h"
 #include "bytestring.h"
+#include "err_local.h"
 
 /*
  * Constructed types with a recursive definition (such as can be found in PKCS7)
@@ -1237,6 +1237,7 @@ ASN1_item_d2i(ASN1_VALUE **pval, const unsigned char **in, long inlen,
 
 	return *pval;
 }
+LCRYPTO_ALIAS(ASN1_item_d2i);
 
 int
 ASN1_item_ex_d2i(ASN1_VALUE **pval, const unsigned char **in, long inlen,
@@ -1256,20 +1257,4 @@ ASN1_item_ex_d2i(ASN1_VALUE **pval, const unsigned char **in, long inlen,
 
 	return ret;
 }
-
-int
-ASN1_template_d2i(ASN1_VALUE **pval, const unsigned char **in, long len,
-    const ASN1_TEMPLATE *at)
-{
-	CBS cbs;
-	int ret;
-
-	if (len < 0)
-		return 0;
-
-	CBS_init(&cbs, *in, len);
-	if ((ret = asn1_template_d2i(pval, &cbs, at, 0, 0)) == 1)
-		*in = CBS_data(&cbs);
-
-	return ret;
-}
+LCRYPTO_ALIAS(ASN1_item_ex_d2i);

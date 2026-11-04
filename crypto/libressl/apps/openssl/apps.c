@@ -1,4 +1,4 @@
-/* $OpenBSD: apps.c,v 1.62 2022/01/10 12:17:49 tb Exp $ */
+/* $OpenBSD: apps.c,v 1.72 2025/03/18 13:03:08 tb Exp $ */
 /*
  * Copyright (c) 2014 Joel Sing <jsing@openbsd.org>
  *
@@ -197,75 +197,6 @@ program_name(char *in, char *out, int size)
 	else
 		p = in;
 	strlcpy(out, p, size);
-}
-
-int
-chopup_args(ARGS *arg, char *buf, int *argc, char **argv[])
-{
-	int num, i;
-	char *p;
-
-	*argc = 0;
-	*argv = NULL;
-
-	if (arg->count == 0) {
-		arg->count = 20;
-		arg->data = reallocarray(NULL, arg->count, sizeof(char *));
-		if (arg->data == NULL)
-			return 0;
-	}
-	for (i = 0; i < arg->count; i++)
-		arg->data[i] = NULL;
-
-	num = 0;
-	p = buf;
-	for (;;) {
-		/* first scan over white space */
-		if (!*p)
-			break;
-		while (*p && ((*p == ' ') || (*p == '\t') || (*p == '\n')))
-			p++;
-		if (!*p)
-			break;
-
-		/* The start of something good :-) */
-		if (num >= arg->count) {
-			char **tmp_p;
-			int tlen = arg->count + 20;
-			tmp_p = reallocarray(arg->data, tlen, sizeof(char *));
-			if (tmp_p == NULL)
-				return 0;
-			arg->data = tmp_p;
-			arg->count = tlen;
-			/* initialize newly allocated data */
-			for (i = num; i < arg->count; i++)
-				arg->data[i] = NULL;
-		}
-		arg->data[num++] = p;
-
-		/* now look for the end of this */
-		if ((*p == '\'') || (*p == '\"')) {	/* scan for closing
-							 * quote */
-			i = *(p++);
-			arg->data[num - 1]++;	/* jump over quote */
-			while (*p && (*p != i))
-				p++;
-			*p = '\0';
-		} else {
-			while (*p && ((*p != ' ') &&
-			    (*p != '\t') && (*p != '\n')))
-				p++;
-
-			if (*p == '\0')
-				p--;
-			else
-				*p = '\0';
-		}
-		p++;
-	}
-	*argc = num;
-	*argv = arg->data;
-	return (1);
 }
 
 int
@@ -933,7 +864,11 @@ set_name_ex(unsigned long *flags, const char *arg)
 		{"ca_default", XN_FLAG_MULTILINE, 0xffffffffL},
 		{NULL, 0, 0}
 	};
-	return set_multi_opts(flags, arg, ex_tbl);
+	if (!set_multi_opts(flags, arg, ex_tbl))
+		return 0;
+	if (*flags != XN_FLAG_COMPAT && (*flags & XN_FLAG_SEP_MASK) == 0)
+		*flags |= XN_FLAG_SEP_CPLUS_SPC;
+	return 1;
 }
 
 int
@@ -1118,7 +1053,7 @@ load_config(BIO *err, CONF *cnf)
 	if (cnf == NULL)
 		return 1;
 
-	OPENSSL_load_builtin_modules();
+	OPENSSL_config(NULL);
 
 	if (CONF_modules_load(cnf, NULL, 0) <= 0) {
 		BIO_printf(err, "Error configuring OpenSSL\n");
@@ -1129,7 +1064,7 @@ load_config(BIO *err, CONF *cnf)
 }
 
 char *
-make_config_name()
+make_config_name(void)
 {
 	const char *t = X509_get_default_cert_area();
 	char *p;
@@ -1442,10 +1377,10 @@ int
 save_index(const char *file, const char *suffix, CA_DB *db)
 {
 	char attrpath[PATH_MAX], dbfile[PATH_MAX];
-	BIO *out = BIO_new(BIO_s_file());
-	int j;
+	BIO *out;
+	int ret = 0;
 
-	if (out == NULL) {
+	if ((out = BIO_new(BIO_s_file())) == NULL) {
 		ERR_print_errors(bio_err);
 		goto err;
 	}
@@ -1465,27 +1400,31 @@ save_index(const char *file, const char *suffix, CA_DB *db)
 		BIO_printf(bio_err, "unable to open '%s'\n", dbfile);
 		goto err;
 	}
-	j = TXT_DB_write(out, db->db);
-	if (j <= 0)
+
+	if (TXT_DB_write(out, db->db) <= 0)
 		goto err;
 
 	BIO_free(out);
-
-	out = BIO_new(BIO_s_file());
+	if ((out = BIO_new(BIO_s_file())) == NULL) {
+		ERR_print_errors(bio_err);
+		goto err;
+	}
 
 	if (BIO_write_filename(out, attrpath) <= 0) {
 		perror(attrpath);
 		BIO_printf(bio_err, "unable to open '%s'\n", attrpath);
 		goto err;
 	}
-	BIO_printf(out, "unique_subject = %s\n",
-	    db->attributes.unique_subject ? "yes" : "no");
-	BIO_free(out);
+	if (BIO_printf(out, "unique_subject = %s\n",
+	    db->attributes.unique_subject ? "yes" : "no") <= 0)
+		goto err;
 
-	return 1;
+	ret = 1;
 
  err:
-	return 0;
+	BIO_free(out);
+
+	return ret;
 }
 
 int
@@ -1781,7 +1720,7 @@ args_verify(char ***pargs, int *pargc, int *badarg, BIO *err,
 		}
 		(*pargs)++;
 	} else if (strcmp(arg, "-purpose") == 0) {
-		X509_PURPOSE *xptmp;
+		const X509_PURPOSE *xptmp;
 		if (!argn)
 			*badarg = 1;
 		else {
@@ -1951,53 +1890,12 @@ pkey_ctrl_string(EVP_PKEY_CTX *ctx, char *value)
 	return rv;
 }
 
-static void
-nodes_print(BIO *out, const char *name, STACK_OF(X509_POLICY_NODE) *nodes)
-{
-	X509_POLICY_NODE *node;
-	int i;
-
-	BIO_printf(out, "%s Policies:", name);
-	if (nodes) {
-		BIO_puts(out, "\n");
-		for (i = 0; i < sk_X509_POLICY_NODE_num(nodes); i++) {
-			node = sk_X509_POLICY_NODE_value(nodes, i);
-			X509_POLICY_NODE_print(out, node, 2);
-		}
-	} else
-		BIO_puts(out, " <empty>\n");
-}
-
-void
-policies_print(BIO *out, X509_STORE_CTX *ctx)
-{
-	X509_POLICY_TREE *tree;
-	int explicit_policy;
-	int free_out = 0;
-
-	if (out == NULL) {
-		out = BIO_new_fp(stderr, BIO_NOCLOSE);
-		free_out = 1;
-	}
-	tree = X509_STORE_CTX_get0_policy_tree(ctx);
-	explicit_policy = X509_STORE_CTX_get_explicit_policy(ctx);
-
-	BIO_printf(out, "Require explicit Policy: %s\n",
-	    explicit_policy ? "True" : "False");
-
-	nodes_print(out, "Authority", X509_policy_tree_get0_policies(tree));
-	nodes_print(out, "User", X509_policy_tree_get0_user_policies(tree));
-
-	if (free_out)
-		BIO_free(out);
-}
-
 /*
  * next_protos_parse parses a comma separated list of strings into a string
  * in a format suitable for passing to SSL_CTX_set_next_protos_advertised.
  *   outlen: (output) set to the length of the resulting buffer on success.
  *   err: (maybe NULL) on failure, an error message line is written to this BIO.
- *   in: a NUL termianted string like "abc,def,ghi"
+ *   in: a NUL terminated string like "abc,def,ghi"
  *
  *   returns: a malloced buffer or NULL on failure.
  */
@@ -2261,32 +2159,4 @@ show_cipher(const OBJ_NAME *name, void *arg)
 		return;
 
 	fprintf(stderr, " -%-24s%s", name->name, (++*n % 3 != 0 ? "" : "\n"));
-}
-
-int
-pkey_check(BIO *out, EVP_PKEY *pkey, int (check_fn)(EVP_PKEY_CTX *),
-    const char *desc)
-{
-	EVP_PKEY_CTX *ctx;
-
-	if ((ctx = EVP_PKEY_CTX_new(pkey, NULL)) == NULL) {
-		ERR_print_errors(bio_err);
-		return 0;
-	}
-
-	if (check_fn(ctx) == 1) {
-		BIO_printf(out, "%s valid\n", desc);
-	} else {
-		unsigned long err;
-
-		BIO_printf(out, "%s invalid\n", desc);
-
-		while ((err = ERR_get_error()) != 0)
-			BIO_printf(out, "Detailed error: %s\n",
-			    ERR_reason_error_string(err));
-	}
-
-	EVP_PKEY_CTX_free(ctx);
-
-	return 1;
 }

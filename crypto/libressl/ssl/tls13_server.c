@@ -1,4 +1,4 @@
-/* $OpenBSD: tls13_server.c,v 1.103 2022/09/17 17:14:06 jsing Exp $ */
+/* $OpenBSD: tls13_server.c,v 1.112 2025/12/04 21:03:42 beck Exp $ */
 /*
  * Copyright (c) 2019, 2020 Joel Sing <jsing@openbsd.org>
  * Copyright (c) 2020 Bob Beck <beck@openbsd.org>
@@ -18,7 +18,7 @@
 
 #include <openssl/x509v3.h>
 
-#include "ssl_locl.h"
+#include "ssl_local.h"
 #include "ssl_sigalgs.h"
 #include "ssl_tlsext.h"
 #include "tls13_handshake.h"
@@ -37,7 +37,7 @@ tls13_server_init(struct tls13_ctx *ctx)
 	s->version = ctx->hs->our_max_tls_version;
 
 	tls13_record_layer_set_retry_after_phh(ctx->rl,
-	    (s->internal->mode & SSL_MODE_AUTO_RETRY) != 0);
+	    (s->mode & SSL_MODE_AUTO_RETRY) != 0);
 
 	if (!ssl_get_new_session(s, 0)) /* XXX */
 		return 0;
@@ -275,8 +275,8 @@ tls13_client_hello_process(struct tls13_ctx *ctx, CBS *cbs)
 	}
 	ctx->hs->cipher = cipher;
 
-	sk_SSL_CIPHER_free(s->session->ciphers);
-	s->session->ciphers = ciphers;
+	sk_SSL_CIPHER_free(s->s3->hs.client_ciphers);
+	s->s3->hs.client_ciphers = ciphers;
 	ciphers = NULL;
 
 	/* Ensure only the NULL compression method is advertised. */
@@ -327,7 +327,7 @@ tls13_client_hello_recv(struct tls13_ctx *ctx, CBS *cbs)
 }
 
 static int
-tls13_server_hello_build(struct tls13_ctx *ctx, CBB *cbb, int hrr)
+tls13_server_hello_build(struct tls13_ctx *ctx, CBB *cbb)
 {
 	uint16_t tlsext_msg_type = SSL_TLSEXT_MSG_SH;
 	const uint8_t *server_random;
@@ -338,7 +338,7 @@ tls13_server_hello_build(struct tls13_ctx *ctx, CBB *cbb, int hrr)
 	cipher = SSL_CIPHER_get_value(ctx->hs->cipher);
 	server_random = s->s3->server_random;
 
-	if (hrr) {
+	if (ctx->hs->tls13.hrr) {
 		server_random = tls13_hello_retry_request_hash;
 		tlsext_msg_type = SSL_TLSEXT_MSG_HRR;
 	}
@@ -383,7 +383,7 @@ tls13_server_engage_record_protection(struct tls13_ctx *ctx)
 	    &shared_key_len))
 		goto err;
 
-	s->session->cipher = ctx->hs->cipher;
+	s->session->cipher_value = ctx->hs->cipher->value;
 
 	if ((ctx->aead = tls13_cipher_aead(ctx->hs->cipher)) == NULL)
 		goto err;
@@ -437,8 +437,6 @@ tls13_server_engage_record_protection(struct tls13_ctx *ctx)
 int
 tls13_server_hello_retry_request_send(struct tls13_ctx *ctx, CBB *cbb)
 {
-	int nid;
-
 	ctx->hs->tls13.hrr = 1;
 
 	if (!tls13_synthetic_handshake_message(ctx))
@@ -446,12 +444,10 @@ tls13_server_hello_retry_request_send(struct tls13_ctx *ctx, CBB *cbb)
 
 	if (ctx->hs->key_share != NULL)
 		return 0;
-	if (!tls1_get_supported_group(ctx->ssl, &nid))
-		return 0;
-	if (!tls1_ec_nid2group_id(nid, &ctx->hs->tls13.server_group))
+	if (ctx->hs->tls13.server_group == 0)
 		return 0;
 
-	if (!tls13_server_hello_build(ctx, cbb, 1))
+	if (!tls13_server_hello_build(ctx, cbb))
 		return 0;
 
 	return 1;
@@ -506,14 +502,12 @@ tls13_server_hello_send(struct tls13_ctx *ctx, CBB *cbb)
 {
 	if (ctx->hs->key_share == NULL)
 		return 0;
-	if (!tls_key_share_generate(ctx->hs->key_share))
+	if (!tls_key_share_server_generate(ctx->hs->key_share))
 		return 0;
 	if (!tls13_servername_process(ctx))
 		return 0;
 
-	ctx->hs->tls13.server_group = 0;
-
-	if (!tls13_server_hello_build(ctx, cbb, 0))
+	if (!tls13_server_hello_build(ctx, cbb))
 		return 0;
 
 	return 1;
@@ -656,7 +650,7 @@ tls13_server_certificate_send(struct tls13_ctx *ctx, CBB *cbb)
 	if ((chain = cpk->chain) == NULL)
 		chain = s->ctx->extra_certs;
 
-	if (chain == NULL && !(s->internal->mode & SSL_MODE_NO_AUTO_CHAIN)) {
+	if (chain == NULL && !(s->mode & SSL_MODE_NO_AUTO_CHAIN)) {
 		if ((xsc = X509_STORE_CTX_new()) == NULL)
 			goto err;
 		if (!X509_STORE_CTX_init(xsc, s->ctx->cert_store, cpk->x509, NULL))
@@ -754,13 +748,11 @@ tls13_server_certificate_verify_send(struct tls13_ctx *ctx, CBB *cbb)
 		if (!EVP_PKEY_CTX_set_rsa_pss_saltlen(pctx, -1))
 			goto err;
 	}
-	if (!EVP_DigestSignUpdate(mdctx, sig_content, sig_content_len))
-		goto err;
-	if (EVP_DigestSignFinal(mdctx, NULL, &sig_len) <= 0)
+	if (!EVP_DigestSign(mdctx, NULL, &sig_len, sig_content, sig_content_len))
 		goto err;
 	if ((sig = calloc(1, sig_len)) == NULL)
 		goto err;
-	if (EVP_DigestSignFinal(mdctx, sig, &sig_len) <= 0)
+	if (!EVP_DigestSign(mdctx, sig, &sig_len, sig_content, sig_content_len))
 		goto err;
 
 	if (!CBB_add_u16(cbb, sigalg->value))
@@ -999,12 +991,8 @@ tls13_client_certificate_verify_recv(struct tls13_ctx *ctx, CBS *cbs)
 		if (!EVP_PKEY_CTX_set_rsa_pss_saltlen(pctx, -1))
 			goto err;
 	}
-	if (!EVP_DigestVerifyUpdate(mdctx, sig_content, sig_content_len)) {
-		ctx->alert = TLS13_ALERT_DECRYPT_ERROR;
-		goto err;
-	}
-	if (EVP_DigestVerifyFinal(mdctx, CBS_data(&signature),
-	    CBS_len(&signature)) <= 0) {
+	if (EVP_DigestVerify(mdctx, CBS_data(&signature), CBS_len(&signature),
+	    sig_content, sig_content_len) <= 0) {
 		ctx->alert = TLS13_ALERT_DECRYPT_ERROR;
 		goto err;
 	}

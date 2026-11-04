@@ -1,4 +1,4 @@
-/* $OpenBSD: x509_crld.c,v 1.2 2021/11/01 20:53:08 tb Exp $ */
+/* $OpenBSD: x509_crld.c,v 1.11.2.1 2026/09/29 14:11:47 tb Exp $ */
 /* Written by Dr Stephen N Henson (steve@openssl.org) for the OpenSSL
  * project 1999.
  */
@@ -62,17 +62,17 @@
 #include <openssl/asn1.h>
 #include <openssl/asn1t.h>
 #include <openssl/conf.h>
-#include <openssl/err.h>
 #include <openssl/x509v3.h>
 
-#include "x509_lcl.h"
+#include "err_local.h"
+#include "x509_local.h"
 
 static void *v2i_crld(const X509V3_EXT_METHOD *method,
     X509V3_CTX *ctx, STACK_OF(CONF_VALUE) *nval);
 static int i2r_crldp(const X509V3_EXT_METHOD *method, void *pcrldp, BIO *out,
     int indent);
 
-const X509V3_EXT_METHOD v3_crld = {
+static const X509V3_EXT_METHOD x509v3_ext_crl_distribution_points = {
 	.ext_nid = NID_crl_distribution_points,
 	.ext_flags = 0,
 	.it = &CRL_DIST_POINTS_it,
@@ -89,7 +89,13 @@ const X509V3_EXT_METHOD v3_crld = {
 	.usr_data = NULL,
 };
 
-const X509V3_EXT_METHOD v3_freshest_crl = {
+const X509V3_EXT_METHOD *
+x509v3_ext_method_crl_distribution_points(void)
+{
+	return &x509v3_ext_crl_distribution_points;
+}
+
+static const X509V3_EXT_METHOD x509v3_ext_freshest_crl = {
 	.ext_nid = NID_freshest_crl,
 	.ext_flags = 0,
 	.it = &CRL_DIST_POINTS_it,
@@ -106,6 +112,12 @@ const X509V3_EXT_METHOD v3_freshest_crl = {
 	.usr_data = NULL,
 };
 
+const X509V3_EXT_METHOD *
+x509v3_ext_method_freshest_crl(void)
+{
+	return &x509v3_ext_freshest_crl;
+}
+
 static STACK_OF(GENERAL_NAME) *
 gnames_from_sectname(X509V3_CTX *ctx, char *sect)
 {
@@ -113,7 +125,7 @@ gnames_from_sectname(X509V3_CTX *ctx, char *sect)
 	STACK_OF(GENERAL_NAME) *gens;
 
 	if (*sect == '@')
-		gnsect = X509V3_get_section(ctx, sect + 1);
+		gnsect = X509V3_get0_section(ctx, sect + 1);
 	else
 		gnsect = X509V3_parse_list(sect);
 	if (!gnsect) {
@@ -121,9 +133,7 @@ gnames_from_sectname(X509V3_CTX *ctx, char *sect)
 		return NULL;
 	}
 	gens = v2i_GENERAL_NAMES(NULL, ctx, gnsect);
-	if (*sect == '@')
-		X509V3_section_free(ctx, gnsect);
-	else
+	if (*sect != '@')
 		sk_CONF_VALUE_pop_free(gnsect, X509V3_conf_free);
 	return gens;
 }
@@ -132,64 +142,30 @@ static int
 set_dist_point_name(DIST_POINT_NAME **pdp, X509V3_CTX *ctx, CONF_VALUE *cnf)
 {
 	STACK_OF(GENERAL_NAME) *fnm = NULL;
-	STACK_OF(X509_NAME_ENTRY) *rnm = NULL;
 
-	if (!strncmp(cnf->name, "fullname", 9)) {
-		fnm = gnames_from_sectname(ctx, cnf->value);
-		if (!fnm)
-			goto err;
-	} else if (!strcmp(cnf->name, "relativename")) {
-		int ret;
-		STACK_OF(CONF_VALUE) *dnsect;
-		X509_NAME *nm;
-		nm = X509_NAME_new();
-		if (!nm)
-			return -1;
-		dnsect = X509V3_get_section(ctx, cnf->value);
-		if (!dnsect) {
-			X509V3error(X509V3_R_SECTION_NOT_FOUND);
-			X509_NAME_free(nm);
-			return -1;
-		}
-		ret = X509V3_NAME_from_section(nm, dnsect, MBSTRING_ASC);
-		X509V3_section_free(ctx, dnsect);
-		rnm = nm->entries;
-		nm->entries = NULL;
-		X509_NAME_free(nm);
-		if (!ret || sk_X509_NAME_ENTRY_num(rnm) <= 0)
-			goto err;
-		/* Since its a name fragment can't have more than one
-		 * RDNSequence
-		 */
-		if (sk_X509_NAME_ENTRY_value(rnm,
-		    sk_X509_NAME_ENTRY_num(rnm) - 1)->set) {
-			X509V3error(X509V3_R_INVALID_MULTIPLE_RDNS);
-			goto err;
-		}
-	} else
+	if (strcmp(cnf->name, "relativename") == 0)
+		return -1;
+	if (strcmp(cnf->name, "fullname") != 0)
 		return 0;
 
-	if (*pdp) {
+	if (*pdp != NULL) {
 		X509V3error(X509V3_R_DISTPOINT_ALREADY_SET);
 		goto err;
 	}
-
-	*pdp = DIST_POINT_NAME_new();
-	if (!*pdp)
+	if ((*pdp = DIST_POINT_NAME_new()) == NULL)
 		goto err;
-	if (fnm) {
-		(*pdp)->type = 0;
-		(*pdp)->name.fullname = fnm;
-	} else {
-		(*pdp)->type = 1;
-		(*pdp)->name.relativename = rnm;
-	}
+
+	if ((fnm = gnames_from_sectname(ctx, cnf->value)) == NULL)
+		goto err;
+
+	(*pdp)->type = 0;
+	(*pdp)->name.fullname = fnm;
 
 	return 1;
 
-err:
+ err:
 	sk_GENERAL_NAME_pop_free(fnm, GENERAL_NAME_free);
-	sk_X509_NAME_ENTRY_pop_free(rnm, X509_NAME_ENTRY_free);
+
 	return -1;
 }
 
@@ -321,11 +297,10 @@ v2i_crld(const X509V3_EXT_METHOD *method, X509V3_CTX *ctx,
 		cnf = sk_CONF_VALUE_value(nval, i);
 		if (!cnf->value) {
 			STACK_OF(CONF_VALUE) *dpsect;
-			dpsect = X509V3_get_section(ctx, cnf->name);
+			dpsect = X509V3_get0_section(ctx, cnf->name);
 			if (!dpsect)
 				goto err;
 			point = crldp_from_section(ctx, dpsect);
-			X509V3_section_free(ctx, dpsect);
 			if (!point)
 				goto err;
 			if (!sk_DIST_POINT_push(crld, point)) {
@@ -417,6 +392,7 @@ const ASN1_ITEM DIST_POINT_NAME_it = {
 	.size = sizeof(DIST_POINT_NAME),
 	.sname = "DIST_POINT_NAME",
 };
+LCRYPTO_ALIAS(DIST_POINT_NAME_it);
 
 
 
@@ -426,24 +402,28 @@ d2i_DIST_POINT_NAME(DIST_POINT_NAME **a, const unsigned char **in, long len)
 	return (DIST_POINT_NAME *)ASN1_item_d2i((ASN1_VALUE **)a, in, len,
 	    &DIST_POINT_NAME_it);
 }
+LCRYPTO_ALIAS(d2i_DIST_POINT_NAME);
 
 int
 i2d_DIST_POINT_NAME(DIST_POINT_NAME *a, unsigned char **out)
 {
 	return ASN1_item_i2d((ASN1_VALUE *)a, out, &DIST_POINT_NAME_it);
 }
+LCRYPTO_ALIAS(i2d_DIST_POINT_NAME);
 
 DIST_POINT_NAME *
 DIST_POINT_NAME_new(void)
 {
 	return (DIST_POINT_NAME *)ASN1_item_new(&DIST_POINT_NAME_it);
 }
+LCRYPTO_ALIAS(DIST_POINT_NAME_new);
 
 void
 DIST_POINT_NAME_free(DIST_POINT_NAME *a)
 {
 	ASN1_item_free((ASN1_VALUE *)a, &DIST_POINT_NAME_it);
 }
+LCRYPTO_ALIAS(DIST_POINT_NAME_free);
 
 static const ASN1_TEMPLATE DIST_POINT_seq_tt[] = {
 	{
@@ -478,6 +458,7 @@ const ASN1_ITEM DIST_POINT_it = {
 	.size = sizeof(DIST_POINT),
 	.sname = "DIST_POINT",
 };
+LCRYPTO_ALIAS(DIST_POINT_it);
 
 
 DIST_POINT *
@@ -486,24 +467,28 @@ d2i_DIST_POINT(DIST_POINT **a, const unsigned char **in, long len)
 	return (DIST_POINT *)ASN1_item_d2i((ASN1_VALUE **)a, in, len,
 	    &DIST_POINT_it);
 }
+LCRYPTO_ALIAS(d2i_DIST_POINT);
 
 int
 i2d_DIST_POINT(DIST_POINT *a, unsigned char **out)
 {
 	return ASN1_item_i2d((ASN1_VALUE *)a, out, &DIST_POINT_it);
 }
+LCRYPTO_ALIAS(i2d_DIST_POINT);
 
 DIST_POINT *
 DIST_POINT_new(void)
 {
 	return (DIST_POINT *)ASN1_item_new(&DIST_POINT_it);
 }
+LCRYPTO_ALIAS(DIST_POINT_new);
 
 void
 DIST_POINT_free(DIST_POINT *a)
 {
 	ASN1_item_free((ASN1_VALUE *)a, &DIST_POINT_it);
 }
+LCRYPTO_ALIAS(DIST_POINT_free);
 
 static const ASN1_TEMPLATE CRL_DIST_POINTS_item_tt = {
 	.flags = ASN1_TFLG_SEQUENCE_OF,
@@ -522,6 +507,7 @@ const ASN1_ITEM CRL_DIST_POINTS_it = {
 	.size = 0,
 	.sname = "CRL_DIST_POINTS",
 };
+LCRYPTO_ALIAS(CRL_DIST_POINTS_it);
 
 
 CRL_DIST_POINTS *
@@ -530,24 +516,28 @@ d2i_CRL_DIST_POINTS(CRL_DIST_POINTS **a, const unsigned char **in, long len)
 	return (CRL_DIST_POINTS *)ASN1_item_d2i((ASN1_VALUE **)a, in, len,
 	    &CRL_DIST_POINTS_it);
 }
+LCRYPTO_ALIAS(d2i_CRL_DIST_POINTS);
 
 int
 i2d_CRL_DIST_POINTS(CRL_DIST_POINTS *a, unsigned char **out)
 {
 	return ASN1_item_i2d((ASN1_VALUE *)a, out, &CRL_DIST_POINTS_it);
 }
+LCRYPTO_ALIAS(i2d_CRL_DIST_POINTS);
 
 CRL_DIST_POINTS *
 CRL_DIST_POINTS_new(void)
 {
 	return (CRL_DIST_POINTS *)ASN1_item_new(&CRL_DIST_POINTS_it);
 }
+LCRYPTO_ALIAS(CRL_DIST_POINTS_new);
 
 void
 CRL_DIST_POINTS_free(CRL_DIST_POINTS *a)
 {
 	ASN1_item_free((ASN1_VALUE *)a, &CRL_DIST_POINTS_it);
 }
+LCRYPTO_ALIAS(CRL_DIST_POINTS_free);
 
 static const ASN1_TEMPLATE ISSUING_DIST_POINT_seq_tt[] = {
 	{
@@ -603,6 +593,7 @@ const ASN1_ITEM ISSUING_DIST_POINT_it = {
 	.size = sizeof(ISSUING_DIST_POINT),
 	.sname = "ISSUING_DIST_POINT",
 };
+LCRYPTO_ALIAS(ISSUING_DIST_POINT_it);
 
 
 ISSUING_DIST_POINT *
@@ -611,40 +602,56 @@ d2i_ISSUING_DIST_POINT(ISSUING_DIST_POINT **a, const unsigned char **in, long le
 	return (ISSUING_DIST_POINT *)ASN1_item_d2i((ASN1_VALUE **)a, in, len,
 	    &ISSUING_DIST_POINT_it);
 }
+LCRYPTO_ALIAS(d2i_ISSUING_DIST_POINT);
 
 int
 i2d_ISSUING_DIST_POINT(ISSUING_DIST_POINT *a, unsigned char **out)
 {
 	return ASN1_item_i2d((ASN1_VALUE *)a, out, &ISSUING_DIST_POINT_it);
 }
+LCRYPTO_ALIAS(i2d_ISSUING_DIST_POINT);
 
 ISSUING_DIST_POINT *
 ISSUING_DIST_POINT_new(void)
 {
 	return (ISSUING_DIST_POINT *)ASN1_item_new(&ISSUING_DIST_POINT_it);
 }
+LCRYPTO_ALIAS(ISSUING_DIST_POINT_new);
 
 void
 ISSUING_DIST_POINT_free(ISSUING_DIST_POINT *a)
 {
 	ASN1_item_free((ASN1_VALUE *)a, &ISSUING_DIST_POINT_it);
 }
+LCRYPTO_ALIAS(ISSUING_DIST_POINT_free);
 
 static int i2r_idp(const X509V3_EXT_METHOD *method, void *pidp, BIO *out,
     int indent);
 static void *v2i_idp(const X509V3_EXT_METHOD *method, X509V3_CTX *ctx,
     STACK_OF(CONF_VALUE) *nval);
 
-const X509V3_EXT_METHOD v3_idp = {
-	NID_issuing_distribution_point, X509V3_EXT_MULTILINE,
-	&ISSUING_DIST_POINT_it,
-	0, 0, 0, 0,
-	0, 0,
-	0,
-	v2i_idp,
-	i2r_idp, 0,
-	NULL
+static const X509V3_EXT_METHOD x509v3_ext_issuing_distribution_point = {
+	.ext_nid = NID_issuing_distribution_point,
+	.ext_flags = X509V3_EXT_MULTILINE,
+	.it = &ISSUING_DIST_POINT_it,
+	.ext_new = NULL,
+	.ext_free = NULL,
+	.d2i = NULL,
+	.i2d = NULL,
+	.i2s = NULL,
+	.s2i = NULL,
+	.i2v = NULL,
+	.v2i = v2i_idp,
+	.i2r = i2r_idp,
+	.r2i = NULL,
+	.usr_data = NULL,
 };
+
+const X509V3_EXT_METHOD *
+x509v3_ext_method_issuing_distribution_point(void)
+{
+	return &x509v3_ext_issuing_distribution_point;
+}
 
 static void *
 v2i_idp(const X509V3_EXT_METHOD *method, X509V3_CTX *ctx,
@@ -720,13 +727,6 @@ print_distpoint(BIO *out, DIST_POINT_NAME *dpn, int indent)
 	if (dpn->type == 0) {
 		BIO_printf(out, "%*sFull Name:\n", indent, "");
 		print_gens(out, dpn->name.fullname, indent);
-	} else {
-		X509_NAME ntmp;
-		ntmp.entries = dpn->name.relativename;
-		BIO_printf(out, "%*sRelative Name:\n%*s",
-		    indent, "", indent + 2, "");
-		X509_NAME_print_ex(out, &ntmp, 0, XN_FLAG_ONELINE);
-		BIO_puts(out, "\n");
 	}
 	return 1;
 }
@@ -783,29 +783,8 @@ i2r_crldp(const X509V3_EXT_METHOD *method, void *pcrldp, BIO *out, int indent)
 int
 DIST_POINT_set_dpname(DIST_POINT_NAME *dpn, X509_NAME *iname)
 {
-	int i;
-	STACK_OF(X509_NAME_ENTRY) *frag;
-	X509_NAME_ENTRY *ne;
-
 	if (!dpn || (dpn->type != 1))
 		return 1;
-	frag = dpn->name.relativename;
-	dpn->dpname = X509_NAME_dup(iname);
-	if (!dpn->dpname)
-		return 0;
-	for (i = 0; i < sk_X509_NAME_ENTRY_num(frag); i++) {
-		ne = sk_X509_NAME_ENTRY_value(frag, i);
-		if (!X509_NAME_add_entry(dpn->dpname, ne, -1, i ? 0 : 1)) {
-			X509_NAME_free(dpn->dpname);
-			dpn->dpname = NULL;
-			return 0;
-		}
-	}
-	/* generate cached encoding of name */
-	if (i2d_X509_NAME(dpn->dpname, NULL) < 0) {
-		X509_NAME_free(dpn->dpname);
-		dpn->dpname = NULL;
-		return 0;
-	}
-	return 1;
+	return 0;
 }
+LCRYPTO_ALIAS(DIST_POINT_set_dpname);

@@ -1,4 +1,4 @@
-/* $OpenBSD: tls_signer.c,v 1.4 2022/02/01 17:18:38 jsing Exp $ */
+/* $OpenBSD: tls_signer.c,v 1.15 2026/04/16 07:35:25 tb Exp $ */
 /*
  * Copyright (c) 2021 Eric Faurot <eric@openbsd.org>
  *
@@ -16,10 +16,19 @@
  */
 
 #include <limits.h>
+#include <pthread.h>
+#include <stdint.h>
+#include <stdio.h>
+#include <stdlib.h>
+#include <string.h>
 
-#include <openssl/ecdsa.h>
+#include <openssl/bio.h>
+#include <openssl/ec.h>
 #include <openssl/err.h>
+#include <openssl/evp.h>
+#include <openssl/pem.h>
 #include <openssl/rsa.h>
+#include <openssl/x509.h>
 
 #include "tls.h"
 #include "tls_internal.h"
@@ -90,8 +99,13 @@ tls_signer_add_keypair_mem(struct tls_signer *signer, const uint8_t *cert,
 	char *hash = NULL;
 
 	/* Compute certificate hash */
+	if (cert_len > INT_MAX) {
+		tls_error_setx(&signer->error, TLS_ERROR_INVALID_ARGUMENT,
+		    "certificate too long");
+		goto err;
+	}
 	if ((bio = BIO_new_mem_buf(cert, cert_len)) == NULL) {
-		tls_error_setx(&signer->error,
+		tls_error_setx(&signer->error, TLS_ERROR_UNKNOWN,
 		    "failed to create certificate bio");
 		goto err;
 	}
@@ -99,12 +113,12 @@ tls_signer_add_keypair_mem(struct tls_signer *signer, const uint8_t *cert,
 	    NULL)) == NULL) {
 		if ((ssl_err = ERR_peek_error()) != 0)
 			errstr = ERR_error_string(ssl_err, NULL);
-		tls_error_setx(&signer->error, "failed to load certificate: %s",
-		    errstr);
+		tls_error_setx(&signer->error, TLS_ERROR_UNKNOWN,
+		    "failed to load certificate: %s", errstr);
 		goto err;
 	}
 	if (tls_cert_pubkey_hash(x509, &hash) == -1) {
-		tls_error_setx(&signer->error,
+		tls_error_setx(&signer->error, TLS_ERROR_UNKNOWN,
 		    "failed to get certificate hash");
 		goto err;
 	}
@@ -115,24 +129,33 @@ tls_signer_add_keypair_mem(struct tls_signer *signer, const uint8_t *cert,
 	bio = NULL;
 
 	/* Read private key */
+	if (key_len > INT_MAX) {
+		tls_error_setx(&signer->error, TLS_ERROR_INVALID_ARGUMENT,
+		    "private key too long");
+		goto err;
+	}
 	if ((bio = BIO_new_mem_buf(key, key_len)) == NULL) {
-		tls_error_setx(&signer->error, "failed to create key bio");
+		tls_error_setx(&signer->error, TLS_ERROR_UNKNOWN,
+		    "failed to create key bio");
 		goto err;
 	}
 	if ((pkey = PEM_read_bio_PrivateKey(bio, NULL, tls_password_cb,
 	    NULL)) == NULL) {
-		tls_error_setx(&signer->error, "failed to read private key");
+		tls_error_setx(&signer->error, TLS_ERROR_UNKNOWN,
+		    "failed to read private key");
 		goto err;
 	}
 
 	if ((skey = calloc(1, sizeof(*skey))) == NULL) {
-		tls_error_set(&signer->error, "failed to create key entry");
+		tls_error_setx(&signer->error, TLS_ERROR_OUT_OF_MEMORY,
+		    "out of memory");
 		goto err;
 	}
 	skey->hash = hash;
 	if ((skey->rsa = EVP_PKEY_get1_RSA(pkey)) == NULL &&
 	    (skey->ecdsa = EVP_PKEY_get1_EC_KEY(pkey)) == NULL) {
-		tls_error_setx(&signer->error, "unknown key type");
+		tls_error_setx(&signer->error, TLS_ERROR_UNKNOWN,
+		    "unknown key type");
 		goto err;
 	}
 
@@ -193,32 +216,33 @@ tls_sign_rsa(struct tls_signer *signer, struct tls_signer_key *skey,
 		rsa_padding = RSA_NO_PADDING;
 	} else if (padding_type == TLS_PADDING_RSA_PKCS1) {
 		rsa_padding = RSA_PKCS1_PADDING;
-	} else if (padding_type == TLS_PADDING_RSA_X9_31) {
-		rsa_padding = RSA_X931_PADDING;
 	} else {
-		tls_error_setx(&signer->error, "invalid RSA padding type (%d)",
-		    padding_type);
+		tls_error_setx(&signer->error, TLS_ERROR_UNKNOWN,
+		    "invalid RSA padding type (%d)", padding_type);
 		return (-1);
 	}
 
 	if (input_len > INT_MAX) {
-		tls_error_setx(&signer->error, "input too large");
+		tls_error_setx(&signer->error, TLS_ERROR_INVALID_ARGUMENT,
+		    "input too large");
 		return (-1);
 	}
 	if ((rsa_size = RSA_size(skey->rsa)) <= 0) {
-		tls_error_setx(&signer->error, "invalid RSA size: %d",
-		    rsa_size);
+		tls_error_setx(&signer->error, TLS_ERROR_UNKNOWN,
+		    "invalid RSA size: %d", rsa_size);
 		return (-1);
 	}
 	if ((signature = calloc(1, rsa_size)) == NULL) {
-		tls_error_set(&signer->error, "RSA signature");
+		tls_error_setx(&signer->error, TLS_ERROR_OUT_OF_MEMORY,
+		    "out of memory");
 		return (-1);
 	}
 
 	if ((signature_len = RSA_private_encrypt((int)input_len, input,
 	    signature, skey->rsa, rsa_padding)) <= 0) {
 		/* XXX - include further details from libcrypto. */
-		tls_error_setx(&signer->error, "RSA signing failed");
+		tls_error_setx(&signer->error, TLS_ERROR_UNKNOWN,
+		    "RSA signing failed");
 		free(signature);
 		return (-1);
 	}
@@ -241,28 +265,32 @@ tls_sign_ecdsa(struct tls_signer *signer, struct tls_signer_key *skey,
 	*out_signature_len = 0;
 
 	if (padding_type != TLS_PADDING_NONE) {
-		tls_error_setx(&signer->error, "invalid ECDSA padding");
+		tls_error_setx(&signer->error, TLS_ERROR_UNKNOWN,
+		    "invalid ECDSA padding");
 		return (-1);
 	}
 
 	if (input_len > INT_MAX) {
-		tls_error_setx(&signer->error, "digest too large");
+		tls_error_setx(&signer->error, TLS_ERROR_INVALID_ARGUMENT,
+		    "digest too large");
 		return (-1);
 	}
 	if ((signature_len = ECDSA_size(skey->ecdsa)) <= 0) {
-		tls_error_setx(&signer->error, "invalid ECDSA size: %d",
-		    signature_len);
+		tls_error_setx(&signer->error, TLS_ERROR_UNKNOWN,
+		    "invalid ECDSA size: %d", signature_len);
 		return (-1);
 	}
 	if ((signature = calloc(1, signature_len)) == NULL) {
-		tls_error_set(&signer->error, "ECDSA signature");
+		tls_error_setx(&signer->error, TLS_ERROR_OUT_OF_MEMORY,
+		    "out of memory");
 		return (-1);
 	}
 
 	if (!ECDSA_sign(0, input, input_len, signature, &signature_len,
 	    skey->ecdsa)) {
 		/* XXX - include further details from libcrypto. */
-		tls_error_setx(&signer->error, "ECDSA signing failed");
+		tls_error_setx(&signer->error, TLS_ERROR_UNKNOWN,
+		    "ECDSA signing failed");
 		free(signature);
 		return (-1);
 	}
@@ -288,7 +316,7 @@ tls_signer_sign(struct tls_signer *signer, const char *pubkey_hash,
 			break;
 
 	if (skey == NULL) {
-		tls_error_setx(&signer->error, "key not found");
+		tls_error_setx(&signer->error, TLS_ERROR_UNKNOWN, "key not found");
 		return (-1);
 	}
 
@@ -300,7 +328,7 @@ tls_signer_sign(struct tls_signer *signer, const char *pubkey_hash,
 		return tls_sign_ecdsa(signer, skey, input, input_len,
 		    padding_type, out_signature, out_signature_len);
 
-	tls_error_setx(&signer->error, "unknown key type");
+	tls_error_setx(&signer->error, TLS_ERROR_UNKNOWN, "unknown key type");
 
 	return (-1);
 }
@@ -331,8 +359,6 @@ tls_rsa_priv_enc(int from_len, const unsigned char *from, unsigned char *to,
 		padding_type = TLS_PADDING_NONE;
 	} else if (rsa_padding == RSA_PKCS1_PADDING) {
 		padding_type = TLS_PADDING_RSA_PKCS1;
-	} else if (rsa_padding == RSA_X931_PADDING) {
-		padding_type = TLS_PADDING_RSA_X9_31;
 	} else {
 		goto err;
 	}
@@ -396,8 +422,8 @@ tls_ecdsa_do_sign(const unsigned char *dgst, int dgst_len, const BIGNUM *inv,
 	 * to its calling convention/signature.
 	 */
 
-	pubkey_hash = ECDSA_get_ex_data(eckey, 0);
-	config = ECDSA_get_ex_data(eckey, 1);
+	pubkey_hash = EC_KEY_get_ex_data(eckey, 0);
+	config = EC_KEY_get_ex_data(eckey, 1);
 
 	if (pubkey_hash == NULL || config == NULL)
 		goto err;
@@ -423,26 +449,30 @@ tls_ecdsa_do_sign(const unsigned char *dgst, int dgst_len, const BIGNUM *inv,
 	return (NULL);
 }
 
-ECDSA_METHOD *
+EC_KEY_METHOD *
 tls_signer_ecdsa_method(void)
 {
-	static ECDSA_METHOD *ecdsa_method = NULL;
+	static EC_KEY_METHOD *ecdsa_method = NULL;
+	const EC_KEY_METHOD *default_method;
+	int (*sign)(int type, const unsigned char *dgst, int dlen,
+	    unsigned char *sig, unsigned int *siglen,
+	    const BIGNUM *kinv, const BIGNUM *r, EC_KEY *eckey);
+	int (*sign_setup)(EC_KEY *eckey, BN_CTX *ctx_in,
+	    BIGNUM **kinvp, BIGNUM **rp);
 
 	pthread_mutex_lock(&signer_method_lock);
 
 	if (ecdsa_method != NULL)
 		goto out;
 
-	ecdsa_method = calloc(1, sizeof(*ecdsa_method));
+	default_method = EC_KEY_get_default_method();
+	ecdsa_method = EC_KEY_METHOD_new(default_method);
 	if (ecdsa_method == NULL)
 		goto out;
 
-	ecdsa_method->ecdsa_do_sign = tls_ecdsa_do_sign;
-	ecdsa_method->name = strdup("libtls ECDSA method");
-	if (ecdsa_method->name == NULL) {
-		free(ecdsa_method);
-		ecdsa_method = NULL;
-	}
+	EC_KEY_METHOD_get_sign(default_method, &sign, &sign_setup, NULL);
+	EC_KEY_METHOD_set_sign(ecdsa_method, sign, sign_setup,
+	    tls_ecdsa_do_sign);
 
  out:
 	pthread_mutex_unlock(&signer_method_lock);

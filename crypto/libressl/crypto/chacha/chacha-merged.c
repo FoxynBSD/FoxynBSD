@@ -1,4 +1,4 @@
-/* $OpenBSD: chacha-merged.c,v 1.10 2021/10/22 17:43:00 tb Exp $ */
+/* $OpenBSD: chacha-merged.c,v 1.13 2024/06/05 19:43:06 tb Exp $ */
 /*
 chacha-merged.c version 20080118
 D. J. Bernstein
@@ -11,7 +11,7 @@ Public domain.
 #define __bounded__(x, y, z)
 #endif
 
-#define CHACHA_MINKEYLEN 	16
+#define CHACHA_MINKEYLEN	16
 #define CHACHA_NONCELEN		8
 #define CHACHA_CTRLEN		8
 #define CHACHA_STATELEN		(CHACHA_NONCELEN+CHACHA_CTRLEN)
@@ -324,3 +324,4 @@ CRYPTO_hchacha_20(unsigned char subkey[32], const unsigned char key[32],
 	U32TO8_LITTLE(subkey + 24, x[14]);
 	U32TO8_LITTLE(subkey + 28, x[15]);
 }
+LCRYPTO_ALIAS(CRYPTO_hchacha_20);

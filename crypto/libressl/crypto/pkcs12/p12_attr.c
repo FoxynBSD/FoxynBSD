@@ -1,4 +1,4 @@
-/* $OpenBSD: p12_attr.c,v 1.17 2022/08/20 09:16:18 tb Exp $ */
+/* $OpenBSD: p12_attr.c,v 1.21 2024/03/24 06:48:03 tb Exp $ */
 /* Written by Dr Stephen N Henson (steve@openssl.org) for the OpenSSL
  * project 1999.
  */
@@ -61,7 +61,7 @@
 #include <openssl/pkcs12.h>
 
 #include "pkcs12_local.h"
-#include "x509_lcl.h"
+#include "x509_local.h"
 
 /* Add a local keyid to a safebag */
 
@@ -85,6 +85,7 @@ PKCS8_add_keyusage(PKCS8_PRIV_KEY_INFO *p8, int usage)
 	return PKCS8_pkey_add1_attr_by_NID(p8, NID_key_usage, V_ASN1_BIT_STRING,
 	    &us_val, 1);
 }
+LCRYPTO_ALIAS(PKCS8_add_keyusage);
 
 /* Add a friendlyname to a safebag */
 
@@ -97,7 +98,6 @@ PKCS12_add_friendlyname_asc(PKCS12_SAFEBAG *bag, const char *name, int namelen)
 	else
 		return 0;
 }
-
 
 int
 PKCS12_add_friendlyname_uni(PKCS12_SAFEBAG *bag, const unsigned char *name,
@@ -148,9 +148,11 @@ PKCS12_get_friendlyname(PKCS12_SAFEBAG *bag)
 	return OPENSSL_uni2asc(atype->value.bmpstring->data,
 	    atype->value.bmpstring->length);
 }
+LCRYPTO_ALIAS(PKCS12_get_friendlyname);
 
 const STACK_OF(X509_ATTRIBUTE) *
 PKCS12_SAFEBAG_get0_attrs(const PKCS12_SAFEBAG *bag)
 {
 	return bag->attrib;
 }
+LCRYPTO_ALIAS(PKCS12_SAFEBAG_get0_attrs);

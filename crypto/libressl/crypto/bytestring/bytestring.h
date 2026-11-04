@@ -1,4 +1,4 @@
-/*	$OpenBSD: bytestring.h,v 1.3 2022/01/06 14:32:55 jsing Exp $	*/
+/*	$OpenBSD: bytestring.h,v 1.6 2024/12/05 19:57:37 tb Exp $	*/
 /*
  * Copyright (c) 2014, Google Inc.
  *
@@ -80,11 +80,9 @@ int CBS_stow(const CBS *cbs, uint8_t **out_ptr, size_t *out_len);
 /*
  * CBS_strdup copies the current contents of |cbs| into |*out_ptr| as a
  * NUL-terminated C string. If |*out_ptr| is not NULL, the contents are freed
- * with free. It returns one on success and zero on allocation
- * failure. On success, |*out_ptr| should be freed with free.
- *
- * NOTE: If |cbs| contains NUL bytes, the string will be truncated. Call
- * |CBS_contains_zero_byte(cbs)| to check for NUL bytes.
+ * with free. It returns one on success and zero on failure. On success,
+ * |*out_ptr| should be freed with free. If |cbs| contains NUL bytes,
+ * CBS_strdup will fail.
  */
 int CBS_strdup(const CBS *cbs, char **out_ptr);
 
@@ -462,6 +460,13 @@ int CBB_add_u16_length_prefixed(CBB *cbb, CBB *out_contents);
 int CBB_add_u24_length_prefixed(CBB *cbb, CBB *out_contents);
 
 /*
+ * CBB_add_u32_length_prefixed sets |*out_contents| to a new child of |cbb|.
+ * The data written to |*out_contents| will be prefixed in |cbb| with a 32-bit,
+ * big-endian length. It returns one on success or zero on error.
+ */
+int CBB_add_u32_length_prefixed(CBB *cbb, CBB *out_contents);
+
+/*
  * CBB_add_asn sets |*out_contents| to a |CBB| into which the contents of an
  * ASN.1 object can be written. The |tag| argument will be used as the tag for
  * the object. Passing in |tag| number 31 will return in an error since only
@@ -561,6 +566,6 @@ int cbs_get_any_asn1_element_internal(CBS *cbs, CBS *out, unsigned int *out_tag,
 int CBS_asn1_indefinite_to_definite(CBS *in, uint8_t **out, size_t *out_len);
 #endif /* LIBRESSL_INTERNAL */
 
-__END_HIDDEN_DECLS 
+__END_HIDDEN_DECLS
 
 #endif  /* OPENSSL_HEADER_BYTESTRING_H */

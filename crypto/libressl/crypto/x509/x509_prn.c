@@ -1,4 +1,4 @@
-/* $OpenBSD: x509_prn.c,v 1.2 2021/11/01 20:53:08 tb Exp $ */
+/* $OpenBSD: x509_prn.c,v 1.7 2025/06/02 12:18:22 jsg Exp $ */
 /* Written by Dr Stephen N Henson (steve@openssl.org) for the OpenSSL
  * project 1999.
  */
@@ -62,7 +62,7 @@
 #include <openssl/conf.h>
 #include <openssl/x509v3.h>
 
-#include "x509_lcl.h"
+#include "x509_local.h"
 
 /* Extension printing routines */
 
@@ -87,8 +87,9 @@ X509V3_EXT_val_prn(BIO *out, STACK_OF(CONF_VALUE) *val, int indent, int ml)
 	for (i = 0; i < sk_CONF_VALUE_num(val); i++) {
 		if (ml)
 			BIO_printf(out, "%*s", indent, "");
-		else if (i > 0) BIO_printf(out, ", ");
-			nval = sk_CONF_VALUE_value(val, i);
+		else if (i > 0)
+			BIO_printf(out, ", ");
+		nval = sk_CONF_VALUE_value(val, i);
 		if (!nval->name)
 			BIO_puts(out, nval->value);
 		else if (!nval->value)
@@ -99,6 +100,7 @@ X509V3_EXT_val_prn(BIO *out, STACK_OF(CONF_VALUE) *val, int indent, int ml)
 			BIO_puts(out, "\n");
 	}
 }
+LCRYPTO_ALIAS(X509V3_EXT_val_prn);
 
 /* Main routine: print out a general extension */
 
@@ -152,6 +154,7 @@ err:
 		method->ext_free(ext_str);
 	return ok;
 }
+LCRYPTO_ALIAS(X509V3_EXT_print);
 
 int
 X509V3_extensions_print(BIO *bp, const char *title,
@@ -176,7 +179,7 @@ X509V3_extensions_print(BIO *bp, const char *title,
 		obj = X509_EXTENSION_get_object(ex);
 		i2a_ASN1_OBJECT(bp, obj);
 		j = X509_EXTENSION_get_critical(ex);
-		if (BIO_printf(bp, ": %s\n",j?"critical":"") <= 0)
+		if (BIO_printf(bp, ":%s\n", j ? " critical" : "") <= 0)
 			return 0;
 		if (!X509V3_EXT_print(bp, ex, flag, indent + 4)) {
 			BIO_printf(bp, "%*s", indent + 4, "");
@@ -187,6 +190,7 @@ X509V3_extensions_print(BIO *bp, const char *title,
 	}
 	return 1;
 }
+LCRYPTO_ALIAS(X509V3_extensions_print);
 
 static int
 unknown_ext_print(BIO *out, X509_EXTENSION *ext, unsigned long flag,
@@ -225,3 +229,4 @@ X509V3_EXT_print_fp(FILE *fp, X509_EXTENSION *ext, int flag, int indent)
 	BIO_free(bio_tmp);
 	return ret;
 }
+LCRYPTO_ALIAS(X509V3_EXT_print_fp);

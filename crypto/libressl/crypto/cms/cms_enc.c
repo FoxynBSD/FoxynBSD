@@ -1,4 +1,4 @@
-/* $OpenBSD: cms_enc.c,v 1.21 2022/01/20 10:58:35 inoguchi Exp $ */
+/* $OpenBSD: cms_enc.c,v 1.26 2025/05/10 05:54:38 tb Exp $ */
 /*
  * Written by Dr Stephen N Henson (steve@openssl.org) for the OpenSSL
  * project.
@@ -52,16 +52,19 @@
  * ====================================================================
  */
 
+#include <stdlib.h>
 #include <string.h>
 
-#include "cryptlib.h"
-#include <openssl/asn1t.h>
-#include <openssl/pem.h>
-#include <openssl/x509v3.h>
-#include <openssl/err.h>
+#include <openssl/asn1.h>
+#include <openssl/bio.h>
 #include <openssl/cms.h>
-#include <openssl/rand.h>
-#include "cms_lcl.h"
+#include <openssl/evp.h>
+#include <openssl/objects.h>
+#include <openssl/x509.h>
+
+#include "cms_local.h"
+#include "err_local.h"
+#include "evp_local.h"
 
 /* CMS EncryptedData Utilities */
 
@@ -249,6 +252,7 @@ CMS_EncryptedData_set1_key(CMS_ContentInfo *cms, const EVP_CIPHER *ciph,
 
 	return cms_EncryptedContent_init(ec, ciph, key, keylen);
 }
+LCRYPTO_ALIAS(CMS_EncryptedData_set1_key);
 
 BIO *
 cms_EncryptedData_init_bio(CMS_ContentInfo *cms)

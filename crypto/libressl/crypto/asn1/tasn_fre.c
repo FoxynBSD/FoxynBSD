@@ -1,4 +1,4 @@
-/* $OpenBSD: tasn_fre.c,v 1.20 2022/05/12 19:55:58 jsing Exp $ */
+/* $OpenBSD: tasn_fre.c,v 1.25 2025/08/14 19:02:17 tb Exp $ */
 /* Written by Dr Stephen N Henson (steve@openssl.org) for the OpenSSL
  * project 2000.
  */
@@ -62,7 +62,7 @@
 #include <openssl/asn1t.h>
 #include <openssl/objects.h>
 
-#include "asn1_locl.h"
+#include "asn1_local.h"
 
 static void asn1_item_free(ASN1_VALUE **pval, const ASN1_ITEM *it);
 
@@ -73,12 +73,14 @@ ASN1_item_free(ASN1_VALUE *val, const ASN1_ITEM *it)
 {
 	asn1_item_free(&val, it);
 }
+LCRYPTO_ALIAS(ASN1_item_free);
 
 void
 ASN1_item_ex_free(ASN1_VALUE **pval, const ASN1_ITEM *it)
 {
 	asn1_item_free(pval, it);
 }
+LCRYPTO_ALIAS(ASN1_item_ex_free);
 
 static void
 asn1_item_free(ASN1_VALUE **pval, const ASN1_ITEM *it)
@@ -145,15 +147,15 @@ asn1_item_free(ASN1_VALUE **pval, const ASN1_ITEM *it)
 				return;
 		}
 		asn1_enc_cleanup(pval, it);
-		/* If we free up as normal we will invalidate any
-		 * ANY DEFINED BY field and we wont be able to
+		/*
+		 * If we free up as normal, we will invalidate any
+		 * ANY DEFINED BY field and we won't be able to
 		 * determine the type of the field it defines. So
 		 * free up in reverse order.
 		 */
-		tt = it->templates + it->tcount - 1;
-		for (i = 0; i < it->tcount; tt--, i++) {
+		for (i = it->tcount - 1; i >= 0; i--) {
 			ASN1_VALUE **pseqval;
-			seqtt = asn1_do_adb(pval, tt, 0);
+			seqtt = asn1_do_adb(pval, &it->templates[i], 0);
 			if (!seqtt)
 				continue;
 			pseqval = asn1_get_field_ptr(pval, seqtt);

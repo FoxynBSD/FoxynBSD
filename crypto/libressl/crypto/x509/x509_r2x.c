@@ -1,4 +1,4 @@
-/* $OpenBSD: x509_r2x.c,v 1.13 2021/11/03 14:36:21 schwarze Exp $ */
+/* $OpenBSD: x509_r2x.c,v 1.18 2025/05/10 05:54:39 tb Exp $ */
 /* Copyright (C) 1995-1998 Eric Young (eay@cryptsoft.com)
  * All rights reserved.
  *
@@ -61,12 +61,12 @@
 #include <openssl/asn1.h>
 #include <openssl/bn.h>
 #include <openssl/buffer.h>
-#include <openssl/err.h>
 #include <openssl/evp.h>
 #include <openssl/objects.h>
 #include <openssl/x509.h>
 
-#include "x509_lcl.h"
+#include "err_local.h"
+#include "x509_local.h"
 
 X509 *
 X509_REQ_to_X509(X509_REQ *r, int days, EVP_PKEY *pkey)
@@ -85,9 +85,7 @@ X509_REQ_to_X509(X509_REQ *r, int days, EVP_PKEY *pkey)
 	xi = ret->cert_info;
 
 	if (sk_X509_ATTRIBUTE_num(r->req_info->attributes) != 0) {
-		if ((xi->version = ASN1_INTEGER_new()) == NULL)
-			goto err;
-		if (!ASN1_INTEGER_set(xi->version, 2))
+		if (!X509_set_version(ret, 2))
 			goto err;
 	}
 
@@ -116,3 +114,4 @@ err:
 	X509_free(ret);
 	return NULL;
 }
+LCRYPTO_ALIAS(X509_REQ_to_X509);

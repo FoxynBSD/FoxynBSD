@@ -175,7 +175,7 @@ itobn(long i)
 	if ((n = BN_new()) == NULL)
 		errx(1, "could not create BIGNUM: %s",
 		     ERR_error_string(ERR_get_error(), 0));
-	BN_init(n);
+	/* BN_new() returns a zeroed number (and LibreSSL 4 has no BN_init). */
 	if (i > 0)
 		BN_add_word(n, (u_long)i);
 	else

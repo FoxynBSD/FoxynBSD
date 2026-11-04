@@ -1,4 +1,4 @@
-/* $OpenBSD: apps.h,v 1.31 2022/01/10 12:17:49 tb Exp $ */
+/* $OpenBSD: apps.h,v 1.42 2025/01/02 13:11:26 tb Exp $ */
 /* Copyright (C) 1995-1998 Eric Young (eay@cryptsoft.com)
  * All rights reserved.
  *
@@ -126,23 +126,17 @@
 #include <openssl/ocsp.h>
 #endif
 
+#include <openssl/ssl.h>
+
 #include <unistd.h>
 
-#if !defined(OpenBSD)
-#define pledge(request, paths) 0
-#define unveil(path, permissions) 0
-#endif
-
-extern int single_execution;
+/* numbers in us */
+#define DGRAM_RCV_TIMEOUT         250000
+#define DGRAM_SND_TIMEOUT         250000
 
 extern CONF *config;
 extern char *default_config_file;
 extern BIO *bio_err;
-
-typedef struct args_st {
-	char **data;
-	int count;
-} ARGS;
 
 #define PW_MIN_LENGTH 4
 typedef struct pw_cb_data {
@@ -161,11 +155,8 @@ int ui_read(UI *ui, UI_STRING *uis);
 int ui_write(UI *ui, UI_STRING *uis);
 int ui_close(UI *ui);
 
-int should_retry(int i);
-int args_from_file(char *file, int *argc, char **argv[]);
 int str2fmt(char *s);
 void program_name(char *in, char *out, int size);
-int chopup_args(ARGS *arg, char *buf, int *argc, char **argv[]);
 #ifdef HEADER_X509_H
 int dump_cert_text(BIO *out, X509 *x);
 void print_name(BIO *out, const char *title, X509_NAME *nm,
@@ -243,7 +234,6 @@ int parse_yesno(const char *str, int def);
 X509_NAME *parse_name(char *str, long chtype, int multirdn);
 int args_verify(char ***pargs, int *pargc, int *badarg, BIO *err,
     X509_VERIFY_PARAM **pm);
-void policies_print(BIO *out, X509_STORE_CTX *ctx);
 int bio_to_mem(unsigned char **out, int maxlen, BIO *in);
 int pkey_ctrl_string(EVP_PKEY_CTX *ctx, char *value);
 int init_gen_str(BIO *err, EVP_PKEY_CTX **pctx, const char *algname,
@@ -332,6 +322,80 @@ int options_parse(int argc, char **argv, const struct option *opts,
 
 void show_cipher(const OBJ_NAME *name, void *arg);
 
-int pkey_check(BIO *out, EVP_PKEY *pkey, int (check_fn)(EVP_PKEY_CTX *),
-    const char *desc);
+int asn1parse_main(int argc, char **argv);
+int ca_main(int argc, char **argv);
+int certhash_main(int argc, char **argv);
+int ciphers_main(int argc, char **argv);
+int cms_main(int argc, char **argv);
+int crl2pkcs7_main(int argc, char **argv);
+int crl_main(int argc, char **argv);
+int dgst_main(int argc, char **argv);
+int dh_main(int argc, char **argv);
+int dhparam_main(int argc, char **argv);
+int dsa_main(int argc, char **argv);
+int dsaparam_main(int argc, char **argv);
+int ec_main(int argc, char **argv);
+int ecparam_main(int argc, char **argv);
+int enc_main(int argc, char **argv);
+int errstr_main(int argc, char **argv);
+int gendh_main(int argc, char **argv);
+int gendsa_main(int argc, char **argv);
+int genpkey_main(int argc, char **argv);
+int genrsa_main(int argc, char **argv);
+int ocsp_main(int argc, char **argv);
+int passwd_main(int argc, char **argv);
+int pkcs7_main(int argc, char **argv);
+int pkcs8_main(int argc, char **argv);
+int pkcs12_main(int argc, char **argv);
+int pkey_main(int argc, char **argv);
+int pkeyparam_main(int argc, char **argv);
+int pkeyutl_main(int argc, char **argv);
+int prime_main(int argc, char **argv);
+int rand_main(int argc, char **argv);
+int req_main(int argc, char **argv);
+int rsa_main(int argc, char **argv);
+int rsautl_main(int argc, char **argv);
+int s_client_main(int argc, char **argv);
+int s_server_main(int argc, char **argv);
+int s_time_main(int argc, char **argv);
+int sess_id_main(int argc, char **argv);
+int smime_main(int argc, char **argv);
+int speed_main(int argc, char **argv);
+int ts_main(int argc, char **argv);
+int verify_main(int argc, char **argv);
+int version_main(int argc, char **argv);
+int x509_main(int argc, char **argv);
+
+#define PORT            4433
+#define PORT_STR        "4433"
+#define PROTOCOL        "tcp"
+
+extern int verify_depth;
+extern int verify_return_error;
+
+int do_server(int port, int type, int *ret,
+    int (*cb)(int s, unsigned char *context),
+    unsigned char *context, int naccept);
+int verify_callback(int ok, X509_STORE_CTX *ctx);
+int set_cert_stuff(SSL_CTX *ctx, char *cert_file, char *key_file);
+int set_cert_key_stuff(SSL_CTX *ctx, X509 *cert, EVP_PKEY *key);
+int ssl_print_tmp_key(BIO *out, SSL *s);
+int init_client(int *sock, char *server, char *port, int type, int af);
+int extract_port(char *str, short *port_ptr);
+int extract_host_port(char *str, char **host_ptr, unsigned char *ip, char **p);
+
+long bio_dump_callback(BIO *bio, int cmd, const char *argp, int argi,
+    long argl, long ret);
+
+void apps_ssl_info_callback(const SSL *s, int where, int ret);
+void msg_cb(int write_p, int version, int content_type, const void *buf,
+    size_t len, SSL *ssl, void *arg);
+void tlsext_cb(SSL *s, int client_server, int type, unsigned char *data,
+    int len, void *arg);
+
+int generate_cookie_callback(SSL *ssl, unsigned char *cookie,
+    unsigned int *cookie_len);
+int verify_cookie_callback(SSL *ssl, const unsigned char *cookie,
+    unsigned int cookie_len);
+
 #endif

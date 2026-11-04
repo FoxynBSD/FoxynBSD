@@ -1,4 +1,4 @@
-/* $OpenBSD: e_chacha.c,v 1.9 2022/07/30 17:11:38 jsing Exp $ */
+/* $OpenBSD: e_chacha.c,v 1.14 2024/04/09 13:52:41 beck Exp $ */
 /*
  * Copyright (c) 2014 Joel Sing <jsing@openbsd.org>
  *
@@ -23,7 +23,7 @@
 #include <openssl/evp.h>
 #include <openssl/objects.h>
 
-#include "evp_locl.h"
+#include "evp_local.h"
 
 static int
 chacha_init(EVP_CIPHER_CTX *ctx, const unsigned char *key,
@@ -53,13 +53,11 @@ static const EVP_CIPHER chacha20_cipher = {
 	.nid = NID_chacha20,
 	.block_size = 1,
 	.key_len = 32,
-	/* 
-	 * The 128 bit EVP IV is split for ChaCha into four 32 bit pieces:
-	 * 			counter[0]	counter[1]	iv[0]	iv[1]
-	 * OpenSSL exposes these as:
-	 * 	openssl_iv =	counter[0]	iv[0]		iv[1]	iv[2]
-	 * Due to the cipher internal state's symmetry, these are functionally
-	 * equivalent.
+	/*
+	 * The 16-byte EVP IV is split into 4 little-endian 4-byte words
+	 *      evpiv[15:12]	evpiv[11:8]	evpiv[7:4]	evpiv[3:0]
+	 *	iv[1]		iv[0]		counter[1]	counter[0]
+	 * and passed as iv[] and counter[] to ChaCha_set_iv().
 	 */
 	.iv_len = 16,
 	.flags = EVP_CIPH_STREAM_CIPHER | EVP_CIPH_ALWAYS_CALL_INIT |
@@ -74,5 +72,6 @@ EVP_chacha20(void)
 {
 	return (&chacha20_cipher);
 }
+LCRYPTO_ALIAS(EVP_chacha20);
 
 #endif

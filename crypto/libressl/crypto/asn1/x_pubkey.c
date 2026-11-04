@@ -1,4 +1,4 @@
-/* $OpenBSD: x_pubkey.c,v 1.32 2022/05/24 19:59:14 tb Exp $ */
+/* $OpenBSD: x_pubkey.c,v 1.40 2026/01/05 05:23:56 tb Exp $ */
 /* Copyright (C) 1995-1998 Eric Young (eay@cryptsoft.com)
  * All rights reserved.
  *
@@ -61,7 +61,6 @@
 #include <openssl/opensslconf.h>
 
 #include <openssl/asn1t.h>
-#include <openssl/err.h>
 #include <openssl/x509.h>
 
 #ifndef OPENSSL_NO_DSA
@@ -71,9 +70,10 @@
 #include <openssl/rsa.h>
 #endif
 
-#include "asn1_locl.h"
-#include "evp_locl.h"
-#include "x509_lcl.h"
+#include "asn1_local.h"
+#include "err_local.h"
+#include "evp_local.h"
+#include "x509_local.h"
 
 /* Minor tweak to operation: free up EVP_PKEY */
 static int
@@ -111,6 +111,7 @@ const ASN1_ITEM X509_PUBKEY_it = {
 	.size = sizeof(X509_PUBKEY),
 	.sname = "X509_PUBKEY",
 };
+LCRYPTO_ALIAS(X509_PUBKEY_it);
 
 X509_PUBKEY *
 d2i_X509_PUBKEY(X509_PUBKEY **a, const unsigned char **in, long len)
@@ -118,24 +119,28 @@ d2i_X509_PUBKEY(X509_PUBKEY **a, const unsigned char **in, long len)
 	return (X509_PUBKEY *)ASN1_item_d2i((ASN1_VALUE **)a, in, len,
 	    &X509_PUBKEY_it);
 }
+LCRYPTO_ALIAS(d2i_X509_PUBKEY);
 
 int
 i2d_X509_PUBKEY(X509_PUBKEY *a, unsigned char **out)
 {
 	return ASN1_item_i2d((ASN1_VALUE *)a, out, &X509_PUBKEY_it);
 }
+LCRYPTO_ALIAS(i2d_X509_PUBKEY);
 
 X509_PUBKEY *
 X509_PUBKEY_new(void)
 {
 	return (X509_PUBKEY *)ASN1_item_new(&X509_PUBKEY_it);
 }
+LCRYPTO_ALIAS(X509_PUBKEY_new);
 
 void
 X509_PUBKEY_free(X509_PUBKEY *a)
 {
 	ASN1_item_free((ASN1_VALUE *)a, &X509_PUBKEY_it);
 }
+LCRYPTO_ALIAS(X509_PUBKEY_free);
 
 int
 X509_PUBKEY_set(X509_PUBKEY **x, EVP_PKEY *pkey)
@@ -174,6 +179,7 @@ X509_PUBKEY_set(X509_PUBKEY **x, EVP_PKEY *pkey)
 		X509_PUBKEY_free(pk);
 	return 0;
 }
+LCRYPTO_ALIAS(X509_PUBKEY_set);
 
 EVP_PKEY *
 X509_PUBKEY_get0(X509_PUBKEY *key)
@@ -226,6 +232,7 @@ X509_PUBKEY_get0(X509_PUBKEY *key)
 	EVP_PKEY_free(ret);
 	return (NULL);
 }
+LCRYPTO_ALIAS(X509_PUBKEY_get0);
 
 EVP_PKEY *
 X509_PUBKEY_get(X509_PUBKEY *key)
@@ -239,6 +246,7 @@ X509_PUBKEY_get(X509_PUBKEY *key)
 
 	return pkey;
 }
+LCRYPTO_ALIAS(X509_PUBKEY_get);
 
 /*
  * Decode an X509_PUBKEY into the specified key type.
@@ -377,7 +385,7 @@ pkey_pubkey_ex_i2d(ASN1_VALUE **pval, unsigned char **out, const ASN1_ITEM *it,
 	return pubkey_ex_i2d(EVP_PKEY_NONE, pval, out, it);
 }
 
-const ASN1_EXTERN_FUNCS pkey_pubkey_asn1_ff = {
+static const ASN1_EXTERN_FUNCS pkey_pubkey_asn1_ff = {
 	.app_data = NULL,
 	.asn1_ex_new = pkey_pubkey_ex_new,
 	.asn1_ex_free = pkey_pubkey_ex_free,
@@ -387,7 +395,7 @@ const ASN1_EXTERN_FUNCS pkey_pubkey_asn1_ff = {
 	.asn1_ex_print = NULL,
 };
 
-const ASN1_ITEM EVP_PKEY_PUBKEY_it = {
+static const ASN1_ITEM EVP_PKEY_PUBKEY_it = {
 	.itype = ASN1_ITYPE_EXTERN,
 	.utype = 0,
 	.templates = NULL,
@@ -403,12 +411,14 @@ d2i_PUBKEY(EVP_PKEY **pkey, const unsigned char **in, long len)
 	return (EVP_PKEY *)ASN1_item_d2i((ASN1_VALUE **)pkey, in, len,
 	    &EVP_PKEY_PUBKEY_it);
 }
+LCRYPTO_ALIAS(d2i_PUBKEY);
 
 int
 i2d_PUBKEY(EVP_PKEY *pkey, unsigned char **out)
 {
 	return ASN1_item_i2d((ASN1_VALUE *)pkey, out, &EVP_PKEY_PUBKEY_it);
 }
+LCRYPTO_ALIAS(i2d_PUBKEY);
 
 EVP_PKEY *
 d2i_PUBKEY_bio(BIO *bp, EVP_PKEY **pkey)
@@ -416,12 +426,14 @@ d2i_PUBKEY_bio(BIO *bp, EVP_PKEY **pkey)
 	return (EVP_PKEY *)ASN1_item_d2i_bio(&EVP_PKEY_PUBKEY_it, bp,
 	    (ASN1_VALUE **)pkey);
 }
+LCRYPTO_ALIAS(d2i_PUBKEY_bio);
 
 int
 i2d_PUBKEY_bio(BIO *bp, EVP_PKEY *pkey)
 {
 	return ASN1_item_i2d_bio(&EVP_PKEY_PUBKEY_it, bp, (ASN1_VALUE *)pkey);
 }
+LCRYPTO_ALIAS(i2d_PUBKEY_bio);
 
 EVP_PKEY *
 d2i_PUBKEY_fp(FILE *fp, EVP_PKEY **pkey)
@@ -429,12 +441,14 @@ d2i_PUBKEY_fp(FILE *fp, EVP_PKEY **pkey)
 	return (EVP_PKEY *)ASN1_item_d2i_fp(&EVP_PKEY_PUBKEY_it, fp,
 	    (ASN1_VALUE **)pkey);
 }
+LCRYPTO_ALIAS(d2i_PUBKEY_fp);
 
 int
 i2d_PUBKEY_fp(FILE *fp, EVP_PKEY *pkey)
 {
 	return ASN1_item_i2d_fp(&EVP_PKEY_PUBKEY_it, fp, (ASN1_VALUE *)pkey);
 }
+LCRYPTO_ALIAS(i2d_PUBKEY_fp);
 
 /*
  * The following are equivalents but which return RSA and DSA keys.
@@ -471,7 +485,7 @@ rsa_pubkey_ex_i2d(ASN1_VALUE **pval, unsigned char **out, const ASN1_ITEM *it,
 	return pubkey_ex_i2d(EVP_PKEY_RSA, pval, out, it);
 }
 
-const ASN1_EXTERN_FUNCS rsa_pubkey_asn1_ff = {
+static const ASN1_EXTERN_FUNCS rsa_pubkey_asn1_ff = {
 	.app_data = NULL,
 	.asn1_ex_new = rsa_pubkey_ex_new,
 	.asn1_ex_free = rsa_pubkey_ex_free,
@@ -481,7 +495,7 @@ const ASN1_EXTERN_FUNCS rsa_pubkey_asn1_ff = {
 	.asn1_ex_print = NULL,
 };
 
-const ASN1_ITEM RSA_PUBKEY_it = {
+static const ASN1_ITEM RSA_PUBKEY_it = {
 	.itype = ASN1_ITYPE_EXTERN,
 	.utype = 0,
 	.templates = NULL,
@@ -497,36 +511,42 @@ d2i_RSA_PUBKEY(RSA **rsa, const unsigned char **in, long len)
 	return (RSA *)ASN1_item_d2i((ASN1_VALUE **)rsa, in, len,
 	    &RSA_PUBKEY_it);
 }
+LCRYPTO_ALIAS(d2i_RSA_PUBKEY);
 
 int
 i2d_RSA_PUBKEY(RSA *rsa, unsigned char **out)
 {
 	return ASN1_item_i2d((ASN1_VALUE *)rsa, out, &RSA_PUBKEY_it);
 }
+LCRYPTO_ALIAS(i2d_RSA_PUBKEY);
 
 RSA *
 d2i_RSA_PUBKEY_bio(BIO *bp, RSA **rsa)
 {
 	return (RSA *)ASN1_item_d2i_bio(&RSA_PUBKEY_it, bp, (ASN1_VALUE **)rsa);
 }
+LCRYPTO_ALIAS(d2i_RSA_PUBKEY_bio);
 
 int
 i2d_RSA_PUBKEY_bio(BIO *bp, RSA *rsa)
 {
 	return ASN1_item_i2d_bio(&RSA_PUBKEY_it, bp, (ASN1_VALUE *)rsa);
 }
+LCRYPTO_ALIAS(i2d_RSA_PUBKEY_bio);
 
 RSA *
 d2i_RSA_PUBKEY_fp(FILE *fp, RSA **rsa)
 {
 	return (RSA *)ASN1_item_d2i_fp(&RSA_PUBKEY_it, fp, (ASN1_VALUE **)rsa);
 }
+LCRYPTO_ALIAS(d2i_RSA_PUBKEY_fp);
 
 int
 i2d_RSA_PUBKEY_fp(FILE *fp, RSA *rsa)
 {
 	return ASN1_item_i2d_fp(&RSA_PUBKEY_it, fp, (ASN1_VALUE *)rsa);
 }
+LCRYPTO_ALIAS(i2d_RSA_PUBKEY_fp);
 #endif
 
 #ifndef OPENSSL_NO_DSA
@@ -561,7 +581,7 @@ dsa_pubkey_ex_i2d(ASN1_VALUE **pval, unsigned char **out, const ASN1_ITEM *it,
 	return pubkey_ex_i2d(EVP_PKEY_DSA, pval, out, it);
 }
 
-const ASN1_EXTERN_FUNCS dsa_pubkey_asn1_ff = {
+static const ASN1_EXTERN_FUNCS dsa_pubkey_asn1_ff = {
 	.app_data = NULL,
 	.asn1_ex_new = dsa_pubkey_ex_new,
 	.asn1_ex_free = dsa_pubkey_ex_free,
@@ -571,7 +591,7 @@ const ASN1_EXTERN_FUNCS dsa_pubkey_asn1_ff = {
 	.asn1_ex_print = NULL,
 };
 
-const ASN1_ITEM DSA_PUBKEY_it = {
+static const ASN1_ITEM DSA_PUBKEY_it = {
 	.itype = ASN1_ITYPE_EXTERN,
 	.utype = 0,
 	.templates = NULL,
@@ -587,36 +607,42 @@ d2i_DSA_PUBKEY(DSA **dsa, const unsigned char **in, long len)
 	return (DSA *)ASN1_item_d2i((ASN1_VALUE **)dsa, in, len,
 	    &DSA_PUBKEY_it);
 }
+LCRYPTO_ALIAS(d2i_DSA_PUBKEY);
 
 int
 i2d_DSA_PUBKEY(DSA *dsa, unsigned char **out)
 {
 	return ASN1_item_i2d((ASN1_VALUE *)dsa, out, &DSA_PUBKEY_it);
 }
+LCRYPTO_ALIAS(i2d_DSA_PUBKEY);
 
 DSA *
 d2i_DSA_PUBKEY_bio(BIO *bp, DSA **dsa)
 {
 	return (DSA *)ASN1_item_d2i_bio(&DSA_PUBKEY_it, bp, (ASN1_VALUE **)dsa);
 }
+LCRYPTO_ALIAS(d2i_DSA_PUBKEY_bio);
 
 int
 i2d_DSA_PUBKEY_bio(BIO *bp, DSA *dsa)
 {
 	return ASN1_item_i2d_bio(&DSA_PUBKEY_it, bp, (ASN1_VALUE *)dsa);
 }
+LCRYPTO_ALIAS(i2d_DSA_PUBKEY_bio);
 
 DSA *
 d2i_DSA_PUBKEY_fp(FILE *fp, DSA **dsa)
 {
 	return (DSA *)ASN1_item_d2i_fp(&DSA_PUBKEY_it, fp, (ASN1_VALUE **)dsa);
 }
+LCRYPTO_ALIAS(d2i_DSA_PUBKEY_fp);
 
 int
 i2d_DSA_PUBKEY_fp(FILE *fp, DSA *dsa)
 {
 	return ASN1_item_i2d_fp(&DSA_PUBKEY_it, fp, (ASN1_VALUE *)dsa);
 }
+LCRYPTO_ALIAS(i2d_DSA_PUBKEY_fp);
 
 #endif
 
@@ -652,7 +678,7 @@ ec_pubkey_ex_i2d(ASN1_VALUE **pval, unsigned char **out, const ASN1_ITEM *it,
 	return pubkey_ex_i2d(EVP_PKEY_EC, pval, out, it);
 }
 
-const ASN1_EXTERN_FUNCS ec_pubkey_asn1_ff = {
+static const ASN1_EXTERN_FUNCS ec_pubkey_asn1_ff = {
 	.app_data = NULL,
 	.asn1_ex_new = ec_pubkey_ex_new,
 	.asn1_ex_free = ec_pubkey_ex_free,
@@ -662,7 +688,7 @@ const ASN1_EXTERN_FUNCS ec_pubkey_asn1_ff = {
 	.asn1_ex_print = NULL,
 };
 
-const ASN1_ITEM EC_PUBKEY_it = {
+static const ASN1_ITEM EC_PUBKEY_it = {
 	.itype = ASN1_ITYPE_EXTERN,
 	.utype = 0,
 	.templates = NULL,
@@ -678,36 +704,42 @@ d2i_EC_PUBKEY(EC_KEY **ec, const unsigned char **in, long len)
 	return (EC_KEY *)ASN1_item_d2i((ASN1_VALUE **)ec, in, len,
 	    &EC_PUBKEY_it);
 }
+LCRYPTO_ALIAS(d2i_EC_PUBKEY);
 
 int
 i2d_EC_PUBKEY(EC_KEY *ec, unsigned char **out)
 {
 	return ASN1_item_i2d((ASN1_VALUE *)ec, out, &EC_PUBKEY_it);
 }
+LCRYPTO_ALIAS(i2d_EC_PUBKEY);
 
 EC_KEY *
 d2i_EC_PUBKEY_bio(BIO *bp, EC_KEY **ec)
 {
 	return (EC_KEY *)ASN1_item_d2i_bio(&EC_PUBKEY_it, bp, (ASN1_VALUE **)ec);
 }
+LCRYPTO_ALIAS(d2i_EC_PUBKEY_bio);
 
 int
 i2d_EC_PUBKEY_bio(BIO *bp, EC_KEY *ec)
 {
 	return ASN1_item_i2d_bio(&EC_PUBKEY_it, bp, (ASN1_VALUE *)ec);
 }
+LCRYPTO_ALIAS(i2d_EC_PUBKEY_bio);
 
 EC_KEY *
 d2i_EC_PUBKEY_fp(FILE *fp, EC_KEY **ec)
 {
 	return (EC_KEY *)ASN1_item_d2i_fp(&EC_PUBKEY_it, fp, (ASN1_VALUE **)ec);
 }
+LCRYPTO_ALIAS(d2i_EC_PUBKEY_fp);
 
 int
 i2d_EC_PUBKEY_fp(FILE *fp, EC_KEY *ec)
 {
 	return ASN1_item_i2d_fp(&EC_PUBKEY_it, fp, (ASN1_VALUE *)ec);
 }
+LCRYPTO_ALIAS(i2d_EC_PUBKEY_fp);
 #endif
 
 int
@@ -724,6 +756,7 @@ X509_PUBKEY_set0_param(X509_PUBKEY *pub, ASN1_OBJECT *aobj, int ptype,
 
 	return asn1_abs_set_unused_bits(pub->public_key, 0);
 }
+LCRYPTO_ALIAS(X509_PUBKEY_set0_param);
 
 int
 X509_PUBKEY_get0_param(ASN1_OBJECT **ppkalg, const unsigned char **pk,
@@ -739,3 +772,4 @@ X509_PUBKEY_get0_param(ASN1_OBJECT **ppkalg, const unsigned char **pk,
 		*pa = pub->algor;
 	return 1;
 }
+LCRYPTO_ALIAS(X509_PUBKEY_get0_param);
