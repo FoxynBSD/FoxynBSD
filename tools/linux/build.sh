@@ -523,10 +523,14 @@ EOF
 	# clang 18 a constexpr function that can never be constant is an
 	# error; gcc 8's <cmath> has some (they call non-constexpr builtins).
 	# gcc 12's libstdc++ (random.cc) calls gcc's name for the RDSEED
-	# builtin, which clang calls __builtin_ia32_rdseed32_step.
+	# builtin, which clang calls __builtin_ia32_rdseed32_step.  Sized
+	# deallocation (operator delete(void *, size_t), which gcc 12's
+	# floating_from_chars.cc calls) is on by default in gcc from C++14
+	# and in clang only from clang 19.
 	cat > "$HOSTBIN/xc++" <<'EOF'
 #!/bin/sh
 exec "$(dirname "$0")/xcc" --driver-mode=g++ -Wno-invalid-constexpr \
+	-fsized-deallocation \
 	-D__builtin_ia32_rdseed_si_step=__builtin_ia32_rdseed32_step "$@"
 EOF
 	chmod 755 "$HOSTBIN/xc++"
@@ -663,7 +667,7 @@ build_makefs() {
 
 # Bump when the host tools or shims change, so an existing $OBJDIR gets
 # them rebuilt instead of failing with old ones (install -C/-B, chflags).
-TOOLS_STAMP=20
+TOOLS_STAMP=21
 
 kenv() {
 	[ "$(cat "$HOSTBIN/.done" 2>/dev/null)" = "$TOOLS_STAMP" ] || do_tools
