@@ -204,7 +204,11 @@ jobs:
             '#endif' 'int ok;' > /tmp/probe.c
           "$OBJDIR/host/bin/xcc" -c -o /tmp/probe.o /tmp/probe.c
 
+      # The minimal image (the base programs); the Whole world job boots
+      # the full one.
       - name: Build the root image
+        env:
+          ROOTFS: base
         run: set -o pipefail; tools/linux/build.sh rootfs 2>&1 | tee -a "$BUILD_LOG"
 
       # Host contamination: nothing in the image or the sysroot may be a
@@ -322,6 +326,9 @@ jobs:
   # build.sh world: every library and program directory, the toolchain
   # and share/, in buildworld's order.  KEEP_GOING=1 builds past a failed
   # directory, so one run reports all of them (and the job still fails).
+  # Then what `tools/linux/build.sh` with no arguments makes (kernel,
+  # loader, boot tree and a root image with the whole world) boots to a
+  # root login, the default way to run the system.
   world:
     name: Whole world
     runs-on: ubuntu-24.04
@@ -336,7 +343,7 @@ jobs:
           sudo apt-get update
           sudo apt-get install -y --no-install-recommends \
             build-essential flex bison libfl-dev libbsd-dev libtirpc-dev \
-            pkg-config clang lld ncurses-bin
+            pkg-config clang lld ncurses-bin xorriso qemu-system-x86 ovmf
 
       - name: Build host tools and headers
         run: |
@@ -353,10 +360,47 @@ jobs:
             { grep -A200 'these directories failed' "$BUILD_LOG"; exit 1; }
           grep -c '^>>> building' "$BUILD_LOG"
 
+      - name: Build the kernel, loader, boot tree and full root image
+        env:
+          MODULES_OVERRIDE: vfs/udf vfs/ext2fs
+        run: |
+          set -o pipefail
+          { tools/linux/build.sh kernel && tools/linux/build.sh modules &&
+            tools/linux/build.sh; } >> "$BUILD_LOG" 2>&1 ||
+            { tail -n 40 "$BUILD_LOG"; exit 1; }
+          grep '^>>>' "$BUILD_LOG" | tail -n 6
+
       - name: Audit the target ELF files
         run: |
-          tools/linux/elf-audit.sh -o "$OBJDIR/elf-audit.txt" "$OBJDIR/sysroot" ||
+          tools/linux/elf-audit.sh -o "$OBJDIR/elf-audit.txt" "$OBJDIR/sysroot" "$OBJDIR/rootfs" ||
             { echo "::error title=ELF audit::$(grep '^ERROR' "$OBJDIR/elf-audit.txt" | head -n 20 | tr '\n' ';')"; exit 1; }
+
+      - name: Enable KVM
+        run: |
+          echo 'KERNEL=="kvm", GROUP="kvm", MODE="0666", OPTIONS+="static_node=kvm"' |
+            sudo tee /etc/udev/rules.d/99-kvm4all.rules
+          sudo udevadm control --reload-rules
+          sudo udevadm trigger --name-match=kvm || true
+
+      - name: Boot the full system and log in
+        id: boot
+        run: tools/linux/boot-test.sh --root
+
+      - name: Check the boot log
+        run: tools/linux/check-boot-log.sh all
+
+      - name: Report boot result
+        if: always() && (steps.boot.outcome == 'failure' || steps.boot.outcome == 'success')
+        run: |
+          log="$OBJDIR/qemu/X86_64_GENERIC.boot-root.log"
+          {
+            cat "$log.fault" 2>/dev/null || :
+            echo "--- serial tail ---"
+            tail -n 60 "$log" 2>/dev/null || :
+            echo "--- qemu stderr ---"
+            cat "$log.stderr" 2>/dev/null || :
+          } | sed 's/%/%25/g; s/\r//g' | awk '{printf "%s%%0A", $0}' > /tmp/boot-tail
+          echo "::notice title=Full system boot (${{ steps.boot.outcome }}), serial tail::$(cat /tmp/boot-tail)"
 
       - name: Report build failure
         if: failure()
@@ -376,5 +420,7 @@ jobs:
           path: |
             ${{ env.BUILD_LOG }}
             ${{ env.OBJDIR }}/elf-audit.txt
+            ${{ env.OBJDIR }}/qemu/*.log
+            ${{ env.OBJDIR }}/qemu/*.stderr
           if-no-files-found: warn
           retention-days: 14

@@ -8,13 +8,15 @@
 # uudecode) with the Linux compiler, then drives sys/ directly.
 #
 # Usage:
+#	tools/linux/build.sh [all]		(the whole system, ready for qemu.sh)
 #	tools/linux/build.sh tools
 #	tools/linux/build.sh kernel [KERNCONF]	(default X86_64_GENERIC)
 #	tools/linux/build.sh modules [KERNCONF]
 #	tools/linux/build.sh sysroot		(stage DragonFly headers)
 #	tools/linux/build.sh libc		(userland: csu + libc, with clang)
 #	tools/linux/build.sh base		(rtld, init, sh, core utilities)
-#	tools/linux/build.sh rootfs		(minimal root tree and root.iso)
+#	tools/linux/build.sh rootfs		(root tree and root.iso: the whole
+#					 world; ROOTFS=base for a minimal one)
 #	tools/linux/build.sh world		(the whole userland, buildworld
 #					 order; KEEP_GOING=1 lists failures)
 #	tools/linux/build.sh subdir DIR...	(build and install world dirs)
@@ -910,6 +912,8 @@ do_world() {
 		for d in $failed; do echo "	$d" >&2; done
 		return 1
 	fi
+	# build.sh rootfs puts the whole world in the image from now on.
+	: > "$SYSROOT/.world_done"
 	msg "world: done"
 }
 
@@ -978,21 +982,10 @@ gcc_prep() {
 	: > "$d/libgcc_tm.h"
 }
 
-# Stage a root tree with what $BASE_PROGS installed plus every shared
-# library they load, and pack it as a Rock Ridge ISO (root.iso) that the
-# kernel mounts as cd9660; making it needs no root privileges.
-do_rootfs() {
-	local root=$OBJDIR/rootfs iso=$OBJDIR/root.iso d f prog lib
-	[ -x "$SYSROOT/bin/sh" ] || do_base
-	wenv
-	rm -rf "$root"
-	mkdir -p "$root"
-	for d in bin sbin lib/priv libexec usr/bin usr/lib usr/libexec usr/sbin dev etc \
-	    root tmp var/db var/log var/run var/tmp; do
-		mkdir -p "$root/$d"
-	done
-	mtree_dirs "$SRCDIR/etc/mtree/BSD.var.dist" "$root/var"
-	chmod 1777 "$root/tmp" "$root/var/tmp"
+# The base image: the programs of `build.sh base` (the library fixpoint
+# in do_rootfs adds what they load) and the PAM modules login opens.
+rootfs_base() {
+	local root=$1 d f prog
 	cp -p "$SYSROOT/libexec/ld-elf.so.2" "$root/libexec/"
 	ln -s ../../libexec/ld-elf.so.2 "$root/usr/libexec/ld-elf.so.2"
 	for d in $BASE_PROGS; do
@@ -1017,6 +1010,43 @@ do_rootfs() {
 	for f in $PAM_MODULES; do
 		cp -pL "$SYSROOT/usr/lib/security/$f.so" "$root/usr/lib/security/"
 	done
+}
+
+# Stage a root tree and pack it as a Rock Ridge ISO (root.iso) that the
+# kernel mounts as cd9660; making it needs no root privileges.
+#
+# What goes in depends on ROOTFS.  "world" (the default) is everything
+# `build.sh world` installs in the sysroot: the whole userland with its
+# editors, pagers, man pages, ssh, compilers, ...; the world is built
+# first if it has not been.  "base" is only the programs of `build.sh
+# base` and the libraries they load: a small image that is quicker to
+# build (CI's userland job).
+do_rootfs() {
+	local root=$OBJDIR/rootfs iso=$OBJDIR/root.iso d f prog lib
+	local content=${ROOTFS:-world}
+	case $content in
+	world)	[ -f "$SYSROOT/.world_done" ] || ( do_world ) ;;
+	base)	[ -x "$SYSROOT/bin/sh" ] || ( do_base ) ;;
+	*)	die "ROOTFS must be world or base, not $content" ;;
+	esac
+	wenv
+	msg "root image contents: $content"
+	rm -rf "$root"
+	mkdir -p "$root"
+	if [ $content = world ]; then
+		# The installed world as it is, symlinks included (they are
+		# relative, see fix_sysroot_links); not the link to the host
+		# compiler's headers or build.sh's stamps.
+		cp -a "$SYSROOT/." "$root/"
+		rm -f "$root/usr/lib/clang" "$root/.headers_done" "$root/.world_done"
+	fi
+	for d in bin sbin lib/priv libexec usr/bin usr/lib usr/libexec usr/sbin dev etc \
+	    root tmp var/db var/log var/run var/tmp; do
+		mkdir -p "$root/$d"
+	done
+	mtree_dirs "$SRCDIR/etc/mtree/BSD.var.dist" "$root/var"
+	chmod 1777 "$root/tmp" "$root/var/tmp"
+	[ $content = world ] || rootfs_base "$root"
 	# The tests run at boot go in first: their libraries are copied too.
 	write_brand_tests "$root/root/tests"
 	write_cxx_test "$root/root/tests"
@@ -1062,7 +1092,8 @@ do_rootfs() {
 			done
 		done
 	done
-	write_terminfo "$root/usr/share/terminfo"
+	# The world installs share/terminfo; the base image gets a few types.
+	[ -d "$root/usr/share/terminfo/x" ] || write_terminfo "$root/usr/share/terminfo"
 	write_etc "$root"
 	# Login classes: init(8) looks up class "daemon" for /etc/rc.  With
 	# no login.conf.db, getcap(3) reads the text file directly, so no
@@ -1073,24 +1104,29 @@ do_rootfs() {
 	# pwd_mkdb(8) cannot make on a Linux host: the image's rc.local.d
 	# script builds them at boot, once /etc is a writable tmpfs.
 	cp "$SRCDIR/etc/group" "$root/etc/group"
-	# csh needs libcrypto, which the image does not have yet: root logs
-	# in to sh.
-	sed 's|^\(root:.*:\)/bin/csh$|\1/bin/sh|' "$SRCDIR/etc/master.passwd" \
-	    > "$root/etc/master.passwd"
+	# Root's shell is csh, as on DragonFly, when the image has it (the
+	# world); the base image has only sh.
+	if [ -x "$root/bin/csh" ]; then
+		cp "$SRCDIR/etc/master.passwd" "$root/etc/master.passwd"
+	else
+		sed 's|^\(root:.*:\)/bin/csh$|\1/bin/sh|' \
+		    "$SRCDIR/etc/master.passwd" > "$root/etc/master.passwd"
+	fi
 	chmod 600 "$root/etc/master.passwd"
 	# Logins: init(8) starts getty(8) on the terminals in /etc/ttys once
 	# /etc/rc exits, and login(1) checks the password through PAM.
 	cp "$SRCDIR/etc/gettytab" "$SRCDIR/etc/login.access" "$root/etc/"
+	# PAM policies for login, su, passwd, sshd, ... (etc/pam.d).
 	mkdir -p "$root/etc/pam.d"
-	cp "$SRCDIR/etc/pam.d/login" "$SRCDIR/etc/pam.d/system" \
-	    "$SRCDIR/etc/pam.d/other" "$root/etc/pam.d/"
+	(cd "$SRCDIR/etc/pam.d" && ls | grep -vx Makefile |
+	    while read -r f; do cp "$f" "$root/etc/pam.d/$f"; done)
 	write_ttys "$root/etc/ttys"
 	if command -v xorriso >/dev/null 2>&1; then
 		# -R keeps modes and symlinks (Rock Ridge); the volume is read-only.
 		# Record the files as root:wheel rather than the building user.
 		xorriso -as mkisofs -quiet -R -uid 0 -gid 0 -V FOXYNROOT \
 		    -o "$iso" "$root"
-		msg "root image: $iso (boot it with tools/linux/qemu.sh --root)"
+		msg "root image: $iso (boot it with tools/linux/qemu.sh)"
 	else
 		msg "root tree: $root (install xorriso to pack root.iso)"
 	fi
@@ -1284,9 +1320,32 @@ write_etc() {
 	(cd "$SRCDIR/etc/rc.d" && ls | grep -vx Makefile |
 	    while read -r f; do cp "$f" "$root/etc/rc.d/$f"; done)
 	chmod 755 "$root/etc/rc.d/"*
-	# cron(8) with the tree's crontab, minus atrun, which the image
-	# does not have yet.
-	grep -v '/usr/libexec/atrun' "$SRCDIR/etc/crontab" > "$root/etc/crontab"
+	# cron(8) with the tree's crontab; without atrun in the image (the
+	# base image), minus its job.
+	if [ -x "$root/usr/libexec/atrun" ]; then
+		cp "$SRCDIR/etc/crontab" "$root/etc/crontab"
+	else
+		grep -v '/usr/libexec/atrun' "$SRCDIR/etc/crontab" > "$root/etc/crontab"
+	fi
+	# The rest of etc/Makefile's distribution files that a shell
+	# session reads (profile, shells, csh.*, hosts, services, ...).
+	for f in auth.conf csh.cshrc csh.login csh.logout devtab hosts \
+	    hosts.allow hosts.equiv netconfig networks profile protocols rpc \
+	    services shells sysctl.conf; do
+		cp "$SRCDIR/etc/$f" "$root/etc/$f"
+	done
+	# Root's dot files, as distribution installs them from share/skel,
+	# plus a .shrc whose prompt shows the user, host and directory
+	# (share/skel's only has it as a comment).
+	for f in cshrc login profile; do
+		cp "$SRCDIR/share/skel/dot.$f" "$root/root/.$f"
+	done
+	{
+		cat "$SRCDIR/share/skel/dot.shrc"
+		echo
+		echo '# FoxynBSD root image: show user@host:directory in the prompt.'
+		printf '%s\n' "PS1='\\u@\\h:\\w \\\$ '"
+	} > "$root/root/.shrc"
 	cat > "$root/etc/fstab" <<'EOF'
 # Device	Mountpoint	FStype	Options		Dump	Pass#
 dummy		/var		tmpfs	rw,-C		0	0
@@ -1578,7 +1637,7 @@ clang clang clang userland
 ld.lld lld lld userland
 tic ncurses ncurses-bin rootfs(terminfo)
 xorriso libisoburn xorriso rootfs(root.iso)
-qemu-system-x86_64 qemu-base qemu-system-x86 boot
+qemu-system-x86_64 qemu-desktop qemu-system-x86 boot
 EOF
 	for probe in libbsd-overlay:libbsd:libbsd-dev libtirpc:libtirpc:libtirpc-dev; do
 		pkg-config --exists "${probe%%:*}" 2>/dev/null && continue
@@ -1603,6 +1662,12 @@ EOF
 	if command -v qemu-system-x86_64 >/dev/null 2>&1; then
 		"$SRCDIR/tools/linux/qemu.sh" --firmware 2>&1 | sed 's/^/firmware: /' ||
 		    { [ $pm = apt ] && pkg=ovmf || pkg=edk2-ovmf; missing="$missing $pkg"; }
+		if qemu-system-x86_64 -display help 2>/dev/null | grep -qxE 'gtk|sdl'; then
+			echo "qemu window: yes (gtk/sdl)"
+		else
+			[ $pm = apt ] && pkg=qemu-system-gui || pkg=qemu-desktop
+			echo "qemu window: no, qemu.sh uses the serial console -> $pkg"
+		fi
 		[ -w /dev/kvm ] && echo "kvm: usable" ||
 		    echo "kvm: not usable (QEMU falls back to TCG, much slower)"
 	fi
@@ -1616,11 +1681,24 @@ EOF
 	echo "everything the build and the boot test use is installed"
 }
 
+# The whole system, ready for `tools/linux/qemu.sh`: host tools, kernel,
+# EFI loader and boot tree, the world and a root image with all of it.
+# Pieces that are already built are kept (the world is marked done in
+# the sysroot); run the single commands to rebuild one.
+do_all() {
+	kenv
+	[ -f "$OBJDIR/sys/X86_64_GENERIC/kernel.stripped" ] || ( do_kernel )
+	[ -f "$(loader_efi)" ] || ( do_loader )
+	( do_esp )
+	( do_rootfs )
+	msg "done: boot it with tools/linux/qemu.sh (a window; --serial for the terminal)"
+}
+
 # Everything runs from inside main, and the call shares its line with
 # exit: the shell reads a script piece by piece, so a build.sh rewritten
 # while a long build runs (git pull) must not be read again afterwards.
 main() {
-	cmd=${1:-}
+	cmd=${1:-all}
 	# set -e exits quietly; say which command failed (the last ">>>" line
 	# before this one names the step).
 	trap 'rc=$?; [ "$rc" = 0 ] || echo "build.sh: $cmd failed (exit $rc)" >&2' EXIT
@@ -1629,6 +1707,7 @@ main() {
 	-*)	die "unknown option: $1 (--gui and --root belong to qemu.sh)" ;;
 	esac
 	case $cmd in
+	all)		do_all ;;
 	tools)		do_tools ;;
 	kernel)		do_kernel "$@" ;;
 	modules)	do_modules "$@" ;;
@@ -1643,7 +1722,7 @@ main() {
 	esp)		do_esp "$@" ;;
 	doctor)		do_doctor ;;
 	env)		kenv; env | grep -E '^(PATH|MACHINE|MACHINE_ARCH|MACHINE_PLATFORM|CCVER|HOST_CCVER|HOST_BINUTILSVER)=' | sed 's/^/export /' ;;
-	*)		sed -n '3,25p' "$0" | sed 's/^# \{0,1\}//'; exit 1 ;;
+	*)		sed -n '3,27p' "$0" | sed 's/^# \{0,1\}//'; exit 1 ;;
 	esac
 }
 

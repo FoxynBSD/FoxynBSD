@@ -3,20 +3,25 @@
 # Boot a FoxynBSD kernel built by tools/linux/build.sh under QEMU + OVMF.
 #
 # Usage:
-#	tools/linux/qemu.sh [--gui] [--root] [KERNCONF] [-- extra qemu args]
+#	tools/linux/qemu.sh [--serial] [--kernel-only] [KERNCONF] [-- qemu args]
 #
-#	--gui	open a QEMU window and use the video console (EFI framebuffer,
-#		then the kernel's syscons) instead of the serial console.
-#		Serial output is still copied to the terminal.
+# By default the whole system boots in a QEMU window: the root image
+# from `build.sh rootfs` ($OBJDIR/root.iso) is attached as a second
+# virtio disk and mounted as the root filesystem (cd9660), and the
+# console is the video console (EFI framebuffer, then the kernel's
+# syscons), with the serial console copied to the terminal.  It ends at
+# a login prompt (root, no password).
+#
+#	--serial	no window: the serial console on this terminal (quit
+#			with Ctrl-A X).  Also the default when there is no
+#			graphical session ($DISPLAY, $WAYLAND_DISPLAY).
+#	--kernel-only	boot the kernel without the root image; it stops at
+#			the "mountroot>" prompt.
+#	--gui, --root	the defaults, spelled out.
 #	--firmware	print the OVMF images that would be used, and exit.
-#	--root	attach the root image from `build.sh rootfs` ($OBJDIR/root.iso)
-#		as a second virtio disk and mount it as the root filesystem
-#		(cd9660): boots to a login prompt (root, no password).
 #
 # The ESP tree from `build.sh esp` is handed to QEMU as a virtual FAT disk,
-# so nothing needs root.  Without --root the kernel is expected to stop at
-# the "mountroot>" prompt, which is the kernel-only milestone.  Quit QEMU
-# with Ctrl-A X.
+# so nothing needs root.
 #
 # Environment:
 #	OBJDIR	same as build.sh
@@ -30,28 +35,33 @@
 #	SERIAL_PIPE	headless: connect the serial console to the FIFOs
 #			$SERIAL_PIPE.in and $SERIAL_PIPE.out (made by the caller),
 #			so a script can both read the console and type on it
-#	GUI=1		same as --gui
-#	DISPLAY_BACKEND	QEMU -display backend for --gui (default gtk)
+#	GUI=0/1		same as --serial / --gui
+#	ROOT=0/1	same as --kernel-only / --root
+#	DISPLAY_BACKEND	QEMU -display backend for the window (default: gtk,
+#			else sdl, whichever this QEMU has)
 #
-# Host packages: qemu-base (or qemu-full) edk2-ovmf
+# Host packages: qemu-desktop (window) or qemu-base (serial only),
+# edk2-ovmf; Debian/Ubuntu: qemu-system-x86 qemu-system-gui ovmf
 
 set -eu
 
 SRCDIR=$(cd "$(dirname "$0")/../.." && pwd)
 OBJDIR=${OBJDIR:-${XDG_CACHE_HOME:-$HOME/.cache}/foxynbsd}
-GUI=${GUI:-0}
-ROOT=0
+GUI=${GUI:-}
+ROOT=${ROOT:-1}
 FWONLY=0
 
 die() { echo "qemu.sh: $*" >&2; exit 1; }
 usage() {
-	die "usage: qemu.sh [--gui] [--root] [--firmware] [KERNCONF] [-- qemu args]"
+	die "usage: qemu.sh [--serial|--gui] [--kernel-only|--root] [--firmware] [KERNCONF] [-- qemu args]"
 }
 
 while :; do
 	case ${1:-} in
 	--gui)	GUI=1; shift ;;
+	--serial|--no-gui) GUI=0; shift ;;
 	--root)	ROOT=1; shift ;;
+	--kernel-only|--no-root) ROOT=0; shift ;;
 	--firmware) FWONLY=1; shift ;;
 	--)	break ;;
 	-h|--help) usage ;;
@@ -66,7 +76,35 @@ if [ $# -gt 0 ] && [ "$1" != "--" ]; then CONF=$1; shift; fi
 [ "${1:-}" = "--" ] && shift
 
 command -v qemu-system-x86_64 >/dev/null 2>&1 ||
-    die "qemu-system-x86_64 not found (pacman -S qemu-base edk2-ovmf)"
+    die "qemu-system-x86_64 not found (pacman -S qemu-desktop edk2-ovmf / apt install qemu-system-x86 qemu-system-gui ovmf)"
+
+# A window by default, unless a script drives the serial console, there
+# is no graphical session to open one in, or this QEMU has no window
+# backend (Arch's qemu-base and Debian's qemu-system-x86 alone have
+# none: qemu-desktop / qemu-system-gui add gtk and sdl).
+nogui() {
+	[ "$GUI" = 1 ] && die "$1; boot with --serial"
+	GUI=0
+	echo "qemu.sh: $1: serial console instead (Ctrl-A X quits)" >&2
+}
+if [ -n "${SERIAL_LOG:-}" ] || [ -n "${SERIAL_PIPE:-}" ] || [ "$FWONLY" = 1 ]; then
+	GUI=0
+elif [ "$GUI" != 0 ]; then
+	if [ -z "${DISPLAY:-}" ] && [ -z "${WAYLAND_DISPLAY:-}" ]; then
+		nogui "no graphical session (\$DISPLAY, \$WAYLAND_DISPLAY)"
+	elif [ -z "${DISPLAY_BACKEND:-}" ]; then
+		backends=$(qemu-system-x86_64 -display help 2>/dev/null) || :
+		for b in gtk sdl; do
+			if printf '%s\n' "$backends" | grep -qx "$b"; then
+				DISPLAY_BACKEND=$b
+				break
+			fi
+		done
+		[ -n "${DISPLAY_BACKEND:-}" ] ||
+		    nogui "this QEMU has no gtk or sdl display (pacman -S qemu-desktop / apt install qemu-system-gui)"
+	fi
+	[ "$GUI" = 0 ] || GUI=1
+fi
 
 ESP=$OBJDIR/esp/$CONF
 [ "$FWONLY" = 1 ] || [ -f "$ESP/EFI/BOOT/BOOTX64.EFI" ] ||
@@ -138,7 +176,7 @@ if [ "$FWONLY" = 1 ]; then
 fi
 
 [ "$ROOT" = 0 ] || [ -f "$ROOTISO" ] ||
-    die "no root image at $ROOTISO; run tools/linux/build.sh rootfs"
+    die "no root image at $ROOTISO; run tools/linux/build.sh (or boot with --kernel-only)"
 
 # The ESP from build.sh boots on the serial console with no root device.
 # For --gui or --root, boot a hardlinked copy with its own loader.conf, so

@@ -56,7 +56,8 @@ else
 	CONSOLE_ENV="SERIAL_LOG=$LOG"
 fi
 
-env OBJDIR="$OBJDIR" "$CONSOLE_ENV" "$SRCDIR/tools/linux/qemu.sh" $ROOTARG \
+env OBJDIR="$OBJDIR" "$CONSOLE_ENV" "$SRCDIR/tools/linux/qemu.sh" \
+    --serial ${ROOTARG:---kernel-only} \
     "$CONF" </dev/null >/dev/null 2>"$LOG.stderr" &
 pid=$!
 
@@ -77,6 +78,8 @@ done
 
 # Log in as root (no password) and run a command whose output differs
 # from its echo, so seeing it proves PAM let root in and a shell ran.
+# Commands go through sh -c: root's login shell is csh in an image with
+# the whole world, sh in the base image.
 # Repeat the command in case it was typed before the shell read input.
 LOGIN_OK='login-ok-42 root'
 if [ "$result" -eq 0 ] && [ -n "$ROOTARG" ]; then
@@ -90,7 +93,7 @@ if [ "$result" -eq 0 ] && [ -n "$ROOTARG" ]; then
 			break
 		fi
 		grep -Eq "$FAIL|Login incorrect" "$LOG" && break
-		printf 'echo login-ok-$((6*7)) $(id -un)\r' >&3
+		printf "sh -c 'echo login-ok-\$((6*7)) \$(id -un)'\r" >&3
 		tries=$((tries + 1))
 	done
 	[ "$result" -eq 0 ] || echo ">>> logging in as root FAILED" >&2
@@ -99,7 +102,7 @@ fi
 # List the running programs once, for CI to check the daemons rc.d
 # started ("daemons-42: init syslogd cron ...").
 if [ "$result" -eq 0 ] && [ -n "$ROOTARG" ]; then
-	printf 'echo daemons-$((6*7)): $(ps -axo comm= | tr "\\n" " ")\r' >&3
+	printf "sh -c 'echo daemons-\$((6*7)): \$(ps -axo comm= | tr \"\\\\n\" \" \")'\r" >&3
 	tries=0
 	while [ "$tries" -lt 6 ] && ! grep -aq '^daemons-42:' "$LOG"; do
 		sleep 5
@@ -107,7 +110,7 @@ if [ "$result" -eq 0 ] && [ -n "$ROOTARG" ]; then
 	done
 	# Run the daily periodic(8) jobs and print their report, each line
 	# prefixed with "daily| ", for CI to check.
-	printf 'periodic daily; sed "s/^/daily| /" /var/log/daily.log; echo periodic-$((6*7)): $?\r' >&3
+	printf "sh -c 'periodic daily; sed \"s/^/daily| /\" /var/log/daily.log; echo periodic-\$((6*7)): \$?'\r" >&3
 	tries=0
 	while [ "$tries" -lt 24 ] && ! grep -aq '^periodic-42:' "$LOG"; do
 		sleep 5

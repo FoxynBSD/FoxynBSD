@@ -26,13 +26,13 @@ Arch Linux and Omarchy:
 
     sudo pacman -S --needed base-devel flex bison libbsd libtirpc   # tools, kernel
     sudo pacman -S --needed clang lld libisoburn ncurses            # userland, root image
-    sudo pacman -S --needed qemu-base edk2-ovmf                     # boot under QEMU
+    sudo pacman -S --needed qemu-desktop edk2-ovmf                  # boot under QEMU (qemu-base: no window)
 
 Debian and Ubuntu:
 
     sudo apt install build-essential flex bison libfl-dev libbsd-dev libtirpc-dev pkg-config
     sudo apt install clang lld xorriso ncurses-bin
-    sudo apt install qemu-system-x86 ovmf
+    sudo apt install qemu-system-x86 qemu-system-gui ovmf     # qemu-system-gui: the window
 
 LLVM's `compiler-rt` package is not needed: the compiler runtime is built
 from `contrib/compiler-rt`. Check a host with:
@@ -44,8 +44,23 @@ PIE and stack protector settings, the clang version, the OVMF firmware
 QEMU would use, whether KVM is usable, and the packages to install for
 anything missing. It exits with status 1 if something is missing.
 
+## Quick start
+
+    tools/linux/build.sh doctor     # check the host, list missing packages
+    tools/linux/build.sh            # the whole system: kernel, loader, world, root image
+    tools/linux/qemu.sh             # boot it in a QEMU window; log in as root (no password)
+
+`build.sh` with no arguments (`build.sh all`) builds the host tools,
+`X86_64_GENERIC`, the EFI loader and boot tree, the whole world and a
+root image with all of it; what is already built is kept. `qemu.sh`
+with no options boots that image in a window to a `login:` prompt.
+Root's shell is `csh` with DragonFly's dot files (`root@foxynbsd:~ #`).
+`qemu.sh --serial` uses the terminal instead (Ctrl-A X quits), and
+`qemu.sh --kernel-only` boots the kernel alone, to `mountroot>`.
+
 ## Usage
 
+    tools/linux/build.sh [all]              # everything below, ready for qemu.sh
     tools/linux/build.sh doctor             # check the host
     tools/linux/build.sh tools              # host tools: bmake, config(8), mkdep, the shims, xcc, kcc
     tools/linux/build.sh kernel             # X86_64_GENERIC
@@ -56,15 +71,16 @@ anything missing. It exits with status 1 if something is missing.
     tools/linux/build.sh sysroot            # stage DragonFly headers (for stand/ and the world)
     tools/linux/build.sh libc               # compiler runtime, lib/csu and lib/libc with clang
     tools/linux/build.sh base               # rtld, libs, init, sh and core utilities
-    tools/linux/build.sh rootfs             # minimal root tree + root.iso (cd9660)
+    tools/linux/build.sh rootfs             # root tree + root.iso (cd9660) with the whole world
+    ROOTFS=base tools/linux/build.sh rootfs # minimal image: only the base programs
     tools/linux/build.sh world              # the whole userland, buildworld's order
     KEEP_GOING=1 tools/linux/build.sh world # same, listing every failed directory
     tools/linux/build.sh subdir bin/date    # build and install any world directory
     tools/linux/build.sh loader             # stand/ -> loader.efi
     WITH_MODULES=1 tools/linux/build.sh esp # EFI boot tree: loader + kernel (+ stripped .ko)
-    tools/linux/qemu.sh                     # boot it under QEMU/OVMF on the serial console
-    tools/linux/qemu.sh --gui               # same, in a QEMU window on the video console
-    tools/linux/qemu.sh --root              # boot with root.iso as the root fs: login:
+    tools/linux/qemu.sh                     # boot kernel + root.iso in a QEMU window: login:
+    tools/linux/qemu.sh --serial            # same, on the serial console in this terminal
+    tools/linux/qemu.sh --kernel-only       # the kernel alone: ends at mountroot>
     tools/linux/qemu.sh --firmware          # print the OVMF images qemu.sh would use
     tools/linux/boot-test.sh                # headless boot, passes at the mountroot> prompt
     tools/linux/boot-test.sh --root         # headless boot to the userland, logs in as root
@@ -72,12 +88,11 @@ anything missing. It exits with status 1 if something is missing.
     tools/linux/elf-audit.sh "$OBJDIR/rootfs" "$OBJDIR/sysroot"   # host contamination audit
     eval "$(tools/linux/build.sh env)"      # shell env for running make by hand
 
-A first boot from scratch:
+A quicker first boot, with the minimal image instead of the world:
 
-    tools/linux/build.sh tools && tools/linux/build.sh kernel &&
-      tools/linux/build.sh loader && tools/linux/build.sh esp &&
-      tools/linux/build.sh rootfs        # runs sysroot, libc and base as needed
-    tools/linux/qemu.sh --root           # log in as root, no password; Ctrl-A X quits
+    tools/linux/build.sh kernel && tools/linux/build.sh loader &&
+      tools/linux/build.sh esp && ROOTFS=base tools/linux/build.sh rootfs
+    tools/linux/qemu.sh
 
 Output goes to `$OBJDIR`, which defaults to `~/.cache/foxynbsd`:
 
@@ -99,7 +114,8 @@ on a tmpfs, point `OBJDIR` at a disk.
 Environment: `OBJDIR`, `JOBS` (default: `nproc`), `HOST_CC`/`HOST_CFLAGS`
 (host tools, default `gcc`/`-O2`), `HOST_GCC` (kernel gcc), `HOST_CLANG`
 (userland and `KERNCC=clang` compiler), `KERNCC` (`gcc` or `clang`),
-`MODULES_OVERRIDE`, `KEEP_GOING`, `WITH_MODULES`; for QEMU `OVMF_CODE`,
+`MODULES_OVERRIDE`, `KEEP_GOING`, `WITH_MODULES`, `ROOTFS` (`world` or
+`base`); for QEMU `GUI`, `ROOT`, `DISPLAY_BACKEND`, `OVMF_CODE`,
 `OVMF_VARS`, `MEM`, `SMP`, `ROOTISO`, `ROOTDISK`, `BOOT_TIMEOUT`.
 
 ## Toolchain architecture
@@ -398,10 +414,19 @@ call (`rcorder`, `awk`, `sed`, `grep`, `mount`, `fsck`, `ifconfig`,
 
 ## The root image
 
-`build.sh rootfs` copies the programs of `base` and every shared library
-they load (following `NEEDED` through the standard directories and each
-file's `RUNPATH`, e.g. `/usr/lib/gcc80` for `libstdc++`) into
-`$OBJDIR/rootfs`. It compiles a few console terminal types (`xterm`,
+By default (`ROOTFS=world`), `build.sh rootfs` puts the whole world into
+`$OBJDIR/rootfs`: everything `build.sh world` installed in the sysroot,
+building the world first if it has not completed (`build.sh world` marks
+it done in the sysroot). The image is about 450 MB. With `ROOTFS=base`
+it copies only the programs of `base` and every shared library they load
+(following `NEEDED` through the standard directories and each file's
+`RUNPATH`, e.g. `/usr/lib/gcc80` for `libstdc++`), a small image that is
+quick to build; CI's userland jobs use it. Either way the image gets the
+`/etc` files of `etc/Makefile`'s `distribution` target that a session
+reads (`profile`, `shells`, `csh.*`, `hosts`, `services`, all of
+`pam.d`, ...) and root's dot files from `share/skel`, with a `.shrc`
+prompt that shows `user@host:directory`. Root's shell is `csh` when the
+image has it (the world) and `sh` in the base image. It compiles a few console terminal types (`xterm`,
 `vt100`, `vt220`, `cons25`, ...) from the tree's `terminfo.src` with the
 host's `tic`, copies `etc/login.conf` (read as text; no `cap_mkdb`
 needed), `etc/group` and `etc/master.passwd`, and installs the tree's
@@ -424,15 +449,14 @@ One image-only script, `/etc/rc.local.d/imagedb`, runs first: it mounts
 the `/etc` tmpfs and builds the password database with `pwd_mkdb`, before
 the devfs rules look up `root`. `/etc/rc.local` prints `uname -a` and runs
 the boot tests below. When `/etc/rc` exits, init starts `getty` on the
-console from a small `/etc/ttys` (serial `ttyd0`, or `ttyv0` with
-`--gui`), and `login` checks passwords through PAM (`/etc/pam.d`,
-`pam_unix` and friends). Root has no password and logs in to `/bin/sh`,
-since `csh` needs libcrypto, which the image does not have yet.
+console from a small `/etc/ttys` (`ttyv0` in the QEMU window, the serial
+`ttyd0` with `--serial`), and `login` checks passwords through PAM
+(`/etc/pam.d`, `pam_unix` and friends). Root has no password.
 
 `build.sh rootfs` finally packs the tree as a Rock Ridge ISO with xorriso,
 with every file owned by root:wheel (the build runs unprivileged, so the
 `install` shim drops `-o`/`-g`; modes, including setuid bits, are kept).
-`qemu.sh --root` attaches it as a second virtio disk and sets
+`qemu.sh` attaches it as a second virtio disk and sets
 `vfs.root.mountfrom="cd9660:vbd1"`, so no step needs root privileges.
 (Not as a CD: QEMU's AHCI ATAPI emulation times out with the `ahci`
 driver.)
@@ -442,10 +466,17 @@ driver.)
 OVMF runs `EFI/BOOT/BOOTX64.EFI` (our `loader.efi`). The loader reads
 `boot/dloader.rc`, `boot/loader.conf` (serial console) and
 `boot/kernel/kernel` from the ESP, which QEMU serves as a read-only
-virtual FAT disk (`-drive file=fat:<dir>`). With no root filesystem
-attached, a kernel-only boot ends at the `mountroot>` prompt. With
-`--root`, the kernel mounts `root.iso` and init runs its `/etc/rc`.
+virtual FAT disk (`-drive file=fat:<dir>`). The kernel mounts `root.iso`
+and init runs its `/etc/rc`; with `--kernel-only` there is no root
+filesystem and the boot ends at the `mountroot>` prompt.
 `ROOTDISK=<img>` attaches an extra virtio disk.
+
+The console is a QEMU window (gtk, else sdl, whichever the installed QEMU
+has) when there is a graphical session (`$DISPLAY` or `$WAYLAND_DISPLAY`),
+with the serial console copied to the terminal. Without a session, or
+with a QEMU that has no window backend (Arch's `qemu-base`, Debian's
+`qemu-system-x86` without `qemu-system-gui`), `qemu.sh` says so and uses
+the serial console. `boot-test.sh` always runs headless.
 
 The firmware is found the way QEMU and libvirt find it: from the JSON
 firmware descriptors that the edk2/OVMF packages install in
@@ -526,7 +557,7 @@ install target reads.
 
 | Workflow | When | Jobs |
 |----------|------|------|
-| `linux-build.yml` | every push and PR to `dev` | Ubuntu 24.04: *Kernel, loader and boot tree* (kernel-only boot to `mountroot>`), *Kernel modules* (all 682), *Userland and boot to a shell* (base, ELF audit, test modules, boot to a root login, every boot-log check), *Whole world* (`KEEP_GOING=1`, ELF audit of the sysroot) |
+| `linux-build.yml` | every push and PR to `dev` | Ubuntu 24.04: *Kernel, loader and boot tree* (kernel-only boot to `mountroot>`), *Kernel modules* (all 682), *Userland and boot to a shell* (base image, ELF audit, test modules, boot to a root login, every boot-log check), *Whole world* (`KEEP_GOING=1`, then `build.sh` with no arguments: the full image, ELF audit, boot to a root login, every boot-log check) |
 | `linux-hosts.yml` | changes to `tools/linux`, the compiler runtime or the workflow; weekly; by hand | Arch Linux container (clang kernel and modules) and Debian stable container (gcc): tools, kernel, all modules, loader, base, root image, ELF audit, boot, `check-boot-log.sh all` |
 | `linux-lint.yml` | changes to `tools/linux` or workflows | the scripts parse under dash and bash, `shellcheck -S error`, the ELF audit rejects a glibc program |
 
@@ -542,8 +573,10 @@ report are uploaded as artifacts.
 * The root image is a read-only cd9660 with tmpfs over `/etc`, `/var`,
   `/tmp` and `/root`: there is no writable root filesystem or installer
   yet (issue #9).
-* Not in the image: libcrypto (so `csh` and `mtree`), `sendmail`/`dma`,
-  `atrun`, `locate`, and the rest of the world beyond `base`.
+* The base image (`ROOTFS=base`) has only the programs of `build.sh
+  base`; the default image has the whole world.
+* The image does not configure the network (no DHCP in `rc.conf`) and
+  has no packages (`pkg`, DPorts).
 * gcc 12's runtime (`gnu/lib/gcc120`) and the gcc 12 compiler as a
   cross compiler for the host are not built (see above).
 * The clang kernel is opt-in (`KERNCC=clang`); lld does not link the
@@ -569,11 +602,13 @@ report are uploaded as artifacts.
   `KERNCC=clang`.
 * `OVMF firmware not found`: install `edk2-ovmf` (Arch) or `ovmf`
   (Debian/Ubuntu), or set `OVMF_CODE` and `OVMF_VARS`.
+* No QEMU window: `qemu.sh` prints why (no graphical session, or no gtk/sdl
+  in this QEMU: install `qemu-desktop` / `qemu-system-gui`).
 * The boot test times out without KVM: `BOOT_TIMEOUT=1500
   tools/linux/boot-test.sh --root`. Inside a container, pass
   `--device /dev/kvm`.
 * A program fails to start in the image: `LD_DEBUG=1` works (rtld is
-  built with debugging), and `qemu.sh --root` turns on
+  built with debugging), and `qemu.sh` (with the root image) turns on
   `machdep.print_user_faults`, which logs where user programs fault.
 * `elf-audit.sh` reports an error: the report names the file and what
   ties it to the host (interpreter, soname, symbol version, ABI note).

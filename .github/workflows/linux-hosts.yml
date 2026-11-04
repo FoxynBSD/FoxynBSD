@@ -66,6 +66,8 @@ jobs:
       OBJDIR: /tmp/foxynbsd-obj
       BUILD_LOG: /tmp/foxynbsd-build.log
       BOOT_TIMEOUT: 900
+      # The minimal image: the whole world is the Ubuntu job's.
+      ROOTFS: base
       KERNCC: ${{ matrix.kerncc }}
     steps:
       # The package lists are the ones tools/linux/README.md documents.
