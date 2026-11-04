@@ -10,6 +10,12 @@
 # libprivate_ssl, libprivate_yaml) and their headers.  The programs then
 # need libprivate_*.so at run time, as every user of them.
 #
+# A release has the files that Ruby's tools generate (parse.c, id.h,
+# insns.inc, ...), newer than what they are made from.  A git checkout
+# gives every file the time of the checkout, in no particular order, and
+# make would regenerate some of them in the source tree; so all the
+# files get one time before configure (only their times change).
+#
 # --without-git: contrib/ruby is a release, not a Ruby checkout.  With
 # git, the build would fetch the bundled gems' sources into the source
 # tree (gems/src); the release has them as .gem files.
@@ -25,7 +31,7 @@
 # size and byte order is the same (the format records only those and
 # the version); a cross build names it here and it is used instead.
 
-RUBY_SRC=	${.CURDIR}/../../contrib/ruby
+RUBY_SRC=	${.CURDIR:H:H:tA}/contrib/ruby
 DEPS=		${.OBJDIR}/deps
 SYSROOTDIR=	${_SHLIBDIRPREFIX}
 
@@ -54,6 +60,7 @@ ${DEPS}/.done:
 	touch ${.TARGET}
 
 ${.OBJDIR}/config.status: ${DEPS}/.done
+	find ${RUBY_SRC} -exec touch -h -r ${RUBY_SRC}/version.h {} +
 	cd ${.OBJDIR} && env ${RUBY_ENV} ${RUBY_SRC}/configure ${RUBY_CONFIGURE}
 .if defined(RUBY_BUILTIN_BINARY) && !empty(RUBY_BUILTIN_BINARY)
 	cp ${RUBY_BUILTIN_BINARY} ${.OBJDIR}/builtin_binary.rbbin
