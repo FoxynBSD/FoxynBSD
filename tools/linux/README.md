@@ -180,6 +180,8 @@ followed by `build.sh rootfs`.
   installing libc again does not relink every program. A `.depend`
   that names a file which is gone (a header a contrib update removed)
   is made again, instead of rebuilding that directory on every run.
+  `base` and `world` go through `lib/csu` and `lib/libc` first every
+  time, so a new system call or `Symbol.map` entry reaches the image.
 * The headers in the sysroot are synchronized with the tree before
   every world command (`libc`, `base`, `world`, `subdir`): a header
   whose contents changed is copied again, the others keep their mtimes.

@@ -1069,7 +1069,10 @@ PAM_MODULES="pam_lastlog pam_login_access pam_nologin pam_permit pam_securetty
 do_base() {
 	local d
 	headers_current
-	[ -f "$SYSROOT/usr/lib/libc.so" ] || do_libc
+	# Always: lib/libc's makefile rebuilds only what changed (a new
+	# system call or Symbol.map entry), and install -C leaves an
+	# unchanged libc.so alone.
+	do_libc
 	wenv
 	for d in $BASE_LIBS $BASE_PROGS; do
 		world_dir "$d"
@@ -1124,7 +1127,7 @@ WORLD_SKIP="lib/csu lib/libc gnu/lib/gcc80 gnu/lib/gcc120"
 do_world() {
 	local d top subs failed= seen=
 	headers_current
-	[ -f "$SYSROOT/usr/lib/libc.so" ] || do_libc
+	do_libc		# as in do_base
 	wenv
 	world_try() {
 		case " $WORLD_SKIP $seen " in *" $1 "*) return 0 ;; esac
