@@ -100,6 +100,7 @@ TUNABLE_INT("hw.usb.xhci.use_polling", &xhcipolling);
 static int xhcidebug = 0;
 static int xhciroute = 0;
 static int xhcidma32;
+static int xhcictlstep;
 
 SYSCTL_INT(_hw_usb_xhci, OID_AUTO, debug, CTLFLAG_RW,
     &xhcidebug, 0, "Debug level");
@@ -111,10 +112,14 @@ TUNABLE_INT("hw.usb.xhci.xhci_port_route", &xhciroute);
 SYSCTL_INT(_hw_usb_xhci, OID_AUTO, dma32, CTLFLAG_RW,
     &xhcidma32, 0, "Set to only use 32-bit DMA for the XHCI controller");
 TUNABLE_INT("hw.usb.xhci.dma32", &xhcidma32);
+SYSCTL_INT(_hw_usb_xhci, OID_AUTO, ctlstep, CTLFLAG_RW,
+    &xhcictlstep, 0, "Set to enable control endpoint status stage stepping");
+TUNABLE_INT("hw.usb.xhci.ctlstep", &xhcictlstep);
 
 #else
 #define	xhciroute 0
 #define	xhcidma32 0
+#define	xhcictlstep 0
 #endif
 
 #define	XHCI_INTR_ENDPT 1
@@ -2254,8 +2259,17 @@ xhci_setup_generic_chain(struct usb_xfer *xfer)
 		/*
 		 * Send a DATA1 message and invert the current
 		 * endpoint direction.
+		 *
+		 * Some XHCI controllers do not delay the status stage
+		 * until the next SOF, and control transfers fail.  For
+		 * these (sc_ctlstep, or hw.usb.xhci.ctlstep), the status
+		 * TRB starts without its cycle bit, which
+		 * xhci_activate_transfer() sets once the data stage is
+		 * done.  Others, QEMU's among them, want the whole
+		 * control TD valid from the start, as FreeBSD does.
 		 */
-		temp.step_td = (xfer->nframes != 0);
+		temp.step_td = (xhcictlstep || temp.sc->sc_ctlstep) &&
+		    (xfer->nframes != 0);
 		temp.direction = UE_GET_DIR(xfer->endpointno) ^ UE_DIR_IN;
 		temp.len = 0;
 		temp.pc = NULL;

@@ -533,6 +533,8 @@ struct xhci_softc {
 	uint16_t		sc_event_idx;
 	uint16_t		sc_command_idx;
 	uint16_t		sc_imod_default;
+	/* step the control status stage, see xhci_setup_generic_chain() */
+	uint8_t			sc_ctlstep;
 
 	uint8_t			sc_event_ccs;
 	uint8_t			sc_command_ccs;

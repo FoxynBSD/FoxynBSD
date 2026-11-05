@@ -292,7 +292,10 @@ xhci_pci_attach(device_t self)
 		}
 	}
 
-	/* On Intel chipsets reroute ports from EHCI to XHCI controller. */
+	/*
+	 * On Intel chipsets reroute ports from EHCI to XHCI controller,
+	 * use a different IMOD value and step the control status stage.
+	 */
 	switch (pci_get_devid(self)) {
 	case 0x0f358086:	/* BayTrail */
 	case 0x9c318086:	/* Panther Point */
@@ -302,6 +305,7 @@ xhci_pci_attach(device_t self)
 	case 0x9cb18086:	/* Wildcat Point-LP */
 		sc->sc_port_route = &xhci_pci_port_route;
 		sc->sc_imod_default = XHCI_IMOD_DEFAULT_LP;
+		sc->sc_ctlstep = 1;
 		break;
 	default:
 		break;
