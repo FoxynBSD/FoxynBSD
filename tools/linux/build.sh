@@ -1057,6 +1057,9 @@ BASE_PROGS="sbin/init bin/sh bin/cat bin/chmod bin/cp bin/date bin/df
 
 # Modules rc.local loads and unloads to test the kernel linker.
 KLD_TESTS="udf ext2fs"
+# Kernel modules that the loader loads at every boot: the ESP and the
+# image's /boot (which the installers copy) always have them.
+BOOT_MODULES="bus/u4b/controller/ehci bus/u4b/controller/xhci"
 
 # PAM modules that /etc/pam.d/login, system and crond load.  login(1) and
 # cron(8) open them with dlopen(3), so they are not in any NEEDED list.
@@ -1407,6 +1410,10 @@ do_rootfs() {
 		cp "$esp/boot/dloader.rc" "$root/boot/"
 		cp "$esp/boot/defaults/"* "$root/boot/defaults/"
 		cp "$esp/boot/kernel/kernel" "$root/boot/kernel/kernel"
+		for f in $BOOT_MODULES; do
+			f=$esp/boot/kernel/${f##*/}.ko
+			[ -f "$f" ] && cp "$f" "$root/boot/kernel/"
+		done
 	else
 		msg "no ESP from build.sh esp: the image cannot install itself"
 	fi
@@ -2330,11 +2337,16 @@ for t in rt-builtins rt-builtins-static rt-cxx rt-dlopen; do
 	/root/tests/$t || echo "rc: /root/tests/$t failed with status $?"
 done
 # Kernel modules (build.sh rootfs copies them in when they were built):
-# load, find and unload each one.
+# load, find and unload each one.  The loader loaded some at boot (ehci,
+# xhci): they are only listed.
 if ls /boot/kernel/*.ko >/dev/null 2>&1; then
 	kld=ok
 	for m in /boot/kernel/*.ko; do
 		n=${m##*/}
+		if kldstat -n $n >/dev/null 2>&1; then
+			echo "kld-check: $n loaded at boot"
+			continue
+		fi
 		if kldload $m && kldstat -n $n | sed "s/^/kld-check: /" &&
 		    kldunload $n && ! kldstat -n $n >/dev/null 2>&1; then
 			echo "kld-check: $n loaded and unloaded"
@@ -2603,6 +2615,21 @@ do_esp() {
 	cp "$SRCDIR/stand/boot/dloader/loader.conf" \
 	    "$SRCDIR/stand/boot/dloader/dloader.menu" "$boot/defaults/"
 	cp "$kobj/kernel.stripped" "$boot/kernel/kernel"
+	# The EFI loader loads ehci.ko and xhci.ko at every boot
+	# (stand/boot/efi/loader/main.c); GENERIC has only the UHCI and OHCI
+	# drivers built in, so without them USB 2 and 3 controllers, and
+	# what is plugged into them, have no driver.
+	if kconf_modules "$conf"; then
+		local m ko
+		for m in $BOOT_MODULES; do
+			ko=$kobj$SRCDIR/sys/$m/${m##*/}.ko
+			[ -f "$ko" ] ||
+			    ( kenv && cd "$kobj" && make -j"$JOBS" $KMAKE \
+				KERNEL=kernel MODULES_OVERRIDE="$BOOT_MODULES" modules ) ||
+			    return
+			objcopy --strip-debug "$ko" "$boot/kernel/${m##*/}.ko"
+		done
+	fi
 	if [ "${WITH_MODULES:-0}" = 1 ]; then
 		# Strip debug info; QEMU's virtual FAT disk is size-limited.
 		find "$kobj$SRCDIR/sys" -name '*.ko' | while read -r ko; do

@@ -25,8 +25,9 @@
 #			shared library, dlopen(3)
 #	fs		permissions and writable runtime directories
 #	abi		programs with either ELF ABI note run
-#	kld		kernel modules in the image load and unload (skipped,
-#			with a notice, when the image has none)
+#	kld		kernel modules in the image load and unload, and the
+#			loader loaded xhci.ko at boot (skipped, with a notice,
+#			when the image has no modules)
 #	net		dhcpcd's lease for vtnet0, fetch(1) through QEMU's network
 #	tls		fetch(1) over HTTPS to openssl(1) s_server (LibreSSL)
 #	disk		the root is writable on a disk: disk.img or an installed
@@ -49,7 +50,7 @@ set -eu
 OBJDIR=${OBJDIR:-${XDG_CACHE_HOME:-$HOME/.cache}/foxynbsd}
 LOG=$OBJDIR/qemu/X86_64_GENERIC.boot-root.log
 if [ "${1:-}" = -l ]; then LOG=$2; shift 2; fi
-[ $# -gt 0 ] || { sed -n '9,42p' "$0" | sed 's/^# \{0,1\}//'; exit 2; }
+[ $# -gt 0 ] || { sed -n '9,43p' "$0" | sed 's/^# \{0,1\}//'; exit 2; }
 [ -f "$LOG" ] || { echo "::error title=boot log::no log at $LOG"; exit 1; }
 
 fail() { echo "::error title=$1::$2"; return 1; }
@@ -171,7 +172,10 @@ check_kld() {
 		return 0
 	fi
 	grep -aq '^kld-check: ok' "$LOG" ||
-	    fail kld "$(lines '^kld-check: FAIL' | tr '\n' ';')"
+	    fail kld "$(lines '^kld-check: FAIL' | tr '\n' ';')" || return
+	# The loader loads the USB 2 and 3 controller drivers at every boot.
+	grep -aq '^kld-check: xhci.ko loaded at boot' "$LOG" ||
+	    fail kld "the loader did not load xhci.ko (USB 3) at boot"
 }
 
 check_net() {

@@ -730,6 +730,14 @@ and init runs its `/etc/rc`; with `--kernel-only` there is no root
 filesystem and the boot ends at the `mountroot>` prompt.
 `ROOTDISK=<img>` attaches an extra virtio disk.
 
+The EFI loader also loads `ehci.ko` and `xhci.ko` at every boot (the
+GENERIC kernel has only the UHCI and OHCI USB drivers built in), so
+`build.sh esp` always builds these two modules and puts them in
+`boot/kernel`, and `build.sh rootfs` copies them into the image's `/boot`
+for the installers. Under QEMU, USB devices on an EHCI controller
+(`-- -device usb-ehci,id=e -device usb-tablet,bus=e.0`) attach; on
+`qemu-xhci` and `nec-usb-xhci` the controller attaches but no device does.
+
 The console is a QEMU window (gtk, else sdl, whichever the installed QEMU
 has) when there is a graphical session (`$DISPLAY` or `$WAYLAND_DISPLAY`),
 with the serial console copied to the terminal. Without a session, or
@@ -772,7 +780,7 @@ check per CI step (`all` runs them all):
 | `runtime` | compiler-rt builtins in a static and a dynamic program; C++ constructors, destructors and an exception across a shared library; `atexit` order; `dlopen(3)` (sources in `tools/linux/tests`) |
 | `fs` | `/tmp` and `/var/tmp` sticky and writable; `/etc`, `/var/run`, `/var/log`, `/var/db`, `/root` writable; `/` read-only on root.iso and writable on disk.img; `master.passwd` and `spwd.db` mode 600 |
 | `abi` | programs with either ELF ABI note (FoxynBSD, DragonFly) run |
-| `kld` | the kernel modules in the image (`udf`, `ext2fs`, when built) load and unload |
+| `kld` | the loader loaded `xhci.ko` (and `ehci.ko`) at boot; the other kernel modules in the image (`udf`, `ext2fs`, when built) load and unload |
 | `net` | `dhcpcd` runs and leased `vtnet0` an address, a default route and a name server; `fetch` gets `http://10.0.2.100/` through the gateway |
 | `tls` | `fetch` over HTTPS to an `openssl s_server` in the guest, with a certificate `openssl req` made there (LibreSSL's libcrypto and libssl); `ssh-keygen` makes RSA and Ed25519 keys when the image has OpenSSH |
 | `disk` | on a disk (`disk.img`, an installed disk): the root is UFS or HAMMER2 and writable (skipped for root.iso) |
