@@ -70,8 +70,31 @@ ${.OBJDIR}/.ruby_built: ${.OBJDIR}/config.status
 	cd ${.OBJDIR} && ${MAKE} -f Makefile all
 	touch ${.TARGET}
 
+# rbconfig.rb records how Ruby was built, and on the installed system mkmf
+# builds the gems' extensions with it.  So the installed one names the
+# system's compilers, install(1) and mkdir(1), not the build's, and not
+# ${DEPS}.  RUBY_RBCONFIG_DROP: flags that configure found the build's
+# compiler takes and the system's cc does not (a cross build with clang
+# sets it: cc is gcc).
+RUBY_RBCONFIG_CC?=	cc
+RUBY_RBCONFIG_CXX?=	c++
+RUBY_RBCONFIG_DROP?=
+RBCONFIG_SED=	-e 's| -[IL]${DEPS}/[a-z]*||g' \
+		-e 's|"-[IL]${DEPS}/[a-z]* *|"|g' \
+		-e 's|^\(  CONFIG\["CC"\] = \).*|\1"${RUBY_RBCONFIG_CC}"|' \
+		-e 's|^\(  CONFIG\["CXX"\] = \).*|\1"${RUBY_RBCONFIG_CXX}"|' \
+		-e 's|^\(  CONFIG\["INSTALL"\] = \).*|\1'"'"'/usr/bin/install -c'"'"'|' \
+		-e 's|^\(  CONFIG\["MKDIR_P"\] = \).*|\1"/bin/mkdir -p"|' \
+		-e 's|^\(  CONFIG\["MAKEDIRS"\] = \).*|\1"/bin/mkdir -p"|'
+.for f in ${RUBY_RBCONFIG_DROP}
+RBCONFIG_SED+=	-e 's|\([" ]\)${f}\([" ]\)|\1\2|g'
+.endfor
+
 install: ${.OBJDIR}/.ruby_built
 	cd ${.OBJDIR} && ${MAKE} -f Makefile install-nodoc DESTDIR=${DESTDIR}
+	for f in ${DESTDIR}/usr/lib/ruby/[0-9]*/*/rbconfig.rb; do \
+		sed ${RBCONFIG_SED} "$$f" > "$$f.new" && mv "$$f.new" "$$f"; \
+	done
 
 clean cleandir:
 	rm -rf ${.OBJDIR}/*

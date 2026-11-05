@@ -1220,10 +1220,14 @@ host_ruby() {
 
 world_ruby() {
 	host_ruby
-	# The host build's precompiled core library (see usr.bin/ruby).
+	# The host build's precompiled core library (see usr.bin/ruby).  And
+	# the flags that configure found clang (xcc) takes and the image's cc
+	# (gcc 12), which builds the gems' extensions, rejects: usr.bin/ruby
+	# removes them from the installed rbconfig.rb.
 	world_lib usr.bin/ruby \
 	    "RUBY_CONFIGURE_ARGS=--host=x86_64-unknown-dragonfly --build=x86_64-pc-linux-gnu --with-baseruby=$HOSTOBJ/ruby/bin/ruby" \
-	    "RUBY_BUILTIN_BINARY=$HOSTOBJ/ruby-build/builtin_binary.rbbin"
+	    "RUBY_BUILTIN_BINARY=$HOSTOBJ/ruby-build/builtin_binary.rbbin" \
+	    "RUBY_RBCONFIG_DROP=-fdeclspec -Wextra-tokens -Wdivision-by-zero -Wshorten-64-to-32"
 }
 
 # The SUBDIR list of a directory's Makefile, as its make sees it.
@@ -1924,6 +1928,27 @@ check.call("net/http") do
 end
 check.call("rubygems") do
   "#{Gem::VERSION}, #{Gem::Specification.count} gems"
+end
+# A C extension, as gem install builds one: mkmf reads rbconfig.rb, so
+# this fails when it names the compiler, flags or directories of the build.
+if system("command -v cc >/dev/null")
+  check.call("mkmf") do
+    require "tmpdir"
+    Dir.mktmpdir do |d|
+      File.write("#{d}/foxext.c", <<~C)
+        #include <ruby.h>
+        static VALUE fox(VALUE self) { return INT2FIX(42); }
+        void Init_foxext(void) { rb_define_global_function("fox", fox, 0); }
+      C
+      File.write("#{d}/extconf.rb", %(require "mkmf"\ncreate_makefile("foxext")\n))
+      log = "#{d}/build.log"
+      built = Dir.chdir(d) { system("ruby extconf.rb > #{log} 2>&1 && make >> #{log} 2>&1") }
+      raise File.readlines(log).last(3).join(" ").strip unless built
+      r = IO.popen(["ruby", "-I", d, "-rfoxext", "-e", "print fox"], &:read)
+      raise "fox: #{r.inspect}" unless r == "42"
+      "built and loaded a C extension with #{RbConfig::CONFIG["CC"]}"
+    end
+  end
 end
 puts "ruby-check: #{ok ? "ok" : "fail"}"
 exit(ok)

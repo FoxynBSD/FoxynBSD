@@ -780,7 +780,7 @@ check per CI step (`all` runs them all):
 | `install` | not in `all`: `foxyn-install` finished (`boot-test.sh --install`) |
 | `pkg` | not in `all`: `pkg(8)` bootstrapped from DragonFly's mirror, the dynamic `pkg` runs, `pkg install inxi` brought Perl, and both run (`PKG_CHECK=1 boot-test.sh --disk` or `--installed`; needs the internet) |
 | `cc` | gcc 12 (`cc`, `c++`) and gcc 8 (`CCVER=gcc80`) compile, link and run C, static C and C++ with an exception in the image (skipped for an image without compilers) |
-| `ruby` | Ruby with `openssl` (LibreSSL), `yaml` (libyaml), `zlib` and `socket`, `Net::HTTP` to `http://10.0.2.100/`, RubyGems (skipped for an image without Ruby) |
+| `ruby` | Ruby with `openssl` (LibreSSL), `yaml` (libyaml), `zlib` and `socket`, `Net::HTTP` to `http://10.0.2.100/`, RubyGems; with a `cc`, `mkmf` builds and loads a C extension, as `gem install` does (skipped for an image without Ruby) |
 
 A failing boot leaves the serial log in `$OBJDIR/qemu/`. On a kernel
 trap, `boot-test.sh` resolves the faulting instruction to a source line
@@ -822,9 +822,18 @@ does, compiling that code at each start and without RubyGems. The
 format records the version, word size and byte order, which the host and
 the target share.
 
+`rbconfig.rb` records how Ruby was built, and `mkmf` builds the gems' C
+extensions with it on the installed system. `usr.bin/ruby` installs it
+naming the system's `cc`, `c++`, `install` and `mkdir`, without the
+build's `deps` directory; here `build.sh` also has it drop the flags that
+configure found `xcc` (clang) takes and the image's `cc` (gcc 12) does
+not (`RUBY_RBCONFIG_DROP`). `gem install` and Bundler then work in the
+image, C extensions included (tested with `msgpack`).
+
 Ruby is in the image with the whole world, not in the base image. The
 `ruby` test runs it there with each of those extensions, `Net::HTTP`
-through QEMU's network and RubyGems.
+through QEMU's network and RubyGems. With the image's compilers, it also has
+`mkmf` build and load a small C extension.
 
 ## Packages (DPorts)
 
