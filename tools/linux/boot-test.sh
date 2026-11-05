@@ -24,6 +24,9 @@
 #	INSTALLED	the disk --install installs on and --installed boots
 #			(default $OBJDIR/installed.img, made INSTALL_SIZE big, 4G)
 #	INSTALL_ARGS	foxyn-install options for --install (e.g. "-t ufs")
+#	PKG_CHECK	1: with --disk or --installed, also bootstrap pkg(8)
+#			and install inxi from DragonFly's mirror
+#			(/root/tests/pkg-check; needs the internet)
 #
 # Exit status: 0 if the expected prompt appeared (and, with --root, the
 # login worked), 1 otherwise.  The serial
@@ -238,6 +241,17 @@ if [ "$result" -eq 0 ] && [ -n "$ROOTARG" ] && [ "$MODE" != install ] &&
 		sleep 5
 		tries=$((tries + 1))
 	done
+	# Packages from DragonFly's mirror (pkg-check: lines, pkg-42): only
+	# on request, as it needs the internet, and on a writable root.
+	if [ "${PKG_CHECK:-0}" = 1 ] &&
+	    { [ "$MODE" = disk ] || [ "$MODE" = installed ]; }; then
+		printf "sh -c 'sh /root/tests/pkg-check; echo pkg-\$((6*7)): \$?'\r" >&3
+		tries=0
+		while [ "$tries" -lt 180 ] && ! grep -aq '^pkg-42:' "$LOG"; do
+			sleep 5
+			tries=$((tries + 1))
+		done
+	fi
 fi
 
 # A disk is shut down cleanly, so the next boot finds its file system

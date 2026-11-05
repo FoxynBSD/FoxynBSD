@@ -2,6 +2,7 @@
 .include "Makefile.inc"
 
 LIB= 		private_crypto
+# etc/libmap.conf maps DragonFly's older version to this one: update it too.
 SHLIB_MAJOR=	57
 PRIVATELIB=	shpub
 

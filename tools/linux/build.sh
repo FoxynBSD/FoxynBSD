@@ -1375,6 +1375,7 @@ do_rootfs() {
 	write_cron_test "$root/root/tests/cron-check"
 	write_cc_test "$root/root/tests/cc-check"
 	write_ruby_test "$root/root/tests/ruby-check"
+	write_pkg_test "$root/root/tests/pkg-check"
 	# Kernel modules for the kldload test in rc.local, when `build.sh
 	# modules` built them (MODULES_OVERRIDE="vfs/udf vfs/ext2fs" builds
 	# only these): filesystems the GENERIC kernel does not have built in.
@@ -1835,6 +1836,46 @@ rootfs_installer() {
 # logging in: the interpreter and the extensions that link the base's
 # libraries (openssl: LibreSSL, psych: libyaml, zlib, socket), Net::HTTP
 # to the server boot-test.sh has QEMU answer on 10.0.2.100, and RubyGems.
+# Packages (DPorts, issue #11): /root/tests/pkg-check bootstraps pkg(8)
+# from DragonFly's mirror, installs inxi (which brings Perl) and prints an
+# inventory: inxi's ("inxi| " lines) and the raw PCI one ("pciconf| ").
+# It needs the internet and a writable root, so boot-test.sh runs it only
+# with PKG_CHECK=1 on a disk.  The dynamic pkg running at all checks
+# /etc/libmap.conf: DragonFly built it against older private LibreSSL
+# libraries.
+write_pkg_test() {
+	cat > "$1" <<'EOF'
+#!/bin/sh
+ok=1
+fail() { echo "pkg-check: FAIL $*"; ok=0; }
+if [ ! -x /usr/local/sbin/pkg ]; then
+	if make -C /usr pkg-bootstrap > /tmp/pkg-bootstrap.log 2>&1; then
+		echo "pkg-check: bootstrap ok"
+	else
+		tail -n 5 /tmp/pkg-bootstrap.log | sed 's/^/pkg-check: /'
+		fail bootstrap
+		echo "pkg-check: fail"
+		exit 1
+	fi
+fi
+v=$(pkg -v 2>&1) && echo "pkg-check: pkg $v, ABI $(pkg config abi)" ||
+    fail "the dynamic pkg does not run: $v"
+if pkg install -y inxi > /tmp/pkg-inxi.log 2>&1; then
+	echo "pkg-check: pkg install inxi ok"
+else
+	tail -n 5 /tmp/pkg-inxi.log | sed 's/^/pkg-check: /'
+	fail "pkg install inxi"
+fi
+v=$(perl -e 'print "perl $^V"' 2>&1) && echo "pkg-check: $v" || fail "perl: $v"
+v=$(inxi --version 2>&1 | head -n 1) && echo "pkg-check: $v" || fail "inxi: $v"
+inxi -Fxxxz -c 0 2>&1 | sed 's/^/inxi| /'
+pciconf -lv 2>&1 | sed 's/^/pciconf| /'
+[ $ok = 1 ] && echo "pkg-check: ok" || echo "pkg-check: fail"
+[ $ok = 1 ]
+EOF
+	chmod 755 "$1"
+}
+
 write_ruby_test() {
 	cat > "$1" <<'EOF'
 #!/bin/sh
@@ -2111,7 +2152,7 @@ write_etc() {
 	# session reads (profile, shells, csh.*, hosts, services, ...).
 	for f in auth.conf csh.cshrc csh.login csh.logout devtab hosts \
 	    hosts.allow hosts.equiv netconfig networks profile protocols rpc \
-	    services shells sysctl.conf; do
+	    services shells sysctl.conf libmap.conf; do
 		cp "$SRCDIR/etc/$f" "$root/etc/$f"
 	done
 	# Root's dot files, as distribution installs them from share/skel,

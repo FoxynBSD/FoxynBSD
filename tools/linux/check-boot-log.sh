@@ -38,6 +38,8 @@
 #	persist		(not in all) a second boot of disk.img found the first
 #			one's boot count and a clean file system
 #	install		(not in all) foxyn-install finished (boot-test.sh --install)
+#	pkg		(not in all) pkg(8) bootstrapped, inxi and Perl installed
+#			from DPorts and ran (boot-test.sh with PKG_CHECK=1)
 #
 # LOG defaults to $OBJDIR/qemu/X86_64_GENERIC.boot-root.log.  Messages
 # use GitHub's ::error:: syntax, which reads fine in a terminal too.
@@ -47,7 +49,7 @@ set -eu
 OBJDIR=${OBJDIR:-${XDG_CACHE_HOME:-$HOME/.cache}/foxynbsd}
 LOG=$OBJDIR/qemu/X86_64_GENERIC.boot-root.log
 if [ "${1:-}" = -l ]; then LOG=$2; shift 2; fi
-[ $# -gt 0 ] || { sed -n '9,39p' "$0" | sed 's/^# \{0,1\}//'; exit 2; }
+[ $# -gt 0 ] || { sed -n '9,42p' "$0" | sed 's/^# \{0,1\}//'; exit 2; }
 [ -f "$LOG" ] || { echo "::error title=boot log::no log at $LOG"; exit 1; }
 
 fail() { echo "::error title=$1::$2"; return 1; }
@@ -220,6 +222,12 @@ check_install() {
 	    fail install "foxyn-install did not finish"
 }
 
+check_pkg() {
+	lines '^pkg-check: ' || :
+	grep -aq '^pkg-check: ok' "$LOG" ||
+	    fail packages "$(lines '^pkg-check: FAIL' | tr '\n' ';')"
+}
+
 check_persist() {
 	lines '^disk-check: \|^rc: first boot\|not properly dismounted\|FILE SYSTEM' || :
 	grep -aqE '^disk-check: boot ([2-9]|[1-9][0-9]+) of this disk' "$LOG" ||
@@ -234,7 +242,7 @@ ALL="rtld rcd identity basics syslogd daemons cron periodic cxx runtime fs abi k
 [ "$*" = all ] && set -- $ALL
 rc=0
 for c; do
-	case " $ALL persist install " in *" $c "*) ;; *) echo "unknown check: $c" >&2; exit 2 ;; esac
+	case " $ALL persist install pkg " in *" $c "*) ;; *) echo "unknown check: $c" >&2; exit 2 ;; esac
 	echo ">>> check $c"
 	"check_$c" || rc=1
 done

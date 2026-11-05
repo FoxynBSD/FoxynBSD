@@ -778,6 +778,7 @@ check per CI step (`all` runs them all):
 | `disk` | on a disk (`disk.img`, an installed disk): the root is UFS or HAMMER2 and writable (skipped for root.iso) |
 | `persist` | not in `all`: a second boot of `disk.img` found the first one's boot count in `/var/db`, kept the password database and had a clean file system |
 | `install` | not in `all`: `foxyn-install` finished (`boot-test.sh --install`) |
+| `pkg` | not in `all`: `pkg(8)` bootstrapped from DragonFly's mirror, the dynamic `pkg` runs, `pkg install inxi` brought Perl, and both run (`PKG_CHECK=1 boot-test.sh --disk` or `--installed`; needs the internet) |
 | `cc` | gcc 12 (`cc`, `c++`) and gcc 8 (`CCVER=gcc80`) compile, link and run C, static C and C++ with an exception in the image (skipped for an image without compilers) |
 | `ruby` | Ruby with `openssl` (LibreSSL), `yaml` (libyaml), `zlib` and `socket`, `Net::HTTP` to `http://10.0.2.100/`, RubyGems (skipped for an image without Ruby) |
 
@@ -824,6 +825,31 @@ the target share.
 Ruby is in the image with the whole world, not in the base image. The
 `ruby` test runs it there with each of those extensions, `Net::HTTP`
 through QEMU's network and RubyGems.
+
+## Packages (DPorts)
+
+FoxynBSD runs DragonFly BSD's packages. On a writable root (`disk.img`
+or an installed disk), `make -C /usr pkg-bootstrap` fetches DragonFly's
+`pkg-static` from its mirror and installs `pkg` and the CA certificates
+(`ca_root_nss`, which makes `/etc/ssl/cert.pem` a link to its bundle);
+`pkg` then uses DragonFly's `dragonfly:6.6:x86:64` repository:
+
+    # make -C /usr pkg-bootstrap
+    # pkg install inxi
+    # inxi -Fxxxz -c 0
+
+A few packages, `pkg` among them, link DragonFly's private LibreSSL
+(`libprivate_crypto.so.50`, `libprivate_ssl.so.53`), which FoxynBSD's
+LibreSSL 4.3 replaced. `/etc/libmap.conf` has the run-time linker load
+FoxynBSD's versions instead; every LibreSSL function that `pkg` imports is
+in them, and `pkg update`, `install`, `check` and `audit` work through
+them. `pkg-static` needs none of this.
+
+`PKG_CHECK=1 boot-test.sh --disk` (or `--installed`) runs
+`/root/tests/pkg-check` after the other tests: it bootstraps `pkg`,
+installs `inxi` (which brings Perl) and prints inxi's report (`inxi| `
+lines) and `pciconf -lv` (`pciconf| `); `check-boot-log.sh pkg` checks it.
+It needs the internet and DragonFly's mirror, so CI does not run it.
 
 ## The whole world
 
@@ -888,10 +914,13 @@ report are uploaded as artifacts.
   back end). The BSD Installer and `foxyn-install` make disks that boot
   alone. CI runs the whole BSD Installer only up to its welcome screen;
   its install was tested by hand under QEMU (UEFI, HAMMER2). The base
-  image has `foxyn-install` but not the BSD Installer (issue #9).
+  image has `foxyn-install` but not the BSD Installer.
 * The base image (`ROOTFS=base`) has only the programs of `build.sh
   base`; the default image has the whole world.
-* The images have no packages (`pkg`, DPorts) yet.
+* The images come without packages; `make -C /usr pkg-bootstrap` gets
+  `pkg` and DragonFly's packages on a writable root (see "Packages").
+  The packages are DragonFly's, built for its base. inxi 3.3.11
+  found no disk and no graphics device under QEMU.
 * The gcc 12 compiler is built for the image, not as a cross compiler for
   the host; its runtime's C parts are compiled by the host gcc (`xgcc`)
   and its `libstdc++` by clang (see above).
@@ -951,4 +980,5 @@ report are uploaded as artifacts.
 | Ruby 4.0 | in the world image with openssl, psych, zlib, socket and RubyGems; tested at boot |
 | writable root on a disk (`build.sh disk`) | UFS on GPT, made with the host `makefs`; boots twice in CI |
 | gcc 12's runtime (`gnu/lib/gcc120`) | built by the world (`xgcc`, `xc++`); the image's gcc 12 and gcc 8 build and run C and C++ |
+| packages (DPorts) | `pkg-bootstrap`, `pkg` and `pkg install inxi` (Perl 5.36) work on a disk image; tested with `PKG_CHECK=1`, not in CI |
 | installers | the BSD Installer starts in CI and installs by hand (disklabel64, `/boot` UFS, HAMMER2, `boot1.efi`); `foxyn-install` installs and the disk boots alone in CI |

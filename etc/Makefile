@@ -28,7 +28,7 @@ BIN1=	anacrontab auth.conf \
 	devtab dhclient.conf dntpd.conf \
 	ftpusers gettytab \
 	hosts hosts.allow hosts.equiv hosts.lpd \
-	inetd.conf login.access login.conf \
+	inetd.conf libmap.conf login.access login.conf \
 	motd modems netconfig networks newsyslog.conf \
 	nscd.conf pf.conf phones printcap profile \
 	remote sensorsd.conf services \
