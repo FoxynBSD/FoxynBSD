@@ -733,8 +733,12 @@ filesystem and the boot ends at the `mountroot>` prompt.
 The EFI loader also loads `ehci.ko` and `xhci.ko` at every boot (the
 GENERIC kernel has only the UHCI and OHCI USB drivers built in), so
 `build.sh esp` always builds these two modules and puts them in
-`boot/kernel`, and `build.sh rootfs` copies them into the image's `/boot`
-for the installers. USB devices attach under QEMU on `qemu-xhci`,
+`boot/kernel`. When `build.sh modules` built them, `build.sh rootfs`
+puts all the modules (682, 62 MB without debug information) in the
+image's `/boot/kernel`, as installkernel does: devd(8) loads a driver from
+there when a device has none (`ums` for a USB mouse, sound, network), and
+the installers copy them. Without, the image has the ESP's two. USB
+devices attach under QEMU on `qemu-xhci`,
 `nec-usb-xhci` and EHCI controllers (`-- -device qemu-xhci,id=x -device
 usb-tablet,bus=x.0`); `boot-test.sh` always attaches a USB keyboard to a
 `qemu-xhci` controller.
@@ -781,7 +785,7 @@ check per CI step (`all` runs them all):
 | `runtime` | compiler-rt builtins in a static and a dynamic program; C++ constructors, destructors and an exception across a shared library; `atexit` order; `dlopen(3)` (sources in `tools/linux/tests`) |
 | `fs` | `/tmp` and `/var/tmp` sticky and writable; `/etc`, `/var/run`, `/var/log`, `/var/db`, `/root` writable; `/` read-only on root.iso and writable on disk.img; `master.passwd` and `spwd.db` mode 600 |
 | `abi` | programs with either ELF ABI note (FoxynBSD, DragonFly) run |
-| `kld` | the loader loaded `xhci.ko` (and `ehci.ko`) at boot; the other kernel modules in the image (`udf`, `ext2fs`, when built) load and unload |
+| `kld` | the loader loaded `xhci.ko` (and `ehci.ko`) at boot; `udf.ko` and `ext2fs.ko` (`KLD_TESTS`, when the image has them) load and unload |
 | `usb` | the USB keyboard that `boot-test.sh` attaches to a `qemu-xhci` controller attached as `ukbd0` |
 | `net` | `dhcpcd` runs and leased `vtnet0` an address, a default route and a name server; `fetch` gets `http://10.0.2.100/` through the gateway |
 | `tls` | `fetch` over HTTPS to an `openssl s_server` in the guest, with a certificate `openssl req` made there (LibreSSL's libcrypto and libssl); `ssh-keygen` makes RSA and Ed25519 keys when the image has OpenSSH |

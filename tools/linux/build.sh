@@ -1383,16 +1383,20 @@ do_rootfs() {
 	write_cc_test "$root/root/tests/cc-check"
 	write_ruby_test "$root/root/tests/ruby-check"
 	write_pkg_test "$root/root/tests/pkg-check"
-	# Kernel modules for the kldload test in rc.local, when `build.sh
-	# modules` built them (MODULES_OVERRIDE="vfs/udf vfs/ext2fs" builds
-	# only these): filesystems the GENERIC kernel does not have built in.
-	local ko
-	for f in $KLD_TESTS; do
-		ko=$(find "$OBJDIR/sys/X86_64_GENERIC$SRCDIR/sys" -name "$f.ko" 2>/dev/null | head -n 1)
-		[ -n "$ko" ] || continue
-		mkdir -p "$root/boot/kernel"
-		objcopy --strip-debug "$ko" "$root/boot/kernel/$f.ko"
-	done
+	# The kernel modules that `build.sh modules` built, without debug
+	# information, in /boot/kernel as installkernel puts them: devd(8)
+	# loads drivers from there when a device has none (ums for a USB
+	# mouse, sound, network), and so does kldload(8).  Without
+	# `build.sh modules`, only those of the ESP (BOOT_MODULES, below).
+	# The kld test in rc.local loads and unloads those in KLD_TESTS.
+	local ko kodir=$OBJDIR/sys/X86_64_GENERIC$SRCDIR/sys
+	mkdir -p "$root/boot/kernel"
+	if [ -d "$kodir" ]; then
+		find "$kodir" -name '*.ko' | while read -r ko; do
+			objcopy --strip-debug "$ko" "$root/boot/kernel/${ko##*/}"
+		done
+	fi
+	printf '%s\n' $KLD_TESTS > "$root/root/tests/kld-modules"
 	# What the installers put on the disk they install to: the EFI
 	# loader and the boot tree of `build.sh esp` (dloader.rc, the
 	# defaults, the kernel), in /boot as on an installed DragonFly system.
@@ -2337,16 +2341,17 @@ for t in rt-builtins rt-builtins-static rt-cxx rt-dlopen; do
 	/root/tests/$t || echo "rc: /root/tests/$t failed with status $?"
 done
 # Kernel modules (build.sh rootfs copies them in when they were built):
-# load, find and unload each one.  The loader loaded some at boot (ehci,
-# xhci): they are only listed.
+# the loader loaded ehci.ko and xhci.ko at boot, which are only listed;
+# those named in /root/tests/kld-modules are loaded, found and unloaded.
 if ls /boot/kernel/*.ko >/dev/null 2>&1; then
 	kld=ok
-	for m in /boot/kernel/*.ko; do
-		n=${m##*/}
-		if kldstat -n $n >/dev/null 2>&1; then
-			echo "kld-check: $n loaded at boot"
-			continue
-		fi
+	echo "kld-check: $(ls /boot/kernel/*.ko | wc -l | tr -d ' ') modules in /boot/kernel"
+	for n in ehci.ko xhci.ko; do
+		kldstat -n $n >/dev/null 2>&1 && echo "kld-check: $n loaded at boot"
+	done
+	for n in $(cat /root/tests/kld-modules 2>/dev/null); do
+		m=/boot/kernel/$n.ko n=$n.ko
+		[ -f $m ] || continue
 		if kldload $m && kldstat -n $n | sed "s/^/kld-check: /" &&
 		    kldunload $n && ! kldstat -n $n >/dev/null 2>&1; then
 			echo "kld-check: $n loaded and unloaded"
