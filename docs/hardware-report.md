@@ -58,19 +58,48 @@ other files are unfiltered. These identify your machine or network:
   directory (`you@host:/path/...` in `uname -v` and dmesg);
 * UUIDs of disks and partitions.
 
-This removes the common ones; read the files afterwards all the same
-(it also turns four-part version numbers such as `1.21.1.16` into `<ip>`):
+The following uses Ruby from base to make filtered copies in a new
+`share` directory, leaving the originals in place. Run it from `/tmp/hw`.
+It filters common IPv4 and IPv6 addresses, MAC addresses, UUIDs, serial
+numbers, the current host name and kernel builder paths. It cannot identify
+every private value: **read every copy before sharing it** and remove any
+remaining identifiers. Four-part version numbers can be mistaken for IPv4
+addresses; restore those by hand when they are needed for diagnosis.
 
-    # sed -i '' -E \
-        -e 's/([0-9a-fA-F]{2}:){5}[0-9a-fA-F]{2}/<mac>/g' \
-        -e 's/[0-9]{1,3}(\.[0-9]{1,3}){3}/<ip>/g' \
-        -e 's/(serial number|serno|SerialNumber|serial)( *[:=/] *)[^ ,<]+/\1\2<serial>/g' \
-        -e 's/(iSerialNumber.*)<[^>]*>/\1<serial>/' \
-        -e 's/[0-9a-fA-F]{8}-([0-9a-fA-F]{4}-){3}[0-9a-fA-F]{12}/<uuid>/g' \
-        -e 's/[A-Za-z0-9._-]+@[A-Za-z0-9._-]+:\/[^ ]*/<builder>/g' \
-        -e "s/$(hostname -s)/<host>/g" \
-        *.txt
+    ruby <<'RUBY'
+    require 'ipaddr'
+    require 'socket'
 
-Share the files, with your notes, in a GitHub issue on the FoxynBSD
-repository. Name the machine's maker and model, and the FoxynBSD build
-(`uname -v`).
+    files = Dir.glob('*.txt')
+    abort 'No report files found' if files.empty?
+    host = Socket.gethostname
+    abort 'Cannot determine host name' if host.empty?
+    names = [host, host.split('.').first].uniq.sort_by { |name| -name.length }
+    host_pattern = /(?<![A-Za-z0-9._-])(?:#{names.map { |name| Regexp.escape(name) }.join('|')})(?:\.[A-Za-z0-9_-]+)*(?![A-Za-z0-9._-])/i
+    Dir.mkdir('share', 0700) # Refuse to overwrite an existing report.
+
+    files.each do |file|
+      text = File.binread(file)
+      text.gsub!(/(iSerialNumber[^\r\n<]*?)<[^>\r\n]*>/i, '\\1<serial>')
+      text.gsub!(/((?:serial[ \t]*number|serial|serno)[ \t]*[:=\/][ \t]*)(?:"[^"\r\n]*"|'[^'\r\n]*'|[^\s,<]+)/i, '\\1<serial>')
+      text.gsub!(/[0-9a-f]{8}(?:-[0-9a-f]{4}){3}-[0-9a-f]{12}/i, '<uuid>')
+      text.gsub!(/[A-Za-z0-9._-]+@[A-Za-z0-9._-]+:\/[^\s]+/, '<builder>')
+      text.gsub!(/(?<![A-Za-z0-9_.])[0-9a-f:.]*:[0-9a-f:.]+(?![A-Za-z0-9_.])/i) do |candidate|
+        address = candidate.sub(/\.+\z/, '')
+        punctuation = candidate[address.length..]
+        begin
+          IPAddr.new(address).ipv6? ? "<ip>#{punctuation}" : candidate
+        rescue IPAddr::InvalidAddressError
+          candidate
+        end
+      end
+      text.gsub!(/(?:[0-9a-f]{2}:){5}[0-9a-f]{2}/i, '<mac>')
+      text.gsub!(/[0-9]{1,3}(?:\.[0-9]{1,3}){3}/, '<ip>')
+      text.gsub!(host_pattern, '<host>')
+      File.open(File.join('share', file), 'wb', 0600) { |out| out.write(text) }
+    end
+    RUBY
+
+Share only the reviewed copies from `share`, with your notes, in a GitHub
+issue on the FoxynBSD repository. Name the machine's maker and model, and
+the FoxynBSD build (`uname -v`).

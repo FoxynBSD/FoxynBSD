@@ -10,6 +10,7 @@ on:
     branches: [dev]
     paths:
       - 'tools/linux/**'
+      - 'docs/hardware-report.md'
       - '.github/workflows/**'
       - 'stand/boot/dloader/cmds.c'
       - '.gitmodules'
@@ -18,6 +19,7 @@ on:
     branches: [dev]
     paths:
       - 'tools/linux/**'
+      - 'docs/hardware-report.md'
       - '.github/workflows/**'
       - 'stand/boot/dloader/cmds.c'
       - '.gitmodules'
@@ -46,6 +48,9 @@ jobs:
 
       - name: shellcheck (errors only)
         run: shellcheck -S error tools/linux/*.sh tools/linux/foxyn-install
+
+      - name: Test hardware report redaction
+        run: ruby tools/linux/tests/hardware-report-redact-test.rb
 
       # The contrib/ submodules: under contrib/, each with a
       # README.DRAGONFLY that records the commit the tree points to.
