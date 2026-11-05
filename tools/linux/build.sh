@@ -8,7 +8,8 @@
 # uudecode) with the Linux compiler, then drives sys/ directly.
 #
 # Usage:
-#	tools/linux/build.sh [all]		(the whole system, ready for qemu.sh)
+#	tools/linux/build.sh [all]		(the whole system, ready for qemu.sh;
+#					 run again, it rebuilds what changed)
 #	tools/linux/build.sh tools
 #	tools/linux/build.sh kernel [KERNCONF]	(default X86_64_GENERIC)
 #	tools/linux/build.sh modules [KERNCONF]
@@ -343,21 +344,48 @@ fi
 exec @SED@ "$@"
 EOF
 	# BSD install(1) for unprivileged staging: drop owner, group and
-	# file-flag options (they need root or do not exist in GNU install),
-	# BSD-only switches, and -C/-b/-B (GNU refuses -C together with -s);
-	# pass everything else to the host install.
+	# file-flag options (they need root or do not exist in GNU install)
+	# and BSD-only switches; pass everything else to the host install.
+	# Files are always installed as with BSD -C: one whose contents and
+	# mode did not change is left alone, mtime included, so installing a
+	# directory again (libc, say) does not make everything that links
+	# against it relink.  GNU install refuses -C together with -s, so a
+	# stripped file is stripped into a temporary directory first and
+	# compared from there.
 	cat > "$HOSTBIN/install" <<'EOF'
 #!/bin/sh
-n=$#
+n=$# strip= dir=
 while [ "$n" -gt 0 ]; do
 	a=$1; shift; n=$((n - 1))
 	case $a in
 	-o|-g|-f|-B|-N)	shift; n=$((n - 1)) ;;
 	-o?*|-g?*|-f?*|-B?*|-N?*|-U|-S|-l?*|-C|-b) ;;
+	-s)		strip=1 ;;
+	-d)		dir=1; set -- "$@" "$a" ;;
 	*)		set -- "$@" "$a" ;;
 	esac
 done
-exec @INSTALL@ "$@"
+[ -n "$dir" ] && exec @INSTALL@ "$@"
+opts=
+while [ $# -gt 0 ]; do
+	case $1 in
+	-m)	opts="$opts $1 $2"; shift 2 ;;
+	-*)	opts="$opts $1"; shift ;;
+	*)	break ;;
+	esac
+done
+[ -n "$strip" ] || exec @INSTALL@ -C $opts "$@"
+# Sources and the destination (last): strip the sources into $t, then
+# compare those with the destination.
+t=$(mktemp -d) || exit 1
+trap 'rm -rf "$t"' EXIT
+n=$#
+while [ "$n" -gt 1 ]; do
+	@INSTALL@ -s $opts "$1" "$t/" || exit
+	set -- "$@" "$t/${1##*/}"; shift; n=$((n - 1))
+done
+d=$1; shift
+@INSTALL@ -C $opts "$@" "$d"
 EOF
 	# File flags (schg, ...) do not exist here and need root anyway.
 	printf '#!/bin/sh\nexit 0\n' > "$HOSTBIN/chflags"
@@ -667,7 +695,7 @@ build_makefs() {
 
 # Bump when the host tools or shims change, so an existing $OBJDIR gets
 # them rebuilt instead of failing with old ones (install -C/-B, chflags).
-TOOLS_STAMP=21
+TOOLS_STAMP=22
 
 kenv() {
 	[ "$(cat "$HOSTBIN/.done" 2>/dev/null)" = "$TOOLS_STAMP" ] || do_tools
@@ -686,8 +714,11 @@ kenv() {
 	# -Werror=missing-include-dirs) even when the kernel is built before
 	# `build.sh sysroot`: empty, it still keeps the host's headers out.
 	# KERNCC=clang compiles with kcc (see write_kcc_wrapper).
+	# FASTER_DEPEND: the kernel's objects are compiled with -MD, whose
+	# .d files keep its dependencies current between incremental builds
+	# (do_kernel).
 	mkdir -p "$SYSROOT/usr/include"
-	KMAKE="DESTDIR=$SYSROOT"
+	KMAKE="DESTDIR=$SYSROOT FASTER_DEPEND=1"
 	case ${KERNCC:-gcc} in
 	gcc)	;;
 	clang)	[ -x "$HOSTBIN/kcc" ] ||
@@ -697,23 +728,49 @@ kenv() {
 	esac
 }
 
+# The kernel is built incrementally: its object directory is kept, so
+# only what changed is compiled again.  Bump this when its objects must
+# be rebuilt from scratch instead (and it also is when KERNCC changes).
+# 2: compiled with FASTER_DEPEND (-MD), whose .d files the incremental
+# builds read; older objects have none.
+KERNEL_STAMP=2
+
 do_kernel() {
-	local conf=${1:-X86_64_GENERIC} kobj
+	local conf=${1:-X86_64_GENERIC} kobj stamp
 	kenv
 	kobj=$OBJDIR/sys/$conf
+	stamp="$KERNEL_STAMP ${KERNCC:-gcc}"
 	[ -f "$SRCDIR/sys/config/$conf" ] || die "no such KERNCONF: $conf"
-	msg "configuring $conf in $kobj"
-	rm -rf "$kobj"; mkdir -p "$OBJDIR/sys"
+	if [ "$(cat "$kobj/.foxyn-kernel" 2>/dev/null)" = "$stamp" ]; then
+		msg "configuring $conf in $kobj (incremental)"
+	else
+		msg "configuring $conf in $kobj (from scratch)"
+		rm -rf "$kobj"
+	fi
+	mkdir -p "$OBJDIR/sys"
+	# config(8) rewrites only the files whose contents change, so the
+	# objects that do not depend on a changed option are kept.
 	( cd "$SRCDIR/sys/config" && config -d "$kobj" "$conf" )
+	echo "$stamp" > "$kobj/.foxyn-kernel"
 	# depend also covers the modules, before the kernel is built: once
 	# the kernel's objdir has the generated *_if.c, kmod.mk no longer
 	# makes them for the modules.  A configuration without INET (MINI64)
-	# builds a kernel but no modules.
-	msg "make depend"
-	if kconf_modules "$conf"; then
-		( cd "$kobj" && make $KMAKE KERNEL=kernel depend )
+	# builds a kernel but no modules.  This takes a while, so it runs
+	# for a new object directory and when config(8) wrote a new
+	# Makefile (files or options came or went).  Otherwise the
+	# dependencies come from the .d files that the compiler writes next
+	# to each object (FASTER_DEPEND, see kenv): they are up to date
+	# for everything that was compiled, even by a build that failed.
+	if [ -f "$kobj/.depend_done" ] && ! [ "$kobj/Makefile" -nt "$kobj/.depend_done" ]; then
+		( cd "$kobj" && cat ./*.d > .depend 2>/dev/null || : )
 	else
-		( cd "$kobj" && make $KMAKE NO_MODULES=1 KERNEL=kernel depend )
+		msg "make depend"
+		if kconf_modules "$conf"; then
+			( cd "$kobj" && make $KMAKE KERNEL=kernel depend )
+		else
+			( cd "$kobj" && make $KMAKE NO_MODULES=1 KERNEL=kernel depend )
+		fi
+		: > "$kobj/.depend_done"
 	fi
 	msg "make all (-j$JOBS)"
 	if grep -q '^platform[[:space:]]*vkernel' "$SRCDIR/sys/config/$conf"; then
@@ -754,12 +811,54 @@ do_modules() {
 	( cd "$kobj" && make -j"$JOBS" $KMAKE KERNEL=kernel modules )
 }
 
-# Stage the DragonFly headers the way include/Makefile's "copies" target
-# does, into $SYSROOT/usr/include.  Done by hand because that target needs
-# mtree(8), cpdup(1) and BSD install(1) semantics.
+# Stage the DragonFly headers into $SYSROOT/usr/include: the ones that
+# include/Makefile's "copies" target copies (stage_headers), then the
+# ones that include/ and the libraries install themselves.  Run again,
+# it updates the headers that changed and leaves the rest alone, their
+# mtimes included, so only what includes a changed header is compiled
+# again.  It starts from an empty directory when HEADERS_STAMP changed.
 do_sysroot() {
-	local inc=$SYSROOT/usr/include s=$SRCDIR/sys d mk ldirs lsubdirs
-	msg "staging headers into $inc"
+	local inc=$SYSROOT/usr/include d
+	if headers_ok; then
+		msg "updating the headers in $inc"
+	else
+		msg "staging headers into $inc"
+		rm -rf "$inc"
+	fi
+	mkdir -p "$inc"
+	stage_headers
+
+	# The rest is what buildworld's "includes" stage does: create the
+	# directory tree from the mtree spec (mtree(8) is not available on
+	# Linux, so read the spec with awk), then let every directory under
+	# include/ and lib/ install its own headers.  Generated headers, such
+	# as the rpcgen output for include/rpc, come from the same rules.
+	mtree_dirs "$SRCDIR/etc/mtree/BSD.root.dist" "$SYSROOT"
+	mtree_dirs "$SRCDIR/etc/mtree/BSD.usr.dist" "$SYSROOT/usr"
+	mtree_dirs "$SRCDIR/etc/mtree/BSD.var.dist" "$SYSROOT/var"
+	mtree_dirs "$SRCDIR/etc/mtree/BSD.include.dist" "$inc"
+	(
+	wenv
+	for d in include/arpa include/protocols include/rpc include/rpcsvc \
+	    include/xlocale lib gnu/lib; do
+		msg "installing headers from $d"
+		( cd "$SRCDIR/$d" && make obj >/dev/null &&
+		  make -j"$JOBS" DESTDIR="$SYSROOT" buildincludes &&
+		  make DESTDIR="$SYSROOT" installincludes )
+	done
+	)
+	echo "$HEADERS_STAMP" > "$SYSROOT/.headers_done"
+}
+
+# The headers that include/Makefile's "copies" target copies, done by
+# hand because that target needs mtree(8), cpdup(1) and BSD install(1)
+# semantics.  They are put together in a directory of their own first,
+# as machine/ is cpu/'s headers overlaid with the platform's, and only
+# the ones that differ from the sysroot's are copied there.  The world
+# commands run this before they build, so a header edited in the tree
+# reaches the sysroot without a `build.sh sysroot`.
+stage_headers() {
+	local inc=$OBJDIR/sysroot-headers s=$SRCDIR/sys d f mk ldirs lsubdirs
 	rm -rf "$inc"; mkdir -p "$inc"
 	mk=$SRCDIR/include/Makefile
 	# Pull the directory lists straight out of include/Makefile.
@@ -806,27 +905,7 @@ do_sysroot() {
 		    "$s/sys/param.h"
 		echo "#endif"
 	} > "$inc/osreldate.h"
-
-	# The rest is what buildworld's "includes" stage does: create the
-	# directory tree from the mtree spec (mtree(8) is not available on
-	# Linux, so read the spec with awk), then let every directory under
-	# include/ and lib/ install its own headers.  Generated headers, such
-	# as the rpcgen output for include/rpc, come from the same rules.
-	mtree_dirs "$SRCDIR/etc/mtree/BSD.root.dist" "$SYSROOT"
-	mtree_dirs "$SRCDIR/etc/mtree/BSD.usr.dist" "$SYSROOT/usr"
-	mtree_dirs "$SRCDIR/etc/mtree/BSD.var.dist" "$SYSROOT/var"
-	mtree_dirs "$SRCDIR/etc/mtree/BSD.include.dist" "$inc"
-	(
-	wenv
-	for d in include/arpa include/protocols include/rpc include/rpcsvc \
-	    include/xlocale lib gnu/lib; do
-		msg "installing headers from $d"
-		( cd "$SRCDIR/$d" && make obj >/dev/null &&
-		  make -j"$JOBS" DESTDIR="$SYSROOT" buildincludes &&
-		  make DESTDIR="$SYSROOT" installincludes )
-	done
-	)
-	echo "$HEADERS_STAMP" > "$SYSROOT/.headers_done"
+	sync_tree "$inc" "$SYSROOT/usr/include"
 }
 
 # Bump when do_sysroot stages headers differently, so sysroots made by an
@@ -835,6 +914,47 @@ do_sysroot() {
 HEADERS_STAMP=5
 headers_ok() {
 	[ "$(cat "$SYSROOT/.headers_done" 2>/dev/null)" = "$HEADERS_STAMP" ]
+}
+
+# Before the world commands build: the sysroot's headers, current.
+# Restaged from scratch when HEADERS_STAMP changed, else the copied ones
+# that changed in the tree are copied again (stage_headers); the ones a
+# library installs are updated when it is built.
+headers_current() {
+	[ -z "${HEADERS_CURRENT:-}" ] || return 0
+	if headers_ok; then stage_headers; else do_sysroot; fi
+	HEADERS_CURRENT=1
+}
+
+# Copy the tree $1 over the tree $2.  A file or symlink that is the same
+# in both is left alone, mtime included; nothing is deleted from $2.
+sync_tree() {
+	local f
+	(cd "$1" && find . -type d) | while read -r f; do
+		mkdir -p "$2/$f"
+	done
+	(cd "$1" && find . ! -type d) | while read -r f; do
+		if [ -L "$1/$f" ]; then
+			[ "$(readlink "$1/$f")" = "$(readlink "$2/$f" 2>/dev/null)" ] &&
+			    continue
+		elif [ ! -L "$2/$f" ] && cmp -s "$1/$f" "$2/$f"; then
+			continue
+		fi
+		rm -f "$2/$f"
+		cp -P "$1/$f" "$2/$f"
+	done
+}
+
+# Write standard input to the file $1 unless it already has these
+# contents: an unchanged generated file keeps its mtime, so make does not
+# rebuild what depends on it.
+write_changed() {
+	cat > "$1.new" || return
+	if cmp -s "$1.new" "$1"; then
+		rm -f "$1.new"
+	else
+		mv -f "$1.new" "$1"
+	fi
 }
 
 # Create the directories listed in an mtree(8) specification.
@@ -876,17 +996,22 @@ wenv() {
 	# Scripts that sort or compare file lists (kdump's mkioctls, ...)
 	# expect the C collation of a BSD host.
 	LC_ALL=C
+	# What C++ programs link, for their dependencies (bsd.prog.mk): the
+	# C++ runtime of clang's DragonFly driver is gcc 8's, not one in
+	# GCCLIBDIR (/usr/lib/clang).  A dependency on a file that does not
+	# exist would relink them on every build.
+	LIBSTDCPLUSPLUS=$SYSROOT/usr/lib/gcc80/libstdc++.a
 	# usr.sbin/installer (the BSD Installer) is built only for release
 	# media (nrelease sets it); the live image is release media.
 	WANT_INSTALLER=yes
 	export CCVER CC CXX MAKEOBJDIRPREFIX NXENV _SHLIBDIRPREFIX
-	export LC_ALL WANT_INSTALLER
+	export LC_ALL WANT_INSTALLER LIBSTDCPLUSPLUS
 	mkdir -p "$MAKEOBJDIRPREFIX"
 }
 
 # Userland libraries, starting from the bottom: csu, then libc.
 do_libc() {
-	headers_ok || do_sysroot
+	headers_current
 	wenv
 	[ -x "$HOSTBIN/xcc" ] ||
 	    die "xcc missing: install clang and lld, then run build.sh tools"
@@ -940,6 +1065,7 @@ PAM_MODULES="pam_lastlog pam_login_access pam_nologin pam_permit pam_securetty
 
 do_base() {
 	local d
+	headers_current
 	[ -f "$SYSROOT/usr/lib/libc.so" ] || do_libc
 	wenv
 	for d in $BASE_LIBS $BASE_PROGS; do
@@ -994,6 +1120,7 @@ WORLD_SKIP="lib/csu lib/libc gnu/lib/gcc80 gnu/lib/gcc120"
 
 do_world() {
 	local d top subs failed= seen=
+	headers_current
 	[ -f "$SYSROOT/usr/lib/libc.so" ] || do_libc
 	wenv
 	world_try() {
@@ -1126,10 +1253,13 @@ EOF
 	  make CCVER=clang CC=xcc-pic depend >/dev/null &&
 	  make -j"$JOBS" CCVER=clang CC=xcc-pic ) || return
 	eh=$o$SRCDIR/gnu/lib/gcc80/libgcc_eh/libgcc_eh.a
-	rm -f "$dst/libgcc_pic.a"
+	rm -f "$o/libgcc_pic.a"
 	printf 'create %s\naddlib %s\naddlib %s\nsave\nend\n' \
-	    "$dst/libgcc_pic.a" "$dst/libgcc.a" "$eh" | ar -M
-	ranlib "$dst/libgcc_pic.a"
+	    "$o/libgcc_pic.a" "$dst/libgcc.a" "$eh" | ar -M
+	ranlib "$o/libgcc_pic.a"
+	# Unchanged, the installed one keeps its mtime: the C++ programs
+	# that link it are not linked again.
+	write_changed "$dst/libgcc_pic.a" < "$o/libgcc_pic.a"
 }
 
 # The exception unwinder (libgcc_eh) that C++ programs such as devd(8)
@@ -1159,9 +1289,9 @@ gcc_prep() {
 	n=$(sed -n 's/.*(FIRST_PSEUDO_REG[[:space:]]*\([0-9]*\)).*/\1/p' \
 	    "$SRCDIR/contrib/gcc-8.0/gcc/config/i386/i386.md")
 	[ -n "$n" ] || die "FIRST_PSEUDO_REG not found in i386.md"
-	echo "#define FIRST_PSEUDO_REG $n" > "$d/insn-constants.h"
-	: > "$d/insn-modes.h"
-	: > "$d/libgcc_tm.h"
+	echo "#define FIRST_PSEUDO_REG $n" | write_changed "$d/insn-constants.h"
+	write_changed "$d/insn-modes.h" < /dev/null
+	write_changed "$d/libgcc_tm.h" < /dev/null
 }
 
 # The base image: the programs of `build.sh base` (the library fixpoint
@@ -1281,33 +1411,30 @@ do_rootfs() {
 	# They are looked up where rtld looks: the standard directories and
 	# the file's RUNPATH (/usr/lib/gcc80 for libstdc++, which clang's
 	# DragonFly driver adds to every dynamic link).
-	local added=1 found dirs
+	local added=1 dirs
 	while [ "$added" = 1 ]; do
 		added=0
-		for f in $(find "$root" -path "$root/boot" -prune -o -type f -print); do
-			dirs="lib lib/priv usr/lib usr/lib/priv $(readelf -d "$f" 2>/dev/null |
-			    sed -n 's/.*(R[UN]*PATH).*\[\(.*\)\]/\1/p' | tr ':' ' ')"
-			for lib in $(readelf -d "$f" 2>/dev/null |
-			    sed -n 's/.*(NEEDED).*\[\(.*\)\]/\1/p'); do
-				found=
-				for d in $dirs; do
-					d=${d#/}
-					[ -e "$root/$d/$lib" ] && { found=1; break; }
-				done
-				[ -n "$found" ] && continue
-				for d in $dirs; do
-					d=${d#/}
-					[ -e "$SYSROOT/$d/$lib" ] || continue
-					mkdir -p "$root/$d"
-					cp -pL "$SYSROOT/$d/$lib" "$root/$d/$lib"
-					found=1 added=1
-					break
-				done
-				[ -n "$found" ] ||
-				    die "$f needs $lib, which is not in the sysroot"
+		# One line per library that a file needs and the image lacks:
+		# the file, the library, the directories it is looked up in.
+		rootfs_missing_libs "$root" > "$OBJDIR/rootfs.missing"
+		while IFS='	' read -r f lib dirs; do
+			for d in $dirs; do
+				d=${d#/}
+				# Copied for an earlier file of this pass.
+				[ -e "$root/$d/$lib" ] && continue 2
 			done
-		done
+			for d in $dirs; do
+				d=${d#/}
+				[ -e "$SYSROOT/$d/$lib" ] || continue
+				mkdir -p "$root/$d"
+				cp -pL "$SYSROOT/$d/$lib" "$root/$d/$lib"
+				added=1
+				continue 2
+			done
+			die "$f needs $lib, which is not in the sysroot"
+		done < "$OBJDIR/rootfs.missing"
 	done
+	rm -f "$OBJDIR/rootfs.missing"
 	# The world installs share/terminfo; the base image gets a few types.
 	[ -d "$root/usr/share/terminfo/x" ] || write_terminfo "$root/usr/share/terminfo"
 	write_etc "$root"
@@ -1347,6 +1474,45 @@ do_rootfs() {
 	else
 		msg "root tree: $root (install xorriso to pack root.iso)"
 	fi
+}
+
+# The shared libraries that the files of the root tree $1 need (their
+# NEEDED entries) and that are not in it, looked up where rtld looks:
+# the standard directories and the file's RUNPATH.  One readelf reads
+# many files, so this takes seconds for the whole world.
+rootfs_missing_libs() {
+	find "$1" -path "$1/boot" -prune -o -type f -print0 |
+	    xargs -0 readelf -d /dev/null 2>/dev/null | awk -v root="$1" '
+	function flush(   i, j, n, d, found) {
+		if (file == "") return
+		n = split("lib lib/priv usr/lib usr/lib/priv " rpath, d, /[: ]+/)
+		for (i = 1; i <= nneed; i++) {
+			found = 0
+			for (j = 1; j <= n && !found; j++) {
+				if (d[j] == "") continue
+				p = root "/" d[j]
+				sub(/\/\/+/, "/", p)
+				p = p "/" need[i]
+				if ((getline l < p) >= 0) { close(p); found = 1 }
+			}
+			if (!found) {
+				dirs = "lib lib/priv usr/lib usr/lib/priv " rpath
+				gsub(/:/, " ", dirs)
+				print file "\t" need[i] "\t" dirs
+			}
+		}
+		file = ""; rpath = ""; nneed = 0
+	}
+	/^File: / { flush(); file = substr($0, 7); next }
+	/\((RUNPATH|RPATH)\)/ {
+		v = $0; sub(/.*\[/, "", v); sub(/\].*/, "", v)
+		rpath = rpath " " v
+	}
+	/\(NEEDED\)/ {
+		v = $0; sub(/.*\[/, "", v); sub(/\].*/, "", v)
+		need[++nneed] = v
+	}
+	END { flush() }'
 }
 
 # An mtree(5) manifest of the tree in the current directory, for makefs:
@@ -2168,10 +2334,43 @@ world_lib() {
 	msg "building $dir"
 	local ccver=${WORLD_CCVER:-clang}
 	( cd "$SRCDIR/$dir" && make obj >/dev/null &&
-	  make CCVER=$ccver DESTDIR="$SYSROOT" "$@" depend &&
+	  world_depend CCVER=$ccver DESTDIR="$SYSROOT" "$@" &&
 	  make -j"$JOBS" CCVER=$ccver DESTDIR="$SYSROOT" "$@" &&
 	  make CCVER=$ccver DESTDIR="$SYSROOT" "$@" install ) || return
 	fix_sysroot_links
+}
+
+# make depend, in a world directory.  A .depend that names a file which
+# is gone (a header that a contrib/ update removed) makes make rebuild
+# the objects that listed it on every run, and is not made again, as it
+# is newer than the sources: then it is made again from scratch.
+# The object directories of source directories that are gone (cron's
+# lib/ before Cronie) are left out: make no longer reads them.
+world_depend() {
+	local o=$MAKEOBJDIRPREFIX$PWD f
+	make "$@" depend || return
+	[ -n "$(find "$o" -name '.depend*' -type f 2>/dev/null |
+	    while read -r f; do
+		f=${f#"$o"}
+		[ -d "$PWD${f%/*}" ] && cat "$o$f"
+	    done | stale_deps)" ] || return 0
+	msg "$dir: .depend names files that are gone, making it again"
+	make "$@" cleandepend >/dev/null && make "$@" depend
+}
+
+# The first absolute path in the make dependencies on standard input
+# that does not exist.
+stale_deps() {
+	awk '{
+		for (i = 1; i <= NF; i++) {
+			f = $i
+			sub(/:$/, "", f)
+			if (f !~ /^\// || f in seen) continue
+			seen[f] = 1
+			if ((getline l < f) < 0) { print f; exit }
+			close(f)
+		}
+	}'
 }
 
 # Installed symlinks are absolute (/usr/lib/libc.so -> /lib/libc.so.8).
@@ -2209,7 +2408,7 @@ STANDOBJ=$OBJDIR/stand
 do_loader() {
 	local d xcc
 	kenv
-	headers_ok || do_sysroot
+	headers_current
 	# The loader's compiler: the kernel cc wrapper on the sysroot's
 	# headers.  One word, because mkdep passes it as CC=${CC} in its
 	# environment.
@@ -2244,15 +2443,16 @@ do_loader() {
 do_biosboot() {
 	local inc=$HOSTOBJ/btxld-inc bsd=$HOSTOBJ/bsdbin d m note=
 	mkdir -p "$inc/sys" "$bsd"
-	cp "$SRCDIR/sys/sys/imgact_aout.h" "$inc/sys/"
-	cat > "$inc/a.out.h" <<'EOF'
+	# Written only when they change, so btxld is not compiled again.
+	write_changed "$inc/sys/imgact_aout.h" < "$SRCDIR/sys/sys/imgact_aout.h"
+	write_changed "$inc/a.out.h" <<'EOF'
 /* btxld on a Linux host: the BSD a.out definitions, not glibc's. */
 #include <sys/types.h>
 #include <arpa/inet.h>	/* ntohl, in the a.out macros */
 #define __LDPGSZ	4096
 #include <sys/imgact_aout.h>
 EOF
-	cat > "$inc/sys/elf32.h" <<'EOF'
+	write_changed "$inc/sys/elf32.h" <<'EOF'
 /* btxld on a Linux host: glibc's <elf.h> has the ELF32 types. */
 #include <elf.h>
 #ifndef IS_ELF
@@ -2432,14 +2632,19 @@ EOF
 }
 
 # The whole system, ready for `tools/linux/qemu.sh`: host tools, kernel,
-# EFI loader and boot tree, the world and a root image with all of it.
-# Pieces that are already built are kept (the world is marked done in
-# the sysroot); run the single commands to rebuild one.
+# EFI loader and boot tree, the world (ROOTFS=base: the base programs)
+# and a root image with all of it.  Every step is incremental: after an
+# edit in the tree, running it again compiles what the edit affects,
+# relinks what links against that, and packs the images again.
 do_all() {
 	kenv
-	[ -f "$OBJDIR/sys/X86_64_GENERIC/kernel.stripped" ] || ( do_kernel )
-	[ -f "$(loader_efi)" ] || ( do_loader )
+	( do_kernel )
+	( do_loader )
 	( do_esp )
+	case ${ROOTFS:-world} in
+	base)	( do_base ) ;;
+	*)	( do_world ) ;;
+	esac
 	( do_rootfs )
 	msg "done: boot it with tools/linux/qemu.sh (a window; --serial for the terminal)"
 }
@@ -2474,13 +2679,14 @@ main() {
 	world)		do_world ;;
 	rootfs)		do_rootfs ;;
 	disk)		do_disk ;;
-	subdir)		[ -f "$SYSROOT/usr/lib/libc.so" ] || do_libc
+	subdir)		headers_current
+			[ -f "$SYSROOT/usr/lib/libc.so" ] || do_libc
 			wenv; for d; do world_dir "$d"; done ;;
 	loader)		do_loader ;;
 	esp)		do_esp "$@" ;;
 	doctor)		do_doctor ;;
 	env)		kenv; env | grep -E '^(PATH|MACHINE|MACHINE_ARCH|MACHINE_PLATFORM|CCVER|HOST_CCVER|HOST_BINUTILSVER)=' | sed 's/^/export /' ;;
-	*)		sed -n '3,29p' "$0" | sed 's/^# \{0,1\}//'; exit 1 ;;
+	*)		sed -n '3,30p' "$0" | sed 's/^# \{0,1\}//'; exit 1 ;;
 	esac
 }
 

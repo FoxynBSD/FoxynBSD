@@ -53,7 +53,8 @@ anything missing. It exits with status 1 if something is missing.
 
 `build.sh` with no arguments (`build.sh all`) builds the host tools,
 `X86_64_GENERIC`, the EFI loader and boot tree, the whole world and a
-root image with all of it; what is already built is kept. `qemu.sh`
+root image with all of it. Run it again after changing the tree: it is
+incremental (see [Incremental builds](#incremental-builds)). `qemu.sh`
 with no options boots that image in a window to a `login:` prompt.
 Root's shell is `csh` with DragonFly's dot files (`root@foxynbsd:~ #`).
 `qemu.sh --serial` uses the terminal instead (Ctrl-A X quits), and
@@ -152,6 +153,43 @@ Environment: `OBJDIR`, `JOBS` (default: `nproc`), `HOST_CC`/`HOST_CFLAGS`
 `base`), `DISK` and `DISK_SIZE`; for QEMU `GUI`, `ROOT`, `DISPLAY_BACKEND`,
 `OVMF_CODE`, `OVMF_VARS`, `MEM`, `SMP`, `ROOTISO`, `DISK`, `ROOTDISK`,
 `NETDEV_OPTS`, `BOOT_TIMEOUT`.
+
+## Incremental builds
+
+Every command keeps what it built and, run again, rebuilds only what
+changed in the tree since, and what depends on it. The edit-and-boot
+loop is:
+
+    $EDITOR sys/dev/misc/syscons/scterm-xterm.c bin/ls/ls.c
+    tools/linux/build.sh            # compiles those two files, relinks, packs the images
+    tools/linux/qemu.sh
+
+or, for one piece, `build.sh kernel` or `build.sh subdir bin/ls`
+followed by `build.sh rootfs`.
+
+* The kernel's object directory is kept. `config(8)` runs every time
+  but rewrites only the files whose contents change, and the objects
+  are compiled with `-MD` (`FASTER_DEPEND`): the compiler's `.d` files
+  become the `.depend`, so a changed header recompiles exactly the files
+  that include it. The full `make depend` (which also covers the
+  modules) runs only for a new object directory and when `config`
+  writes a new `Makefile` (a file or an option came or went).
+* The world's directories are rebuilt by their makefiles, which compile
+  only what is out of date. The `install` shim leaves a file whose
+  contents did not change alone, mtime included (BSD `install -C`), so
+  installing libc again does not relink every program. A `.depend`
+  that names a file which is gone (a header a contrib update removed)
+  is made again, instead of rebuilding that directory on every run.
+* The headers in the sysroot are synchronized with the tree before
+  every world command (`libc`, `base`, `world`, `subdir`): a header
+  whose contents changed is copied again, the others keep their mtimes.
+* The root image (`rootfs`), the disk image and the ESP are assembled
+  from scratch each time; that takes copies, not compiles.
+
+To start a piece from scratch, remove its output: `$OBJDIR/sys/<KERNCONF>`
+(the kernel), `$OBJDIR/world` (the world's objects), `$OBJDIR/sysroot`
+(everything installed). The kernel is also rebuilt from scratch when
+`KERNCC` changes.
 
 ## Toolchain architecture
 
@@ -438,7 +476,8 @@ the logs.
 ## Kernel configurations
 
 All four configurations in `sys/config` build: `X86_64_GENERIC`, `MINI64`,
-`LINT64` and `VKERNEL64`. `build.sh kernel` runs `make depend` for the
+`LINT64` and `VKERNEL64`. `build.sh kernel` runs `make depend` (on a new
+object directory, see [Incremental builds](#incremental-builds)) for the
 kernel and, when the configuration has `INET`, for the modules too:
 once the kernel's object directory has the generated `*_if.c`,
 `kmod.mk` no longer makes them for the modules. `MINI64` has no
