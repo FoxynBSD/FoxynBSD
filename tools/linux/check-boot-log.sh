@@ -22,7 +22,7 @@
 #	periodic	`periodic daily` finished and found every command
 #	cxx		the static C++ exception test
 #	runtime		compiler-rt builtins (static and dynamic), C++ across a
-#			shared library, dlopen(3)
+#			shared library, dlopen(3), named semaphores
 #	fs		permissions and writable runtime directories
 #	abi		programs with either ELF ABI note run
 #	kld		kernel modules in the image load and unload, and the
@@ -143,7 +143,7 @@ check_cxx() {
 check_runtime() {
 	local t n want rc=0 m
 	lines 'rt-[a-z]*: \|rc: /root/tests/rt-' || :
-	for t in rt-builtins rt-cxx rt-dlopen; do
+	for t in rt-builtins rt-cxx rt-dlopen rt-sem; do
 		n=$(grep -ac "^$t: ok" "$LOG") || :
 		# rt-builtins runs twice: static and dynamic.
 		want=1; [ $t = rt-builtins ] && want=2

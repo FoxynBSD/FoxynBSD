@@ -782,7 +782,7 @@ check per CI step (`all` runs them all):
 | `cron` | `cron(8)` (Cronie) ran a root crontab's job and an `/etc/cron.d` job; `nobody` installed, listed and removed a crontab (images with `su`); `/etc/anacrontab` parses and `anacron(8)` ran a test job |
 | `periodic` | `periodic daily` finished and found every command |
 | `cxx` | a static C++ program throws through two frames and catches |
-| `runtime` | compiler-rt builtins in a static and a dynamic program; C++ constructors, destructors and an exception across a shared library; `atexit` order; `dlopen(3)` (sources in `tools/linux/tests`) |
+| `runtime` | compiler-rt builtins in a static and a dynamic program; C++ constructors, destructors and an exception across a shared library; `atexit` order; `dlopen(3)`; named semaphores, with and without a leading slash (sources in `tools/linux/tests`) |
 | `fs` | `/tmp` and `/var/tmp` sticky and writable; `/etc`, `/var/run`, `/var/log`, `/var/db`, `/root` writable; `/` read-only on root.iso and writable on disk.img; `master.passwd` and `spwd.db` mode 600 |
 | `abi` | programs with either ELF ABI note (FoxynBSD, DragonFly) run |
 | `kld` | the loader loaded `xhci.ko` (and `ehci.ko`) at boot; `udf.ko` and `ext2fs.ko` (`KLD_TESTS`, when the image has them) load and unload |

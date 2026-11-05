@@ -409,24 +409,29 @@ get_path(const char *name, char *path, size_t len, char const **prefix)
 {
 	size_t path_len;
 
-	*prefix = NULL;
+	/*
+	 * Named semaphores are files under the prefix.  POSIX leaves a
+	 * name without a leading slash implementation-defined; take it as
+	 * if it had one, as glibc does, since software written for Linux
+	 * uses such names (JACK: "jack_sem.0_default_system").  Before,
+	 * path was used uninitialized and prefix NULL for these.
+	 */
+	*prefix = getenv("LIBTHREAD_SEM_PREFIX");
 
-	if (name[0] == '/') {
-		*prefix = getenv("LIBTHREAD_SEM_PREFIX");
+	if (*prefix == NULL)
+		*prefix = sem_prefix;
 
-		if (*prefix == NULL)
-			*prefix = sem_prefix;
+	path_len = strlcpy(path, *prefix, len);
 
-		path_len = strlcpy(path, *prefix, len);
+	if (path_len >= len)
+		return (ENAMETOOLONG);
 
-		if (path_len > len) {
-			return (ENAMETOOLONG);
-		}
-	}
+	if (name[0] != '/')
+		path_len = strlcat(path, "/", len);
 
 	path_len = strlcat(path, name, len);
 
-	if (path_len > len)
+	if (path_len >= len)
 		return (ENAMETOOLONG);
 
 	return (0);
@@ -527,9 +532,12 @@ _sem_open(const char *name, int oflag, ...)
 	sem = SEM_FAILED;
 
 	/*
-	 * Bail out if invalid flags specified.
+	 * Bail out if invalid flags specified.  An access mode is allowed
+	 * and has no effect, as with glibc: the semaphore is always opened
+	 * read-write (below), and software written for Linux passes
+	 * O_RDWR (JACK: O_CREAT | O_RDWR).
 	 */
-	if (oflag & ~(O_CREAT|O_EXCL)) {
+	if (oflag & ~(O_CREAT|O_EXCL|O_ACCMODE)) {
 		errno = EINVAL;
 		return (SEM_FAILED);
 	}

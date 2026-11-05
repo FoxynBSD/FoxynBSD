@@ -2138,6 +2138,8 @@ EOF
 #				across the library boundary, atexit order
 #	rt-dlopen + rt-dlmod.so	dlopen(3), dlsym(3), dlclose(3) and a module's
 #				constructor and destructor
+#	rt-sem			named semaphores (sem_open(3) names with and
+#				without a leading slash)
 # Each prints "<name>: ok" or "<name>: FAIL <what>".
 write_runtime_tests() {
 	local dir=$1 t=$SRCDIR/tools/linux/tests
@@ -2150,6 +2152,7 @@ write_runtime_tests() {
 	    -Wl,-rpath,/root/tests
 	xcc -O2 -fPIC -shared -o "$dir/rt-dlmod.so" "$t/rt-dlmod.c"
 	xcc -O2 -Wl,-E -o "$dir/rt-dlopen" "$t/rt-dlopen.c"
+	xcc -O2 -o "$dir/rt-sem" "$t/rt-sem.c"
 }
 
 # Compile the console terminal types from the tree's terminfo.src with the
@@ -2397,7 +2400,7 @@ for b in /root/tests/brand-*; do
 done
 # The compiler runtime and dynamic linking tests (build.sh
 # write_runtime_tests): each prints "<name>: ok" or a FAIL line.
-for t in rt-builtins rt-builtins-static rt-cxx rt-dlopen; do
+for t in rt-builtins rt-builtins-static rt-cxx rt-dlopen rt-sem; do
 	/root/tests/$t || echo "rc: /root/tests/$t failed with status $?"
 done
 # Kernel modules (build.sh rootfs copies them in when they were built):
