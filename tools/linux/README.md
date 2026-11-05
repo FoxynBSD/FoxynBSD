@@ -792,6 +792,7 @@ check per CI step (`all` runs them all):
 | `disk` | on a disk (`disk.img`, an installed disk): the root is UFS or HAMMER2 and writable (skipped for root.iso) |
 | `persist` | not in `all`: a second boot of `disk.img` found the first one's boot count in `/var/db`, kept the password database and had a clean file system |
 | `install` | not in `all`: `foxyn-install` finished (`boot-test.sh --install`) |
+| `desktop` | not in `all`: Xorg (`scfb`), libinput, fonts and GNUstep from DPorts; X runs, the USB keyboard and mouse are X input devices, and a GNUstep application maps its window (`DESKTOP_CHECK=1 boot-test.sh --disk` or `--installed`; needs the internet) |
 | `pkg` | not in `all`: `pkg(8)` bootstrapped from DragonFly's mirror, the dynamic `pkg` runs, `pkg install inxi` brought Perl, and both run (`PKG_CHECK=1 boot-test.sh --disk` or `--installed`; needs the internet) |
 | `cc` | gcc 12 (`cc`, `c++`) and gcc 8 (`CCVER=gcc80`) compile, link and run C, static C and C++ with an exception in the image (skipped for an image without compilers) |
 | `ruby` | Ruby with `openssl` (LibreSSL), `yaml` (libyaml), `zlib` and `socket`, `Net::HTTP` to `http://10.0.2.100/`, RubyGems; with a `cc`, `mkmf` builds and loads a C extension, as `gem install` does (skipped for an image without Ruby) |
@@ -873,6 +874,28 @@ them. `pkg-static` needs none of this.
 installs `inxi` (which brings Perl) and prints inxi's report (`inxi| `
 lines) and `pciconf -lv` (`pciconf| `); `check-boot-log.sh pkg` checks it.
 It needs the internet and DragonFly's mirror, so CI does not run it.
+
+A first graphical session comes from the same packages.
+`DESKTOP_CHECK=1 boot-test.sh --disk` gives the machine a VGA card and a
+USB mouse and runs `/root/tests/desktop-check`, which does what a user
+does by hand:
+
+    # pkg install xorg-minimal xf86-video-scfb xf86-input-libinput dejavu \
+          gnustep gnustep-sudoku
+    # printf 'Section "Device"\n\tIdentifier "fb"\n\tDriver "scfb"\nEndSection\n' \
+          > /usr/local/etc/X11/xorg.conf.d/10-scfb.conf
+    # X :0 vt9 &
+    # . /usr/local/GNUstep/System/Library/Makefiles/GNUstep.sh
+    # DISPLAY=:0 /usr/local/GNUstep/System/Applications/Sudoku.app/Sudoku
+
+Xorg draws on syscons' EFI framebuffer with `scfb` (there is no KMS
+under QEMU, so no `/dev/dri`); with modesetting, scfb and vesa all
+matching, it gives up ("Cannot run in framebuffer mode") unless the
+configuration names one. Input reaches it through evdev and libinput.
+GNUstep applications abort without a font package ("Glyph generation
+with no font"). To see it: `qemu.sh --disk` (a window) after running the
+test on `disk.img`, or `--serial --disk -- -vga std` and QEMU's
+`screendump`. XLibre, Gershwin and OpenRC are not in DPorts (issue #13).
 [`docs/hardware-report.md`](../../docs/hardware-report.md) says how to make a
 hardware report with inxi and the base system's tools, and what to remove
 before sharing it.
@@ -1007,4 +1030,5 @@ report are uploaded as artifacts.
 | writable root on a disk (`build.sh disk`) | UFS on GPT, made with the host `makefs`; boots twice in CI |
 | gcc 12's runtime (`gnu/lib/gcc120`) | built by the world (`xgcc`, `xc++`); the image's gcc 12 and gcc 8 build and run C and C++ |
 | packages (DPorts) | `pkg-bootstrap`, `pkg` and `pkg install inxi` (Perl 5.36) work on a disk image; tested with `PKG_CHECK=1`, not in CI |
+| X and GNUstep (DPorts) | Xorg on `scfb` with USB keyboard and mouse, a GNUstep application; tested with `DESKTOP_CHECK=1`, not in CI |
 | installers | the BSD Installer starts in CI and installs by hand (disklabel64, `/boot` UFS, HAMMER2, `boot1.efi`); `foxyn-install` installs and the disk boots alone in CI |

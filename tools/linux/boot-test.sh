@@ -27,6 +27,10 @@
 #	PKG_CHECK	1: with --disk or --installed, also bootstrap pkg(8)
 #			and install inxi from DragonFly's mirror
 #			(/root/tests/pkg-check; needs the internet)
+#	DESKTOP_CHECK	1: with --disk or --installed, also install Xorg and
+#			GNUstep from DPorts and start a GNUstep application
+#			(/root/tests/desktop-check; needs the internet); the
+#			machine gets a VGA card and a USB mouse for it
 #
 # Exit status: 0 if the expected prompt appeared (and, with --root, the
 # login worked), 1 otherwise.  The serial
@@ -107,11 +111,15 @@ fi
 
 # A USB keyboard on an xHCI controller: check-boot-log.sh usb checks
 # that the kernel's xhci driver (xhci.ko, which the loader loads)
-# enumerates it.
+# enumerates it.  The desktop test also needs a display and a mouse.
+DESKTOP_DEVS=
+[ "${DESKTOP_CHECK:-0}" = 1 ] &&
+    DESKTOP_DEVS="-vga std -device usb-mouse,bus=xhci.0"
+# shellcheck disable=SC2086
 env OBJDIR="$OBJDIR" "$CONSOLE_ENV" "$SRCDIR/tools/linux/qemu.sh" \
     --serial ${ROOTARG:---kernel-only} \
     "$CONF" -- -device qemu-xhci,id=xhci -device usb-kbd,bus=xhci.0 \
-    </dev/null >/dev/null 2>"$LOG.stderr" &
+    $DESKTOP_DEVS </dev/null >/dev/null 2>"$LOG.stderr" &
 pid=$!
 
 result=1
@@ -252,6 +260,17 @@ if [ "$result" -eq 0 ] && [ -n "$ROOTARG" ] && [ "$MODE" != install ] &&
 		printf "sh -c 'sh /root/tests/pkg-check; echo pkg-\$((6*7)): \$?'\r" >&3
 		tries=0
 		while [ "$tries" -lt 180 ] && ! grep -aq '^pkg-42:' "$LOG"; do
+			sleep 5
+			tries=$((tries + 1))
+		done
+	fi
+	# Xorg and a GNUstep application from DPorts (desktop-check: lines,
+	# desktop-42), on request like the packages.
+	if [ "${DESKTOP_CHECK:-0}" = 1 ] &&
+	    { [ "$MODE" = disk ] || [ "$MODE" = installed ]; }; then
+		printf "sh -c 'sh /root/tests/desktop-check; echo desktop-\$((6*7)): \$?'\r" >&3
+		tries=0
+		while [ "$tries" -lt 240 ] && ! grep -aq '^desktop-42:' "$LOG"; do
 			sleep 5
 			tries=$((tries + 1))
 		done

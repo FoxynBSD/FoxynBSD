@@ -1383,6 +1383,7 @@ do_rootfs() {
 	write_cc_test "$root/root/tests/cc-check"
 	write_ruby_test "$root/root/tests/ruby-check"
 	write_pkg_test "$root/root/tests/pkg-check"
+	write_desktop_test "$root/root/tests/desktop-check"
 	# The kernel modules that `build.sh modules` built, without debug
 	# information, in /boot/kernel as installkernel puts them: devd(8)
 	# loads drivers from there when a device has none (ums for a USB
@@ -1858,6 +1859,65 @@ rootfs_installer() {
 # with PKG_CHECK=1 on a disk.  The dynamic pkg running at all checks
 # /etc/libmap.conf: DragonFly built it against older private LibreSSL
 # libraries.
+# A first graphical session from DPorts (issue #13): /root/tests/
+# desktop-check installs Xorg with the scfb driver (syscons' EFI
+# framebuffer; there is no KMS under QEMU), libinput, fonts and GNUstep,
+# starts X, checks that the USB keyboard and mouse reach it ("input"
+# lines) and that a GNUstep application maps its window.  Like
+# pkg-check it needs the internet and a writable root, and a display:
+# boot-test.sh runs it with DESKTOP_CHECK=1, on a disk, with a VGA card.
+write_desktop_test() {
+	cat > "$1" <<'EOF'
+#!/bin/sh
+ok=1
+fail() { echo "desktop-check: FAIL $*"; ok=0; }
+done_() { pkill -x Sudoku; pkill -x Xorg; [ $ok = 1 ] && echo "desktop-check: ok" ||
+    echo "desktop-check: fail"; [ $ok = 1 ]; exit; }
+if [ ! -x /usr/local/sbin/pkg ] &&
+    ! make -C /usr pkg-bootstrap > /tmp/pkg-bootstrap.log 2>&1; then
+	fail "pkg bootstrap"; done_
+fi
+pkgs="xorg-minimal xf86-video-scfb xf86-input-libinput dejavu xinput xwininfo
+    gnustep gnustep-sudoku"
+if ! pkg install -y $pkgs > /tmp/desktop-pkg.log 2>&1; then
+	tail -n 5 /tmp/desktop-pkg.log | sed 's/^/desktop-check: /'
+	fail "pkg install"; done_
+fi
+echo "desktop-check: installed $(echo $pkgs)"
+# Several drivers match the framebuffer, and Xorg then gives up ("Cannot
+# run in framebuffer mode"): name scfb.
+mkdir -p /usr/local/etc/X11/xorg.conf.d
+printf 'Section "Device"\n\tIdentifier "fb"\n\tDriver "scfb"\nEndSection\n' \
+    > /usr/local/etc/X11/xorg.conf.d/10-scfb.conf
+X :0 -nolisten tcp vt9 > /tmp/X.out 2>&1 &
+i=0
+while [ ! -S /tmp/.X11-unix/X0 ] && [ $i -lt 30 ]; do sleep 1; i=$((i + 1)); done
+export DISPLAY=:0
+if ! xwininfo -root > /dev/null 2>&1; then
+	grep -a '(EE)' /var/log/Xorg.0.log | sed 's/^/desktop-check: /'
+	fail "X did not start"; done_
+fi
+echo "desktop-check: X $(sed -n 's/.*scfb(0): Using: \(.*\)/\1/p' /var/log/Xorg.0.log | head -n 1 | tr -s ' ')"
+xinput list --name-only | sed 's/^/desktop-check: input: /'
+xinput list --name-only | grep -q 'USB Keyboard' || fail "no USB keyboard in X"
+xinput list --name-only | grep -q 'USB Mouse' || fail "no USB mouse in X"
+. /usr/local/GNUstep/System/Library/Makefiles/GNUstep.sh
+/usr/local/GNUstep/System/Applications/Sudoku.app/Sudoku > /tmp/sudoku.log 2>&1 &
+i=0
+while ! xwininfo -root -tree | grep -q '"Sudoku"' && [ $i -lt 60 ]; do
+	sleep 1; i=$((i + 1))
+done
+if xwininfo -root -tree | grep -q '"Sudoku"'; then
+	echo "desktop-check: GNUstep: Sudoku.app mapped $(xwininfo -root -tree | grep -c '"Sudoku"') windows"
+else
+	tail -n 3 /tmp/sudoku.log | sed 's/^/desktop-check: /'
+	fail "GNUstep application did not map a window"
+fi
+done_
+EOF
+	chmod 755 "$1"
+}
+
 write_pkg_test() {
 	cat > "$1" <<'EOF'
 #!/bin/sh
