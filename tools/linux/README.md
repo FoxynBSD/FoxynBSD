@@ -867,6 +867,9 @@ them. `pkg-static` needs none of this.
 installs `inxi` (which brings Perl) and prints inxi's report (`inxi| `
 lines) and `pciconf -lv` (`pciconf| `); `check-boot-log.sh pkg` checks it.
 It needs the internet and DragonFly's mirror, so CI does not run it.
+[`docs/hardware-report.md`](../../docs/hardware-report.md) says how to make a
+hardware report with inxi and the base system's tools, and what to remove
+before sharing it.
 
 ## The whole world
 
