@@ -18,6 +18,7 @@ CMAPS+=	${.CURDIR}/sys/Symbol.map
 .include "${.CURDIR}/${MACHINE_ARCH}/sys/Makefile.inc"
 
 SRCS+=	fork.c
+SRCS+=	eventfd_helpers.c
 
 # Sources common to both syscall interfaces:
 SRCS+=	ftruncate.c lseek.c mmap.c truncate.c
@@ -64,8 +65,8 @@ ${SPSEUDO}:
 MAN+=	_exit.2 accept.2 access.2 acct.2 adjtime.2 bind.2 \
 	sys_checkpoint.2 chdir.2 chflags.2 \
 	chmod.2 chown.2 chroot.2 clock_gettime.2 close.2 closefrom.2 \
-	connect.2 dup.2 exec_sys_register.2 execve.2 extattr.2 extexit.2 \
-	fcntl.2 fhopen.2 flock.2 fork.2 fsync.2 \
+	connect.2 dup.2 eventfd.2 exec_sys_register.2 execve.2 extattr.2 \
+	extexit.2 fcntl.2 fhopen.2 flock.2 fork.2 fsync.2 \
 	getdirentries.2 getdtablesize.2 \
 	getfh.2 getfsstat.2 getgid.2 getgroups.2 getitimer.2 getlogin.2 \
 	getpeername.2 getpgrp.2 getpid.2 getpriority.2 getrandom.2 \
@@ -120,6 +121,8 @@ MLINKS+=chroot.2 chroot_kernel.2
 MLINKS+=clock_gettime.2 clock_getres.2 \
 	clock_gettime.2 clock_settime.2
 MLINKS+=dup.2 dup2.2
+MLINKS+=eventfd.2 eventfd_read.2 \
+	eventfd.2 eventfd_write.2
 MLINKS+=exec_sys_register.2 exec_sys_unregister.2
 MLINKS+=execve.2 fexecve.2
 MLINKS+=extattr.2 extattr_delete_file.2 \

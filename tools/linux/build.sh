@@ -2143,6 +2143,8 @@ EOF
 #				constructor and destructor
 #	rt-sem			named semaphores (sem_open(3) names with and
 #				without a leading slash)
+#	rt-eventfd		eventfd(2): a counter passed to another process
+#				over SCM_RIGHTS, readiness, limits, blocking
 # Each prints "<name>: ok" or "<name>: FAIL <what>".
 write_runtime_tests() {
 	local dir=$1 t=$SRCDIR/tools/linux/tests
@@ -2156,6 +2158,7 @@ write_runtime_tests() {
 	xcc -O2 -fPIC -shared -o "$dir/rt-dlmod.so" "$t/rt-dlmod.c"
 	xcc -O2 -Wl,-E -o "$dir/rt-dlopen" "$t/rt-dlopen.c"
 	xcc -O2 -o "$dir/rt-sem" "$t/rt-sem.c"
+	xcc -O2 -o "$dir/rt-eventfd" "$t/rt-eventfd.c"
 }
 
 # Compile the console terminal types from the tree's terminfo.src with the
@@ -2403,7 +2406,7 @@ for b in /root/tests/brand-*; do
 done
 # The compiler runtime and dynamic linking tests (build.sh
 # write_runtime_tests): each prints "<name>: ok" or a FAIL line.
-for t in rt-builtins rt-builtins-static rt-cxx rt-dlopen rt-sem; do
+for t in rt-builtins rt-builtins-static rt-cxx rt-dlopen rt-sem rt-eventfd; do
 	/root/tests/$t || echo "rc: /root/tests/$t failed with status $?"
 done
 # Kernel modules (build.sh rootfs copies them in when they were built):

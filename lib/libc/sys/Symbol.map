@@ -346,6 +346,13 @@ DF602.0 {
     fdatasync;
 };
 
+DF606.0 {
+/*  SYSCALLS  */
+    eventfd;
+    eventfd_read;
+    eventfd_write;
+};
+
 DFprivate_1.0 {
     __fork;
 
@@ -395,6 +402,7 @@ DFprivate_1.0 {
     __sys_eaccess;
     __sys_exec_sys_register;
     __sys_exec_sys_unregister;
+    __sys_eventfd;
     __sys_execve;
     __sys_exit;
     __sys_extaccept;
@@ -703,6 +711,7 @@ DFprivate_1.0 {
     _eaccess;
     _exec_sys_register;
     _exec_sys_unregister;
+    _eventfd;
     _execve;
     _exit;
     _extaccept;

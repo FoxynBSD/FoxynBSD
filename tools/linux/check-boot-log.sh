@@ -143,7 +143,7 @@ check_cxx() {
 check_runtime() {
 	local t n want rc=0 m
 	lines 'rt-[a-z]*: \|rc: /root/tests/rt-' || :
-	for t in rt-builtins rt-cxx rt-dlopen rt-sem; do
+	for t in rt-builtins rt-cxx rt-dlopen rt-sem rt-eventfd; do
 		n=$(grep -ac "^$t: ok" "$LOG") || :
 		# rt-builtins runs twice: static and dynamic.
 		want=1; [ $t = rt-builtins ] && want=2

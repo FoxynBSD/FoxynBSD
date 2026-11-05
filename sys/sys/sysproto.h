@@ -1456,6 +1456,10 @@ struct	futimesat_args {
 	const char *	path;	char path_[PAD_(const char *)];
 	const struct timeval *	tptr;	char tptr_[PAD_(const struct timeval *)];
 };
+struct	eventfd_args {
+	unsigned int	initval;	char initval_[PAD_(unsigned int)];
+	int	flags;	char flags_[PAD_(int)];
+};
 
 #undef PAD_
 
@@ -1785,6 +1789,7 @@ int	sys_fexecve (struct sysmsg *sysmsg, const struct fexecve_args *);
 int	sys_posix_fallocate (struct sysmsg *sysmsg, const struct posix_fallocate_args *);
 int	sys_fdatasync (struct sysmsg *sysmsg, const struct fdatasync_args *);
 int	sys_futimesat (struct sysmsg *sysmsg, const struct futimesat_args *);
+int	sys_eventfd (struct sysmsg *sysmsg, const struct eventfd_args *);
 
 #endif /* _KERNEL */
 

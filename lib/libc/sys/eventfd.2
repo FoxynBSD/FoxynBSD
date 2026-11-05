@@ -1,0 +1,155 @@
+.\" Copyright (c) 2026 The FoxynBSD Project.  All rights reserved.
+.\"
+.\" Redistribution and use in source and binary forms, with or without
+.\" modification, are permitted provided that the following conditions
+.\" are met:
+.\" 1. Redistributions of source code must retain the above copyright
+.\"    notice, this list of conditions and the following disclaimer.
+.\" 2. Redistributions in binary form must reproduce the above copyright
+.\"    notice, this list of conditions and the following disclaimer in the
+.\"    documentation and/or other materials provided with the distribution.
+.\"
+.\" THIS SOFTWARE IS PROVIDED BY THE AUTHORS AND CONTRIBUTORS ``AS IS'' AND
+.\" ANY EXPRESS OR IMPLIED WARRANTIES, INCLUDING, BUT NOT LIMITED TO, THE
+.\" IMPLIED WARRANTIES OF MERCHANTABILITY AND FITNESS FOR A PARTICULAR PURPOSE
+.\" ARE DISCLAIMED.  IN NO EVENT SHALL THE AUTHORS OR CONTRIBUTORS BE LIABLE
+.\" FOR ANY DIRECT, INDIRECT, INCIDENTAL, SPECIAL, EXEMPLARY, OR CONSEQUENTIAL
+.\" DAMAGES (INCLUDING, BUT NOT LIMITED TO, PROCUREMENT OF SUBSTITUTE GOODS
+.\" OR SERVICES; LOSS OF USE, DATA, OR PROFITS; OR BUSINESS INTERRUPTION)
+.\" HOWEVER CAUSED AND ON ANY THEORY OF LIABILITY, WHETHER IN CONTRACT, STRICT
+.\" LIABILITY, OR TORT (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY
+.\" OUT OF THE USE OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF
+.\" SUCH DAMAGE.
+.\"
+.Dd November 5, 2026
+.Dt EVENTFD 2
+.Os
+.Sh NAME
+.Nm eventfd ,
+.Nm eventfd_read ,
+.Nm eventfd_write
+.Nd create a file descriptor for event notification
+.Sh LIBRARY
+.Lb libc
+.Sh SYNOPSIS
+.In sys/eventfd.h
+.Ft int
+.Fn eventfd "unsigned int initval" "int flags"
+.Ft int
+.Fn eventfd_read "int fd" "eventfd_t *value"
+.Ft int
+.Fn eventfd_write "int fd" "eventfd_t value"
+.Sh DESCRIPTION
+.Fn eventfd
+creates a file descriptor that refers to a 64-bit unsigned counter, set to
+.Fa initval .
+The descriptor can be inherited, duplicated and passed to other processes
+with
+.Dv SCM_RIGHTS
+messages
+.Pq see Xr unix 4 ;
+every copy refers to the same counter.
+.Pp
+The
+.Fa flags
+argument is zero or a bitwise OR of:
+.Bl -tag -width ".Dv EFD_SEMAPHORE"
+.It Dv EFD_CLOEXEC
+Set the close-on-exec flag on the new descriptor.
+.It Dv EFD_NONBLOCK
+Set
+.Dv O_NONBLOCK
+on the descriptor.
+.It Dv EFD_SEMAPHORE
+Read the counter as a semaphore (see below).
+.El
+.Pp
+A
+.Xr write 2
+of an 8-byte value adds it to the counter.
+The largest value the counter holds is 0xfffffffffffffffe.
+If adding the value would exceed it, the write blocks until a read
+makes room, or fails with
+.Er EAGAIN
+on a non-blocking descriptor.
+.Pp
+A
+.Xr read 2
+of at least 8 bytes waits until the counter is not zero.
+It then returns the counter's value and sets it to zero or, with
+.Dv EFD_SEMAPHORE ,
+returns 1 and decrements the counter by 1.
+A non-blocking read of a zero counter fails with
+.Er EAGAIN .
+.Pp
+The descriptor is readable for
+.Xr poll 2 ,
+.Xr select 2
+and
+.Xr kqueue 2
+.Pq Dv EVFILT_READ
+while the counter is not zero, and writable
+.Pq Dv EVFILT_WRITE
+while it is below its largest value.
+.Pp
+.Fn eventfd_read
+and
+.Fn eventfd_write
+read and write the counter through
+.Xr read 2
+and
+.Xr write 2 .
+.Sh RETURN VALUES
+.Fn eventfd
+returns a new file descriptor, or \-1 with
+.Va errno
+set.
+.Fn eventfd_read
+and
+.Fn eventfd_write
+return 0, or \-1 with
+.Va errno
+set.
+.Sh ERRORS
+.Fn eventfd
+fails if:
+.Bl -tag -width Er
+.It Bq Er EINVAL
+.Fa flags
+contains an unknown flag.
+.It Bq Er EMFILE
+The process has no free descriptors.
+.It Bq Er ENFILE
+The system file table is full.
+.El
+.Pp
+.Xr read 2
+and
+.Xr write 2
+on the descriptor fail if:
+.Bl -tag -width Er
+.It Bq Er EINVAL
+The buffer is smaller than 8 bytes, or a write's value is
+0xffffffffffffffff.
+.It Bq Er EAGAIN
+The descriptor is non-blocking and the operation would block.
+.It Bq Er EFAULT
+The buffer is outside the process's address space.
+.It Bq Er EINTR
+A signal interrupted a blocking operation.
+.El
+.Sh SEE ALSO
+.Xr kqueue 2 ,
+.Xr pipe 2 ,
+.Xr poll 2 ,
+.Xr read 2 ,
+.Xr write 2 ,
+.Xr unix 4
+.Sh STANDARDS
+.Fn eventfd
+is compatible with the Linux and
+.Fx
+system calls of the same name.
+.Sh HISTORY
+.Fn eventfd
+first appeared in FoxynBSD.
