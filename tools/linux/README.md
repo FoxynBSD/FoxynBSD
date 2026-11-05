@@ -734,9 +734,10 @@ The EFI loader also loads `ehci.ko` and `xhci.ko` at every boot (the
 GENERIC kernel has only the UHCI and OHCI USB drivers built in), so
 `build.sh esp` always builds these two modules and puts them in
 `boot/kernel`, and `build.sh rootfs` copies them into the image's `/boot`
-for the installers. Under QEMU, USB devices on an EHCI controller
-(`-- -device usb-ehci,id=e -device usb-tablet,bus=e.0`) attach; on
-`qemu-xhci` and `nec-usb-xhci` the controller attaches but no device does.
+for the installers. USB devices attach under QEMU on `qemu-xhci`,
+`nec-usb-xhci` and EHCI controllers (`-- -device qemu-xhci,id=x -device
+usb-tablet,bus=x.0`); `boot-test.sh` always attaches a USB keyboard to a
+`qemu-xhci` controller.
 
 The console is a QEMU window (gtk, else sdl, whichever the installed QEMU
 has) when there is a graphical session (`$DISPLAY` or `$WAYLAND_DISPLAY`),
@@ -781,6 +782,7 @@ check per CI step (`all` runs them all):
 | `fs` | `/tmp` and `/var/tmp` sticky and writable; `/etc`, `/var/run`, `/var/log`, `/var/db`, `/root` writable; `/` read-only on root.iso and writable on disk.img; `master.passwd` and `spwd.db` mode 600 |
 | `abi` | programs with either ELF ABI note (FoxynBSD, DragonFly) run |
 | `kld` | the loader loaded `xhci.ko` (and `ehci.ko`) at boot; the other kernel modules in the image (`udf`, `ext2fs`, when built) load and unload |
+| `usb` | the USB keyboard that `boot-test.sh` attaches to a `qemu-xhci` controller attached as `ukbd0` |
 | `net` | `dhcpcd` runs and leased `vtnet0` an address, a default route and a name server; `fetch` gets `http://10.0.2.100/` through the gateway |
 | `tls` | `fetch` over HTTPS to an `openssl s_server` in the guest, with a certificate `openssl req` made there (LibreSSL's libcrypto and libssl); `ssh-keygen` makes RSA and Ed25519 keys when the image has OpenSSH |
 | `disk` | on a disk (`disk.img`, an installed disk): the root is UFS or HAMMER2 and writable (skipped for root.iso) |

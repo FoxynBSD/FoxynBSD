@@ -28,6 +28,8 @@
 #	kld		kernel modules in the image load and unload, and the
 #			loader loaded xhci.ko at boot (skipped, with a notice,
 #			when the image has no modules)
+#	usb		the USB keyboard boot-test.sh puts on an xHCI
+#			controller attached (ukbd0)
 #	net		dhcpcd's lease for vtnet0, fetch(1) through QEMU's network
 #	tls		fetch(1) over HTTPS to openssl(1) s_server (LibreSSL)
 #	disk		the root is writable on a disk: disk.img or an installed
@@ -50,7 +52,7 @@ set -eu
 OBJDIR=${OBJDIR:-${XDG_CACHE_HOME:-$HOME/.cache}/foxynbsd}
 LOG=$OBJDIR/qemu/X86_64_GENERIC.boot-root.log
 if [ "${1:-}" = -l ]; then LOG=$2; shift 2; fi
-[ $# -gt 0 ] || { sed -n '9,43p' "$0" | sed 's/^# \{0,1\}//'; exit 2; }
+[ $# -gt 0 ] || { sed -n '9,45p' "$0" | sed 's/^# \{0,1\}//'; exit 2; }
 [ -f "$LOG" ] || { echo "::error title=boot log::no log at $LOG"; exit 1; }
 
 fail() { echo "::error title=$1::$2"; return 1; }
@@ -178,6 +180,12 @@ check_kld() {
 	    fail kld "the loader did not load xhci.ko (USB 3) at boot"
 }
 
+check_usb() {
+	lines 'xhci0: \|usbus0\|ugen0\.\|ukbd0' || :
+	has 'ukbd0: <QEMU QEMU USB Keyboard' ||
+	    fail usb "the USB keyboard on the xHCI controller did not attach"
+}
+
 check_net() {
 	lines '^net-check: ' || :
 	grep -aq '^net-check: ok' "$LOG" ||
@@ -242,7 +250,7 @@ check_persist() {
 	    fail persist "the file system was not clean after halt -p"
 }
 
-ALL="rtld rcd identity basics syslogd daemons cron periodic cxx runtime fs abi kld net tls disk cc ruby"
+ALL="rtld rcd identity basics syslogd daemons cron periodic cxx runtime fs abi kld usb net tls disk cc ruby"
 [ "$*" = all ] && set -- $ALL
 rc=0
 for c; do

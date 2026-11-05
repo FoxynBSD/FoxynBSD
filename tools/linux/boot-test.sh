@@ -105,9 +105,13 @@ else
 	CONSOLE_ENV="SERIAL_LOG=$LOG"
 fi
 
+# A USB keyboard on an xHCI controller: check-boot-log.sh usb checks
+# that the kernel's xhci driver (xhci.ko, which the loader loads)
+# enumerates it.
 env OBJDIR="$OBJDIR" "$CONSOLE_ENV" "$SRCDIR/tools/linux/qemu.sh" \
     --serial ${ROOTARG:---kernel-only} \
-    "$CONF" </dev/null >/dev/null 2>"$LOG.stderr" &
+    "$CONF" -- -device qemu-xhci,id=xhci -device usb-kbd,bus=xhci.0 \
+    </dev/null >/dev/null 2>"$LOG.stderr" &
 pid=$!
 
 result=1
