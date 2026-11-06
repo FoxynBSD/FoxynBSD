@@ -881,8 +881,11 @@ them. `pkg-static` needs none of this.
 
 `PKG_CHECK=1 boot-test.sh --disk` (or `--installed`) runs
 `/root/tests/pkg-check` after the other tests: it bootstraps `pkg`,
-installs `inxi` (which brings Perl) and prints inxi's report (`inxi| `
-lines) and `pciconf -lv` (`pciconf| `); `check-boot-log.sh pkg` checks it.
+installs `inxi` (which brings Perl), checks `inxi --recommends` and parses
+its JSON output, and prints inxi's report (`inxi| ` lines) and `pciconf -lv`
+(`pciconf| `). It also collects and filters a disposable hardware report using
+the program from the guide; `check-boot-log.sh pkg` checks it. The JSON and
+the report used by the filter test are not logged.
 It needs the internet and DragonFly's mirror, so CI does not run it.
 
 A first graphical session comes from the same packages.

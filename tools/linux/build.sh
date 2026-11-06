@@ -1389,6 +1389,12 @@ do_rootfs() {
 	write_cc_test "$root/root/tests/cc-check"
 	write_ruby_test "$root/root/tests/ruby-check"
 	write_pkg_test "$root/root/tests/pkg-check"
+	cp "$SRCDIR/tools/linux/tests/hardware-report-smoke.sh" "$root/root/tests/hardware-report-smoke"
+	chmod 755 "$root/root/tests/hardware-report-smoke"
+	awk '/^    ruby <<.RUBY.$/ { copy = 1; next }
+	    /^    RUBY$/ { if (copy) exit }
+	    copy { sub(/^    /, ""); print }' "$SRCDIR/docs/hardware-report.md" > "$root/root/tests/hardware-redact.rb"
+	[ -s "$root/root/tests/hardware-redact.rb" ] || die "hardware report redactor not found"
 	write_desktop_test "$root/root/tests/desktop-check"
 	write_audio_test "$root/root/tests/audio-check"
 	# The kernel modules that `build.sh modules` built, without debug
@@ -2068,6 +2074,9 @@ if [ -n "$json" ]; then
 fi
 inxi -Fxxxz -c 0 2>&1 | sed 's/^/inxi| /'
 pciconf -lv 2>&1 | sed 's/^/pciconf| /'
+if ! /root/tests/hardware-report-smoke; then
+	fail "filtered hardware report"
+fi
 [ $ok = 1 ] && echo "pkg-check: ok" || echo "pkg-check: fail"
 [ $ok = 1 ]
 EOF
