@@ -792,7 +792,7 @@ check per CI step (`all` runs them all):
 | `periodic` | `periodic daily` finished and found every command |
 | `cxx` | a static C++ program throws through two frames and catches |
 | `runtime` | compiler-rt builtins in a static and a dynamic program; C++ constructors, destructors and an exception across a shared library; `atexit` order; `dlopen(3)`; named semaphores, with and without a leading slash (sources in `tools/linux/tests`) |
-| `fs` | `/tmp` and `/var/tmp` sticky and writable; `/etc`, `/var/run`, `/var/log`, `/var/db`, `/root` writable; `/` read-only on root.iso and writable on disk.img; `master.passwd` and `spwd.db` mode 600 |
+| `fs` | `/tmp` and `/var/tmp` sticky and writable; `/etc`, `/var/run`, `/var/log`, `/var/db`, `/root` writable; devd sockets accept connections and its pidfile names a live process; `/` read-only on root.iso and writable on disk.img; `master.passwd` and `spwd.db` mode 600 |
 | `abi` | programs with either ELF ABI note (FoxynBSD, DragonFly) run |
 | `kld` | the loader loaded `xhci.ko` (and `ehci.ko`) at boot; modules in `KLD_TESTS` load and unload when present and not already loaded; modules already in use are reported and left loaded |
 | `usb` | the USB keyboard that `boot-test.sh` attaches to a `qemu-xhci` controller attached as `ukbd0` |

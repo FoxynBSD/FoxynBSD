@@ -2267,6 +2267,7 @@ write_runtime_tests() {
 	xcc -O2 -Wl,-E -o "$dir/rt-dlopen" "$t/rt-dlopen.c"
 	xcc -O2 -o "$dir/rt-sem" "$t/rt-sem.c"
 	xcc -O2 -o "$dir/rt-eventfd" "$t/rt-eventfd.c"
+	xcc -O2 -o "$dir/devd-connect" "$t/devd-connect.c"
 }
 
 # Compile the console terminal types from the tree's terminfo.src with the
@@ -2552,6 +2553,17 @@ for d in /etc /var/run /var/log /var/db /root; do
 	if touch $d/.fs-check 2>/dev/null; then rm -f $d/.fs-check
 	else fs=fail; echo "fs-check: FAIL $d is not writable"; fi
 done
+# devd starts before mountcritremote reloads cleanvar.  Its sockets and
+# pidfile must survive that reload, including with tmpfs_var_run=YES.
+for f in /var/run/devd.pipe /var/run/devd.seqpacket.pipe; do
+	[ -S "$f" ] || { fs=fail; echo "fs-check: FAIL missing $f"; }
+done
+if ! /root/tests/devd-connect; then
+	fs=fail; echo "fs-check: FAIL devd socket connection"
+fi
+if [ ! -r /var/run/devd.pid ] || ! kill -0 "$(cat /var/run/devd.pid)" 2>/dev/null; then
+	fs=fail; echo "fs-check: FAIL devd pidfile"
+fi
 if [ "$rootfs" = cd9660 ]; then
 	if touch /.fs-check 2>/dev/null; then
 		fs=fail; echo "fs-check: FAIL / is writable (expected the read-only image)"

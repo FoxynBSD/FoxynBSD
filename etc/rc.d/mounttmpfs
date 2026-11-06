@@ -20,12 +20,20 @@ mounttmpfs_start()
 {
 	if checkyesno tmpfs_var_run; then
 		echo -n "Mounting tmpfs at /var/run"
-		mount_tmpfs dummy /var/run
+		var_run_mounted=no
+		if mount_tmpfs dummy /var/run; then
+			var_run_mounted=yes
+		fi
 		echo "."
 
 		echo "Recreating filesystem hierarchy in /var/run:"
 		mtree -deiqU -f /etc/mtree/BSD.var.dist -p /var
 		echo "."
+		# cleanvar ran before this fresh mount.  Preserve its marker so
+		# mountcritremote's reload does not purge running daemons' files.
+		if [ "$var_run_mounted" = yes ]; then
+			: > /var/run/clean_var || warn 'Cannot mark /var/run clean'
+		fi
 	else
 		echo -n "Mounting tmpfs at /var/run/shm"
 		mount_tmpfs -m 01777 dummy /var/run/shm
