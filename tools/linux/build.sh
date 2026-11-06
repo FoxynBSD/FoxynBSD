@@ -1387,6 +1387,7 @@ do_rootfs() {
 	write_ruby_test "$root/root/tests/ruby-check"
 	write_pkg_test "$root/root/tests/pkg-check"
 	write_desktop_test "$root/root/tests/desktop-check"
+	write_audio_test "$root/root/tests/audio-check"
 	# The kernel modules that `build.sh modules` built, without debug
 	# information, in /boot/kernel as installkernel puts them: devd(8)
 	# loads drivers from there when a device has none (ums for a USB
@@ -1916,6 +1917,100 @@ else
 	tail -n 3 /tmp/sudoku.log | sed 's/^/desktop-check: /'
 	fail "GNUstep application did not map a window"
 fi
+done_
+EOF
+	chmod 755 "$1"
+}
+
+# Sound through PipeWire (issue #13): /root/tests/audio-check installs
+# PipeWire, WirePlumber and JACK from DPorts and builds libepoll-shim
+# from source.  DPorts' libepoll-shim was built without eventfd(2) and
+# emulates it with kqueue descriptors, which SCM_RIGHTS refuses, so
+# PipeWire's clients are cut off; built here, it finds the native
+# eventfd and leaves eventfd() to libc.  The sound goes PipeWire ->
+# JACK tunnel -> jackd (OSS, /dev/dsp) -> snd_hda.  The script checks
+# the PipeWire side ("audio-check:" lines); boot-test.sh, with
+# AUDIO_CHECK=1, gives the machine an HDA card whose output QEMU records,
+# and checks that the 440 Hz tone arrived ("audio-wav:" line).
+# PipeWire starts WirePlumber, which runs without its camera monitor:
+# unloading libspa-v4l2 also unloads libinotify under its running
+# thread, which faults (see #13).
+# Argument: a DPorts mirror URL to use instead of pkg's default.
+write_audio_test() {
+	cat > "$1" <<'EOF'
+#!/bin/sh
+ok=1
+fail() { echo "audio-check: FAIL $*"; ok=0; }
+done_() { pkill -x pw-play; pkill -x wireplumber; pkill -x pipewire
+    pkill -x jackd; [ $ok = 1 ] && echo "audio-check: ok" ||
+    echo "audio-check: fail"; [ $ok = 1 ]; exit; }
+shim=epoll-shim-0.0.20240608
+shim_sha256=8f5125217e4a0eeb96ab01f9dfd56c38f85ac3e8f26ef2578e538e72e87862cb
+if [ ! -x /usr/local/sbin/pkg ] &&
+    ! make -C /usr pkg-bootstrap > /tmp/pkg-bootstrap.log 2>&1; then
+	fail "pkg bootstrap"; done_
+fi
+if [ -n "${1:-}" ]; then
+	printf 'Avalon: { url: "%s/${ABI}/LATEST" }\n' "$1" \
+	    > /usr/local/etc/pkg/repos/df-latest.conf
+	pkg update -f > /tmp/audio-pkg.log 2>&1
+fi
+pkgs="pipewire wireplumber jackit cmake"
+if ! pkg install -y $pkgs >> /tmp/audio-pkg.log 2>&1; then
+	tail -n 5 /tmp/audio-pkg.log | sed 's/^/audio-check: /'
+	fail "pkg install"; done_
+fi
+echo "audio-check: installed $(pkg query '%n-%v' $pkgs libepoll-shim | tr '\n' ' ')"
+cd /tmp || done_
+fetch -qo $shim.tar.gz \
+    https://github.com/jiixyj/epoll-shim/archive/refs/tags/v${shim#epoll-shim-}.tar.gz ||
+    { fail "fetch $shim"; done_; }
+[ "$(sha256 -q $shim.tar.gz)" = $shim_sha256 ] || { fail "$shim checksum"; done_; }
+rm -rf $shim && tar xzf $shim.tar.gz && mkdir $shim/b && cd $shim/b &&
+    cmake .. -DCMAKE_BUILD_TYPE=Release -DBUILD_TESTING=OFF \
+    -DCMAKE_INSTALL_PREFIX=/usr/local > /tmp/shim-build.log 2>&1 &&
+    make >> /tmp/shim-build.log 2>&1 || { tail -n 5 /tmp/shim-build.log |
+    sed 's/^/audio-check: /'; fail "build $shim"; done_; }
+grep -q 'Looking for eventfd - found' /tmp/shim-build.log ||
+    fail "$shim did not find eventfd(2)"
+cp src/libepoll-shim.so.0 /usr/local/lib/libepoll-shim.so.0
+cd /tmp
+nm -D /usr/local/lib/libepoll-shim.so.0 | grep -q ' T eventfd$' &&
+    fail "libepoll-shim still defines eventfd"
+echo "audio-check: $shim built against eventfd(2)"
+[ -c /dev/dsp ] || kldload snd_hda || { fail "kldload snd_hda"; done_; }
+[ -c /dev/dsp ] || { fail "no /dev/dsp"; done_; }
+[ -e /dev/shm ] || ln -s /tmp /dev/shm
+export XDG_RUNTIME_DIR=/tmp/xdg-root
+mkdir -p -m 700 $XDG_RUNTIME_DIR
+mkdir -p /usr/local/etc/pipewire/pipewire.conf.d \
+    /usr/local/etc/wireplumber/wireplumber.conf.d
+printf 'context.modules = [\n  { name = libpipewire-module-jack-tunnel\n    args = { tunnel.mode = sink } }\n]\n' \
+    > /usr/local/etc/pipewire/pipewire.conf.d/jack-sink.conf
+printf 'wireplumber.profiles = {\n  main = { monitor.v4l2 = disabled }\n}\n' \
+    > /usr/local/etc/wireplumber/wireplumber.conf.d/90-no-v4l2.conf
+ruby -e 'r = 48000; d = (0...r * 4).map { |i| (Math.sin(2 * Math::PI * 440 * i / r) * 12000).to_i }.pack("s<*")
+    File.binwrite("/tmp/tone.wav", ["RIFF", 36 + d.size, "WAVE", "fmt ", 16, 1, 1, r, r * 2, 2, 16, "data", d.size].pack("a4Va4a4VvvVVvva4V") + d)'
+jackd -d oss -r 48000 -p 1024 -n 2 -i 0 -o 2 -P /dev/dsp > /tmp/jackd.log 2>&1 &
+sleep 4
+pgrep -x jackd > /dev/null || { tail -n 3 /tmp/jackd.log | sed 's/^/audio-check: /'; fail "jackd"; done_; }
+# PipeWire starts WirePlumber itself (DPorts' pipewire.conf.d/
+# 10-wireplumber.conf): a second session manager would stall both.
+dbus-run-session -- sh -c '
+	pipewire > /tmp/pipewire.log 2>&1 & sleep 9
+	pgrep -x wireplumber | wc -l | tr -d " " > /tmp/wireplumbers
+	timeout 10 pw-cli ls Node > /tmp/nodes.txt 2>&1
+	timeout 30 pw-play /tmp/tone.wav > /tmp/play.log 2>&1
+	echo $? > /tmp/play.rc
+	sleep 1'
+[ "$(cat /tmp/wireplumbers)" = 1 ] && echo "audio-check: PipeWire started WirePlumber" ||
+    fail "$(cat /tmp/wireplumbers) WirePlumber processes, not 1"
+grep -q '"jack_sink"' /tmp/nodes.txt && echo "audio-check: PipeWire: jack_sink node" ||
+    fail "no jack_sink node"
+grep -a 'error -45' /tmp/pipewire.log | head -n 2 | sed 's/^/audio-check: /'
+grep -aq 'error -45' /tmp/pipewire.log && fail "descriptor passing (EOPNOTSUPP)"
+[ "$(cat /tmp/play.rc)" = 0 ] && echo "audio-check: pw-play played /tmp/tone.wav (440 Hz, 4 s)" ||
+    { tail -n 3 /tmp/play.log | sed 's/^/audio-check: /'; fail "pw-play"; }
 done_
 EOF
 	chmod 755 "$1"

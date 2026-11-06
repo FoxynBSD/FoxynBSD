@@ -795,6 +795,7 @@ check per CI step (`all` runs them all):
 | `persist` | not in `all`: a second boot of `disk.img` found the first one's boot count in `/var/db`, kept the password database and had a clean file system |
 | `install` | not in `all`: `foxyn-install` finished (`boot-test.sh --install`) |
 | `desktop` | not in `all`: Xorg (`scfb`), libinput, fonts and GNUstep from DPorts; X runs, the USB keyboard and mouse are X input devices, and a GNUstep application maps its window (`DESKTOP_CHECK=1 boot-test.sh --disk` or `--installed`; needs the internet) |
+| `audio` | not in `all`: PipeWire, WirePlumber and JACK from DPorts, libepoll-shim built against `eventfd(2)`; `pw-play` plays a 440 Hz tone through the JACK tunnel to the HDA card, and QEMU's recording of the card has at least 3 s of it (`AUDIO_CHECK=1 boot-test.sh --disk` or `--installed`; needs the internet) |
 | `pkg` | not in `all`: `pkg(8)` bootstrapped from DragonFly's mirror, the dynamic `pkg` runs, `pkg install inxi` brought Perl, and both run (`PKG_CHECK=1 boot-test.sh --disk` or `--installed`; needs the internet) |
 | `cc` | gcc 12 (`cc`, `c++`) and gcc 8 (`CCVER=gcc80`) compile, link and run C, static C and C++ with an exception in the image (skipped for an image without compilers) |
 | `ruby` | Ruby with `openssl` (LibreSSL), `yaml` (libyaml), `zlib` and `socket`, `Net::HTTP` to `http://10.0.2.100/`, RubyGems; with a `cc`, `mkmf` builds and loads a C extension, as `gem install` does (skipped for an image without Ruby) |
@@ -898,6 +899,23 @@ GNUstep applications abort without a font package ("Glyph generation
 with no font"). To see it: `qemu.sh --disk` (a window) after running the
 test on `disk.img`, or `--serial --disk -- -vga std` and QEMU's
 `screendump`. XLibre, Gershwin and OpenRC are not in DPorts (issue #13).
+
+Sound: `AUDIO_CHECK=1 boot-test.sh --disk` gives the machine an Intel HDA
+card whose output QEMU writes to `$OBJDIR/qemu/audio.wav`, and runs
+`/root/tests/audio-check`. It installs `pipewire wireplumber jackit
+cmake`, builds libepoll-shim from source, loads `snd_hda`, starts `jackd
+-d oss` on `/dev/dsp` and PipeWire with `libpipewire-module-jack-tunnel`,
+and plays a 440 Hz tone with `pw-play`. After QEMU exits, `boot-test.sh`
+measures the recording (`audio-wav: 4.1 s of sound, 440 Hz`).
+DPorts' libepoll-shim was built without `eventfd(2)` and emulates it
+with kqueue descriptors, which the kernel does not pass over
+`SCM_RIGHTS`: PipeWire's clients are disconnected (`error -45`). Built
+on FoxynBSD, it finds the native `eventfd` and leaves `eventfd()` to
+libc. PipeWire starts WirePlumber itself (DPorts' `10-wireplumber.conf`;
+a second one stalls both), without its camera monitor (`monitor.v4l2 =
+disabled`): unloading it faults in libinotify. `DPORTS_MIRROR` picks a
+faster mirror than pkg's default, e.g.
+`https://mirror.sjtu.edu.cn/dragonflybsd/dports`.
 [`docs/hardware-report.md`](../../docs/hardware-report.md) says how to make a
 hardware report with inxi and the base system's tools, and what to remove
 before sharing it.
@@ -1032,5 +1050,6 @@ report are uploaded as artifacts.
 | writable root on a disk (`build.sh disk`) | UFS on GPT, made with the host `makefs`; boots twice in CI |
 | gcc 12's runtime (`gnu/lib/gcc120`) | built by the world (`xgcc`, `xc++`); the image's gcc 12 and gcc 8 build and run C and C++ |
 | packages (DPorts) | `pkg-bootstrap`, `pkg` and `pkg install inxi` (Perl 5.36) work on a disk image; tested with `PKG_CHECK=1`, not in CI |
+| sound: PipeWire (DPorts) | through JACK to `snd_hda`, with libepoll-shim built against `eventfd(2)`; tested with `AUDIO_CHECK=1`, not in CI |
 | X and GNUstep (DPorts) | Xorg on `scfb` with USB keyboard and mouse, a GNUstep application; tested with `DESKTOP_CHECK=1`, not in CI |
 | installers | the BSD Installer starts in CI and installs by hand (disklabel64, `/boot` UFS, HAMMER2, `boot1.efi`); `foxyn-install` installs and the disk boots alone in CI |

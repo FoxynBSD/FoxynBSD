@@ -31,6 +31,14 @@
 #			GNUstep from DPorts and start a GNUstep application
 #			(/root/tests/desktop-check; needs the internet); the
 #			machine gets a VGA card and a USB mouse for it
+#	AUDIO_CHECK	1: with --disk or --installed, also play a 440 Hz tone
+#			through PipeWire, JACK and snd_hda (/root/tests/
+#			audio-check; needs the internet); the machine gets an
+#			HDA card whose output QEMU writes to $OBJDIR/qemu/
+#			audio.wav, and the "audio-wav:" line in the log says
+#			how long and at what frequency it sounded
+#	DPORTS_MIRROR	DPorts mirror for audio-check (default: pkg's), e.g.
+#			https://mirror.sjtu.edu.cn/dragonflybsd/dports
 #
 # Exit status: 0 if the expected prompt appeared (and, with --root, the
 # login worked), 1 otherwise.  The serial
@@ -115,6 +123,13 @@ fi
 DESKTOP_DEVS=
 [ "${DESKTOP_CHECK:-0}" = 1 ] &&
     DESKTOP_DEVS="-vga std -device usb-mouse,bus=xhci.0"
+# The audio test: an HDA card whose output QEMU writes to a WAV file.
+WAV=$OBJDIR/qemu/audio.wav
+if [ "${AUDIO_CHECK:-0}" = 1 ]; then
+	rm -f "$WAV"
+	DESKTOP_DEVS="$DESKTOP_DEVS -device intel-hda
+	    -device hda-output,audiodev=snd0 -audiodev wav,id=snd0,path=$WAV"
+fi
 # shellcheck disable=SC2086
 env OBJDIR="$OBJDIR" "$CONSOLE_ENV" "$SRCDIR/tools/linux/qemu.sh" \
     --serial ${ROOTARG:---kernel-only} \
@@ -275,6 +290,17 @@ if [ "$result" -eq 0 ] && [ -n "$ROOTARG" ] && [ "$MODE" != install ] &&
 			tries=$((tries + 1))
 		done
 	fi
+	# PipeWire to the HDA card (audio-check: lines, audio-42); what
+	# reached the card is checked in the WAV file after QEMU exits.
+	if [ "${AUDIO_CHECK:-0}" = 1 ] &&
+	    { [ "$MODE" = disk ] || [ "$MODE" = installed ]; }; then
+		printf "sh -c 'sh /root/tests/audio-check ${DPORTS_MIRROR:-}; echo audio-\$((6*7)): \$?'\r" >&3
+		tries=0
+		while [ "$tries" -lt 240 ] && ! grep -aq '^audio-42:' "$LOG"; do
+			sleep 5
+			tries=$((tries + 1))
+		done
+	fi
 fi
 
 # A disk is shut down cleanly, so the next boot finds its file system
@@ -296,6 +322,21 @@ fi
 kill "$pid" 2>/dev/null || :
 wait "$pid" 2>/dev/null || :
 [ -n "$catpid" ] && { kill "$catpid" 2>/dev/null || :; wait "$catpid" 2>/dev/null || :; }
+
+# What the HDA card played: QEMU's WAV is 16-bit stereo at 44100 Hz.  In
+# 0.1 s windows of the left channel, those louder than RMS 1000 count as
+# sound; the frequency is the median over them of half the window's zero
+# crossings per second.
+if [ "${AUDIO_CHECK:-0}" = 1 ] && [ -f "$WAV" ]; then
+	od -An -v -td2 -w4 -j44 "$WAV" | awk '
+	{ x = $1; sq += x * x; if ((x < 0) != (p < 0)) zc++; p = x; n++
+	  if (n == 4410) { if (sq / n > 1000000) print zc * 5
+	      n = 0; sq = 0; zc = 0 } }' | sort -n | awk '{ f[NR] = $1 }
+	END { printf "audio-wav: %.1f s of sound", NR / 10
+	      if (NR) printf ", %d Hz", f[int((NR + 1) / 2)]
+	      printf "\n" }' >> "$LOG"
+	grep -a '^audio-wav:' "$LOG" >&2
+fi
 
 if [ "$result" -eq 0 ]; then
 	if [ "$MODE" = disk ]; then

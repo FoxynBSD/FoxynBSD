@@ -46,6 +46,10 @@
 #	desktop		(not in all) Xorg on scfb with the USB keyboard and
 #			mouse, and a GNUstep application's window, from DPorts
 #			(boot-test.sh with DESKTOP_CHECK=1)
+#	audio		(not in all) PipeWire from DPorts, with libepoll-shim
+#			built against eventfd(2), played a 440 Hz tone through
+#			JACK to the HDA card, and QEMU's recording of the card
+#			has at least 3 s of it (boot-test.sh with AUDIO_CHECK=1)
 #
 # LOG defaults to $OBJDIR/qemu/X86_64_GENERIC.boot-root.log.  Messages
 # use GitHub's ::error:: syntax, which reads fine in a terminal too.
@@ -249,6 +253,17 @@ check_desktop() {
 	    fail desktop "$(lines '^desktop-check: FAIL' | tr '\n' ';')"
 }
 
+check_audio() {
+	local secs hz
+	lines '^audio-check: \|^audio-wav: ' || :
+	grep -aq '^audio-check: ok' "$LOG" ||
+	    fail audio "$(lines '^audio-check: FAIL' | tr '\n' ';')" || return
+	secs=$(sed -n 's/^audio-wav: \([0-9]*\)\..*/\1/p' "$LOG" | tail -n 1)
+	hz=$(sed -n 's/^audio-wav: .*, \([0-9]*\) Hz.*/\1/p' "$LOG" | tail -n 1)
+	[ "${secs:-0}" -ge 3 ] && [ "${hz:-0}" -ge 430 ] && [ "${hz:-0}" -le 450 ] ||
+	    fail audio "the HDA card did not play the 440 Hz tone for 3 s (${secs:-?} s, ${hz:-?} Hz)"
+}
+
 check_persist() {
 	lines '^disk-check: \|^rc: first boot\|not properly dismounted\|FILE SYSTEM' || :
 	grep -aqE '^disk-check: boot ([2-9]|[1-9][0-9]+) of this disk' "$LOG" ||
@@ -263,7 +278,7 @@ ALL="rtld rcd identity basics syslogd daemons cron periodic cxx runtime fs abi k
 [ "$*" = all ] && set -- $ALL
 rc=0
 for c; do
-	case " $ALL persist install pkg desktop " in *" $c "*) ;; *) echo "unknown check: $c" >&2; exit 2 ;; esac
+	case " $ALL persist install pkg desktop audio " in *" $c "*) ;; *) echo "unknown check: $c" >&2; exit 2 ;; esac
 	echo ">>> check $c"
 	"check_$c" || rc=1
 done
