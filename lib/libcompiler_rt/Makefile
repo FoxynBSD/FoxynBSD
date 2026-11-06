@@ -82,8 +82,15 @@ CFLAGS+=	-I${CRTDIR}
 WARNS=		0
 
 CRTOBJS=	crtbegin.o crtend.o
-# CRT_CFLAGS
-CRT_CFLAGS=	-std=c11 -DCRT_HAS_INITFINI_ARRAY -DEH_USE_FRAME_REGISTRY \
+# CRT_CFLAGS, without EH_USE_FRAME_REGISTRY (upstream's default on Linux).
+# DragonFly's unwinder (gnu/lib/gcc80/libgcc_eh) finds the FDEs through
+# dl_iterate_phdr and PT_GNU_EH_FRAME, as gcc's own crtstuff.c expects
+# there (USE_PT_GNU_EH_FRAME): crtbegin need not register .eh_frame.  It
+# also must not: shared libraries that link libgcc_eh statically each
+# export a copy of __register_frame_info and __deregister_frame_info, and
+# a registration made with one copy and undone with another aborted in
+# __deregister_frame_info_bases at exit (libobjc2 from Gershwin).
+CRT_CFLAGS=	-std=c11 -DCRT_HAS_INITFINI_ARRAY \
 		-fPIC -Wno-pedantic -fno-stack-protector
 
 .for _o in ${CRTOBJS}
