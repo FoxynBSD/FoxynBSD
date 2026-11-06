@@ -1055,8 +1055,11 @@ BASE_PROGS="sbin/init bin/sh bin/cat bin/chmod bin/cp bin/date bin/df
 	bin/cpdup sbin/gpt sbin/newfs sbin/newfs_msdos sbin/newfs_hammer2
 	sbin/mount_hammer2 sbin/mount_msdos usr.bin/kenv bin/dd sbin/hammer2"
 
-# Modules rc.local loads and unloads to test the kernel linker.
-KLD_TESTS="udf ext2fs"
+# Modules rc.local loads and unloads to test the kernel linker.  snd_hda
+# brings sound.ko, whose unload panicked an INVARIANTS kernel when
+# /dev/sndstat had never been opened (sndstat.c); it loads without the
+# hardware.
+KLD_TESTS="udf ext2fs snd_hda"
 # Kernel modules that the loader loads at every boot: the ESP and the
 # image's /boot (which the installers copy) always have them.
 BOOT_MODULES="bus/u4b/controller/ehci bus/u4b/controller/xhci"

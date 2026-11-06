@@ -65,7 +65,7 @@ struct sndstat_entry {
 static struct lock sndstat_lock;
 static struct sbuf sndstat_sbuf;
 static struct cdev *sndstat_dev = NULL;
-static int sndstat_buflen = 0;
+static int sndstat_buflen = -1;	/* -1: no sndstat_sbuf (not open) */
 static int sndstat_maxunit = -1;
 static int sndstat_files = 0;
 
