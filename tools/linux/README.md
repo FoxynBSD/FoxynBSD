@@ -706,10 +706,15 @@ with `dloader.rc`, the defaults, the kernel and the modules. Its
 `loader.conf` takes the console the running system was booted with
 (`kenv console`) and sets `vfs.root.mountfrom`.
 
-`-b` is the name of the disk when the installed system boots; it goes
-into `loader.conf` and `fstab`. By default it is the disk's serial number
-name (`serno/<serial>`, found by device number in `/dev/serno`), else
-`vbd0`. GPT partitions have no label names in the kernel.
+`loader.conf` and `fstab` name the slices by their GPT unique ids,
+`slice-by-uuid/<uuid>`: devfs makes that alias for every GPT slice, so
+the installed disk finds its root on any bus and machine. An image
+installed under QEMU can be written to a USB stick (`dd
+if=installed.img of=/dev/sdX bs=4M conv=fsync` on Linux) and boots a PC
+from it, leaving the PC's own disks alone. `-b` names the disk instead
+(`serno/<serial>`, `vbd0`, `da0`, ...); without the uuid aliases, the
+disk's serial number name (found by device number in `/dev/serno`) is
+the default, else `vbd0`.
 
 The base programs include what it runs: `gpt`, `newfs_msdos`,
 `newfs_hammer2`, `newfs`, `mount_msdos`, `mount_hammer2`, `hammer2`,
@@ -720,7 +725,9 @@ The base programs include what it runs: `gpt`, `newfs_msdos`,
 `foxyn-install -y vbd2` (`INSTALL_ARGS` adds options) and powers off;
 `boot-test.sh --installed` boots that disk alone (`qemu.sh --installed`:
 no ESP from the host, the firmware starts the disk's own loader) and runs
-the same tests as `--root`.
+the same tests as `--root`. With `INSTALLED_BUS=usb` the disk is a USB
+stick on its own xHCI controller (the firmware boots it, the kernel
+finds the root on `da8` by its uuid), as on a PC.
 
 ## QEMU
 

@@ -39,6 +39,9 @@
 #	ROOTISO		root image for --root (default $OBJDIR/root.iso)
 #	DISK		disk image for --disk (default $OBJDIR/disk.img)
 #	INSTALLED	disk image for --installed (default $OBJDIR/installed.img)
+#	INSTALLED_BUS	virtio (default) or usb: --installed attaches the disk
+#			as a USB stick on its own xHCI controller, as when
+#			its image is written to one to boot a PC
 #	ROOTDISK	optional disk image to attach as another virtio disk
 #	NETDEV_OPTS	more options for the user-mode network (-netdev user),
 #			starting with a comma: ",hostfwd=tcp::2222-:22"
@@ -264,10 +267,16 @@ serial() {
 
 # The first virtio disk (vbd0): the ESP from build.sh, served as a
 # virtual FAT disk, or an installed disk, whose own ESP boots.
+BOOTBUS=
 if [ "$ROOT" = installed ]; then
 	BOOTDRIVE=file=$INSTALLED,if=none,id=vd0,format=raw
 	BOOTDEV=virtio-blk-pci,drive=vd0,serial=$(serial "$INSTALLED")
 	ESP="$INSTALLED (its own ESP)"
+	if [ "${INSTALLED_BUS:-virtio}" = usb ]; then
+		BOOTDEV=usb-storage,bus=bootxhci.0,drive=vd0,removable=on,bootindex=0
+		BOOTBUS="-device qemu-xhci,id=bootxhci"
+		ESP="$INSTALLED (its own ESP, as a USB stick)"
+	fi
 else
 	BOOTDRIVE=file=fat:$ESP,if=none,id=vd0,format=raw,readonly=on
 	BOOTDEV=virtio-blk-pci,drive=vd0,serial=foxyn-esp
@@ -281,7 +290,7 @@ set -- \
     -m "${MEM:-2G}" -smp "${SMP:-2}" \
     -drive if=pflash,format=raw,readonly=on,file="$OVMF_CODE" \
     -drive if=pflash,format=raw,file="$VARS" \
-    -drive "$BOOTDRIVE" -device "$BOOTDEV" \
+    -drive "$BOOTDRIVE" $BOOTBUS -device "$BOOTDEV" \
     -netdev "user,id=n0${NETDEV_OPTS:-}" -device virtio-net-pci,netdev=n0 \
     $CONSOLE \
     "$@"
