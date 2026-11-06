@@ -805,7 +805,7 @@ check per CI step (`all` runs them all):
 | `audio` | not in `all`: PipeWire, WirePlumber and JACK from DPorts, libepoll-shim built against `eventfd(2)`; `pw-play` plays a 440 Hz tone through the JACK tunnel to the HDA card, and QEMU's recording of the card has at least 3 s of it (`AUDIO_CHECK=1 boot-test.sh --disk` or `--installed`; needs the internet) |
 | `pkg` | not in `all`: `pkg(8)` bootstrapped from DragonFly's mirror, the dynamic `pkg` runs, `pkg install inxi` brought Perl, and both run (`PKG_CHECK=1 boot-test.sh --disk` or `--installed`; needs the internet) |
 | `cc` | gcc 12 (`cc`, `c++`) and gcc 8 (`CCVER=gcc80`) compile, link and run C, static C and C++ with an exception in the image (skipped for an image without compilers) |
-| `ruby` | Ruby with `openssl` (LibreSSL), `yaml` (libyaml), `zlib` and `socket`, `Net::HTTP` to `http://10.0.2.100/`, RubyGems; with a `cc`, `mkmf` builds and loads a C extension, as `gem install` does (skipped for an image without Ruby) |
+| `ruby` | Ruby with `openssl` (LibreSSL), `yaml` (libyaml), `zlib` and `socket`, `Net::HTTP` to `http://10.0.2.100/`, RubyGems and DragonFly gem-platform matching; with a `cc`, `mkmf` builds and loads a C extension, as `gem install` does (skipped for an image without Ruby) |
 
 A failing boot leaves the serial log in `$OBJDIR/qemu/`. On a kernel
 trap, `boot-test.sh` resolves the faulting instruction to a source line
