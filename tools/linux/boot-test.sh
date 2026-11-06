@@ -73,7 +73,7 @@ LOG=${BOOT_LOG:-$OBJDIR/qemu/$CONF.boot$SUFFIX.log}
 FAIL='panic:|Fatal trap|db>'
 if [ -n "$ROOTARG" ]; then
 	# getty's prompt, after /etc/rc ran and init went multi-user.
-	SUCCESS='login: '
+	SUCCESS='^login: '
 	FAIL="$FAIL|mountroot>|Manual root filesystem specification|Enter full pathname of shell"
 else
 	# Reaching any of these means the kernel booted and asks for a root.
