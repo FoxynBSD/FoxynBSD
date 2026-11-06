@@ -2047,7 +2047,25 @@ else
 	fail "pkg install inxi"
 fi
 v=$(perl -e 'print "perl $^V"' 2>&1) && echo "pkg-check: $v" || fail "perl: $v"
+perl -v >/dev/null 2>&1 || fail "perl -v"
 v=$(inxi --version 2>&1 | head -n 1) && echo "pkg-check: $v" || fail "inxi: $v"
+if inxi --recommends >/dev/null 2>&1; then
+	echo "pkg-check: inxi --recommends ok"
+else
+	fail "inxi --recommends"
+fi
+# JSON can contain machine identifiers: keep it private and do not log it.
+umask 077
+json=$(mktemp /tmp/inxi-json.XXXXXXXX) || { fail "temporary JSON file"; json=; }
+if [ -n "$json" ]; then
+	if inxi -Fxxxz --output json --output-file print > "$json" 2>&1 &&
+	    perl -MJSON::PP -e 'local $/; decode_json(<>);' "$json"; then
+		echo "pkg-check: inxi JSON parsed"
+	else
+		fail "inxi JSON"
+	fi
+	rm -f "$json"
+fi
 inxi -Fxxxz -c 0 2>&1 | sed 's/^/inxi| /'
 pciconf -lv 2>&1 | sed 's/^/pciconf| /'
 [ $ok = 1 ] && echo "pkg-check: ok" || echo "pkg-check: fail"
