@@ -2519,7 +2519,8 @@ for t in rt-builtins rt-builtins-static rt-cxx rt-dlopen rt-sem rt-eventfd; do
 done
 # Kernel modules (build.sh rootfs copies them in when they were built):
 # the loader loaded ehci.ko and xhci.ko at boot, which are only listed;
-# those named in /root/tests/kld-modules are loaded, found and unloaded.
+# those named in /root/tests/kld-modules are loaded, found and unloaded
+# unless already loaded, in which case they are left in use.
 if ls /boot/kernel/*.ko >/dev/null 2>&1; then
 	kld=ok
 	echo "kld-check: $(ls /boot/kernel/*.ko | wc -l | tr -d ' ') modules in /boot/kernel"
@@ -2563,6 +2564,10 @@ elif touch /.fs-check 2>/dev/null; then
 	n=$((n + 1))
 	echo $n > /var/db/boot-count
 	echo "disk-check: boot $n of this disk, root on $rootfs ($(df / | awk 'NR == 2 { print $1 }'))"
+		if kldstat -n "$n" >/dev/null 2>&1; then
+			echo "kld-check: $n already loaded; unload not tested"
+			continue
+		fi
 else
 	fs=fail; echo "fs-check: FAIL / is not writable on $rootfs"
 fi

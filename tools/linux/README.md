@@ -794,7 +794,7 @@ check per CI step (`all` runs them all):
 | `runtime` | compiler-rt builtins in a static and a dynamic program; C++ constructors, destructors and an exception across a shared library; `atexit` order; `dlopen(3)`; named semaphores, with and without a leading slash (sources in `tools/linux/tests`) |
 | `fs` | `/tmp` and `/var/tmp` sticky and writable; `/etc`, `/var/run`, `/var/log`, `/var/db`, `/root` writable; `/` read-only on root.iso and writable on disk.img; `master.passwd` and `spwd.db` mode 600 |
 | `abi` | programs with either ELF ABI note (FoxynBSD, DragonFly) run |
-| `kld` | the loader loaded `xhci.ko` (and `ehci.ko`) at boot; `udf.ko` and `ext2fs.ko` (`KLD_TESTS`, when the image has them) load and unload |
+| `kld` | the loader loaded `xhci.ko` (and `ehci.ko`) at boot; modules in `KLD_TESTS` load and unload when present and not already loaded; modules already in use are reported and left loaded |
 | `usb` | the USB keyboard that `boot-test.sh` attaches to a `qemu-xhci` controller attached as `ukbd0` |
 | `net` | `dhcpcd` runs and leased `vtnet0` an address, a default route and a name server; `fetch` gets `http://10.0.2.100/` through the gateway |
 | `tls` | `fetch` over HTTPS to an `openssl s_server` in the guest, with a certificate `openssl req` made there (LibreSSL's libcrypto and libssl); `ssh-keygen` makes RSA and Ed25519 keys when the image has OpenSSH |
