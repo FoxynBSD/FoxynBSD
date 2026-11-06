@@ -2351,11 +2351,25 @@ again:
 				vrele(vp);
 				continue;
 			}
-			if (__predict_true((vp->v_flag & VRECLAIMED) == 0)) {
+			/*
+			 * The lockless ref does not reactivate the vnode: one
+			 * that is inactive (or being terminated) must go
+			 * through vget() below, or the caller holds a ref on
+			 * an inactive vnode and a later vref() on it panics
+			 * ("vref: bad refcnt 80000001 2").  File systems keep
+			 * such a ref on their device vnode at mount and vref()
+			 * it for each inode (msdosfs, ufs, ext2fs, hpfs); a
+			 * device just closed after newfs, whose slice was
+			 * reprobed, is inactive.
+			 */
+			if (__predict_true((vp->v_flag & VRECLAIMED) == 0 &&
+					   vp->v_state == VS_ACTIVE &&
+					   (vp->v_refcnt & VREF_TERMINATE) == 0)) {
 				break;
 			}
 			vrele(vp);
-			kprintf("CACHE_VREF: IN-RECLAIM\n");
+			if (vp->v_flag & VRECLAIMED)
+				kprintf("CACHE_VREF: IN-RECLAIM\n");
 		}
 
 		/*
