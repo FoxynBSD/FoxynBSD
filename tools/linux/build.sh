@@ -2531,6 +2531,10 @@ if ls /boot/kernel/*.ko >/dev/null 2>&1; then
 	for n in $(cat /root/tests/kld-modules 2>/dev/null); do
 		m=/boot/kernel/$n.ko n=$n.ko
 		[ -f $m ] || continue
+		if kldstat -n "$n" >/dev/null 2>&1; then
+			echo "kld-check: $n already loaded; unload not tested"
+			continue
+		fi
 		if kldload $m && kldstat -n $n | sed "s/^/kld-check: /" &&
 		    kldunload $n && ! kldstat -n $n >/dev/null 2>&1; then
 			echo "kld-check: $n loaded and unloaded"
@@ -2576,10 +2580,6 @@ elif touch /.fs-check 2>/dev/null; then
 	n=$((n + 1))
 	echo $n > /var/db/boot-count
 	echo "disk-check: boot $n of this disk, root on $rootfs ($(df / | awk 'NR == 2 { print $1 }'))"
-		if kldstat -n "$n" >/dev/null 2>&1; then
-			echo "kld-check: $n already loaded; unload not tested"
-			continue
-		fi
 else
 	fs=fail; echo "fs-check: FAIL / is not writable on $rootfs"
 fi
