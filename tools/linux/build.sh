@@ -1947,6 +1947,11 @@ fail() { echo "audio-check: FAIL $*"; ok=0; }
 done_() { pkill -x pw-play; pkill -x wireplumber; pkill -x pipewire
     pkill -x jackd; [ $ok = 1 ] && echo "audio-check: ok" ||
     echo "audio-check: fail"; [ $ok = 1 ]; exit; }
+if ! /root/tests/rt-shmpath > /tmp/audio-shmpath.log 2>&1; then
+	sed 's/^/audio-check: /' /tmp/audio-shmpath.log
+	fail "/dev/shm and shm_open do not share objects"
+	exit 1
+fi
 shim=epoll-shim-0.0.20240608
 shim_sha256=8f5125217e4a0eeb96ab01f9dfd56c38f85ac3e8f26ef2578e538e72e87862cb
 if [ ! -x /usr/local/sbin/pkg ] &&
@@ -1983,7 +1988,6 @@ nm -D /usr/local/lib/libepoll-shim.so.0 | grep -q ' T eventfd$' &&
 echo "audio-check: $shim built against eventfd(2)"
 [ -c /dev/dsp ] || kldload snd_hda || { fail "kldload snd_hda"; done_; }
 [ -c /dev/dsp ] || { fail "no /dev/dsp"; done_; }
-[ -e /dev/shm ] || ln -s /tmp /dev/shm
 export XDG_RUNTIME_DIR=/tmp/xdg-root
 mkdir -p -m 700 $XDG_RUNTIME_DIR
 mkdir -p /usr/local/etc/pipewire/pipewire.conf.d \
@@ -2253,6 +2257,7 @@ EOF
 #				without a leading slash)
 #	rt-eventfd		eventfd(2): a counter passed to another process
 #				over SCM_RIGHTS, readiness, limits, blocking
+#	rt-shmpath		shm_open(3) and /dev/shm name the same object
 # Each prints "<name>: ok" or "<name>: FAIL <what>".
 write_runtime_tests() {
 	local dir=$1 t=$SRCDIR/tools/linux/tests
@@ -2267,6 +2272,7 @@ write_runtime_tests() {
 	xcc -O2 -Wl,-E -o "$dir/rt-dlopen" "$t/rt-dlopen.c"
 	xcc -O2 -o "$dir/rt-sem" "$t/rt-sem.c"
 	xcc -O2 -o "$dir/rt-eventfd" "$t/rt-eventfd.c"
+	xcc -O2 -o "$dir/rt-shmpath" "$t/rt-shmpath.c"
 	xcc -O2 -o "$dir/devd-connect" "$t/devd-connect.c"
 }
 
@@ -2515,7 +2521,7 @@ for b in /root/tests/brand-*; do
 done
 # The compiler runtime and dynamic linking tests (build.sh
 # write_runtime_tests): each prints "<name>: ok" or a FAIL line.
-for t in rt-builtins rt-builtins-static rt-cxx rt-dlopen rt-sem rt-eventfd; do
+for t in rt-builtins rt-builtins-static rt-cxx rt-dlopen rt-sem rt-eventfd rt-shmpath; do
 	/root/tests/$t || echo "rc: /root/tests/$t failed with status $?"
 done
 # Kernel modules (build.sh rootfs copies them in when they were built):

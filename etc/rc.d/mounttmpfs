@@ -16,6 +16,12 @@ is_mountpoint()
 	mount | awk '{ print $3 }' | grep -q "^${mp}$"
 }
 
+is_tmpfs()
+{
+	mount | awk -v path="$1" '$3 == path && $4 ~ /^\(tmpfs[,)]/ { found = 1 }
+	    END { exit !found }'
+}
+
 mounttmpfs_start()
 {
 	if checkyesno tmpfs_var_run; then
@@ -41,6 +47,18 @@ mounttmpfs_start()
 		mkdir -p -m 01777 /var/run/shm/dev
 		mkdir -p -m 01777 /var/run/shm/dev/shm
 		echo "."
+	fi
+
+	# libc's shm_open(3) uses /var/run/shm.  Some applications open
+	# /dev/shm directly; both paths must reach the same tmpfs objects.
+	if checkyesno tmpfs_var_run; then
+		shm_mount=/var/run
+	else
+		shm_mount=/var/run/shm
+	fi
+	if is_tmpfs "$shm_mount" && [ -d /var/run/shm ] &&
+	    [ ! -e /dev/shm ] && [ ! -L /dev/shm ]; then
+		ln -s /var/run/shm /dev/shm || warn 'Cannot create /dev/shm'
 	fi
 
 	if checkyesno tmpfs_tmp; then
