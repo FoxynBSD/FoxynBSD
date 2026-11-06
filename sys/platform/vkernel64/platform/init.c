@@ -223,8 +223,10 @@ main(int ac, char **av)
 			if (errno == ECHILD)
 				exit(1);
 		}
-		if (WEXITSTATUS(status) != EX_VKERNEL_REBOOT)
-			return 0;
+		if (WIFSIGNALED(status))
+			return 128 + WTERMSIG(status);
+		if (WIFEXITED(status) && WEXITSTATUS(status) != EX_VKERNEL_REBOOT)
+			return WEXITSTATUS(status);
 	}
 
 	/*
