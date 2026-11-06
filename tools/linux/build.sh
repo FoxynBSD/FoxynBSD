@@ -2101,6 +2101,16 @@ end
 check.call("rubygems") do
   "#{Gem::VERSION}, #{Gem::Specification.count} gems"
 end
+check.call("gem-platform") do
+  local = Gem::Platform.local
+  raise "unexpected local platform #{local}" unless local.cpu == "x86_64" && local.os == "dragonfly"
+  same_os = Gem::Platform.new("x86_64-dragonfly6")
+  other_os = Gem::Platform.new("x86_64-unknown")
+  freebsd = Gem::Platform.new("x86_64-freebsd")
+  raise "DragonFly platform mismatch" unless same_os === local
+  raise "matched another OS" if other_os === local || freebsd === local
+  local.to_s
+end
 # A C extension, as gem install builds one: mkmf reads rbconfig.rb, so
 # this fails when it names the compiler, flags or directories of the build.
 if system("command -v cc >/dev/null")
@@ -2132,16 +2142,6 @@ EOF
 # Two tiny static programs that differ only in their ELF ABI note: one
 # says FoxynBSD, the other DragonFly.  Their EI_OSABI is 255 (standalone)
 # and they have no interpreter, so the kernel can only accept them by the
-check.call("gem-platform") do
-  local = Gem::Platform.local
-  raise "unexpected local platform #{local}" unless local.cpu == "x86_64" && local.os == "dragonfly"
-  same_os = Gem::Platform.new("x86_64-dragonfly6")
-  other_os = Gem::Platform.new("x86_64-unknown")
-  freebsd = Gem::Platform.new("x86_64-freebsd")
-  raise "DragonFly platform mismatch" unless same_os === local
-  raise "matched another OS" if other_os === local || freebsd === local
-  local.to_s
-end
 # note; /etc/rc runs both (issue #5).
 write_brand_tests() {
 	local dir=$1 vendor src
