@@ -863,6 +863,7 @@ init_disk(char **diskExp, int *diskFlags, int diskFileNum, enum vkdisk_type type
 			struct stat st;
 			struct vkdisk_info *info = NULL;
 			int fd;
+			int flags = diskFlags != NULL ? diskFlags[i] : 0;
 			size_t l = 0;
 
 			if (type == VKD_DISK)
@@ -873,7 +874,7 @@ init_disk(char **diskExp, int *diskFlags, int diskFileNum, enum vkdisk_type type
 				err(1, "Unable to open/create %s", fname);
 				/* NOT REACHED */
 			}
-			if (S_ISREG(st.st_mode) && (diskFlags[i] & 1) == 0) {
+			if (S_ISREG(st.st_mode) && (flags & 1) == 0) {
 				if (flock(fd, LOCK_EX|LOCK_NB) < 0) {
 					errx(1, "Disk image %s is already "
 						"in use\n", fname);
@@ -887,7 +888,7 @@ init_disk(char **diskExp, int *diskFlags, int diskFileNum, enum vkdisk_type type
 			info->unit = i;
 			info->fd = fd;
 			info->type = type;
-			info->flags = diskFlags[i];
+			info->flags = flags;
 			memcpy(info->fname, fname, l);
 			info->serno = NULL;
 			if (serno) {
