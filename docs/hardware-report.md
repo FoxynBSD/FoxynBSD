@@ -19,9 +19,11 @@ The raw inventory below uses only base programs and works without them.
 
 ## Making the report
 
-Run these as root, so that the programs can read every device:
+Run these as root, so that the programs can read every device. The first
+command creates a new private directory; stop if it fails. The `umask`
+also makes files created by this shell private.
 
-    # mkdir -p /tmp/hw && cd /tmp/hw
+    # report_dir=$(mktemp -d /tmp/hw.XXXXXXXX) && cd "$report_dir" && umask 077
     # inxi -Fxxxz -c 0 > inxi.txt 2>&1
     # pciconf -lv > pciconf.txt
     # usbconfig > usb.txt 2>&1; usbconfig dump_device_desc >> usb.txt 2>&1
@@ -59,7 +61,8 @@ other files are unfiltered. These identify your machine or network:
 * UUIDs of disks and partitions.
 
 The following uses Ruby from base to make filtered copies in a new
-`share` directory, leaving the originals in place. Run it from `/tmp/hw`.
+`share` directory, leaving the originals in place. Run it from the report
+directory created above (`$report_dir`).
 It filters common IPv4 and IPv6 addresses, MAC addresses, UUIDs, serial
 numbers, the current host name and kernel builder paths. It cannot identify
 every private value: **read every copy before sharing it** and remove any
