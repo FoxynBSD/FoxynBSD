@@ -1891,7 +1891,7 @@ ok=1
 fail() { echo "desktop-check: FAIL $*"; ok=0; }
 test_user= test_uid= test_dir= account_created=0 x_granted=0
 done_() {
-    if [ -n "$test_uid" ]; then
+    if [ -n "$test_uid" ] && [ "$test_uid" != 0 ]; then
         # GNUstep can start per-user helpers that keep writing in the home
         # after Sudoku exits.  This UID belongs only to the temporary account.
         pkill -u "$test_uid" || :
@@ -1950,7 +1950,7 @@ pw useradd -n "$test_user" -g nobody -d "$test_dir" -s /bin/sh ||
 account_created=1
 test_uid=$(id -u "$test_user") || { fail "test account UID"; done_; }
 case $test_uid in
-    ''|*[!0-9]*|0) fail "test account is not unprivileged"; done_ ;;
+    ''|*[!0-9]*|0) test_uid=; fail "test account is not unprivileged"; done_ ;;
 esac
 chown "$test_user":nobody "$test_dir" || { fail "test home ownership"; done_; }
 xhost +SI:localuser:"$test_user" >/dev/null 2>&1 || { fail "grant X access"; done_; }
