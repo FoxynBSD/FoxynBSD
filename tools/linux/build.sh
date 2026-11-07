@@ -1380,6 +1380,9 @@ do_rootfs() {
 	mtree_dirs "$SRCDIR/etc/mtree/BSD.var.dist" "$root/var"
 	# mtree_dirs creates directories but does not apply their mtree modes.
 	chmod 1777 "$root/tmp" "$root/var/tmp" "$root/var/run/sem"
+	chmod 0750 "$root/var/backups" "$root/var/cron"
+	chmod 0700 "$root/var/cron/tabs" "$root/var/db/entropy" \
+	    "$root/var/spool/anacron"
 	[ $content = world ] || rootfs_base "$root"
 	# The tests run at boot go in first: their libraries are copied too.
 	write_brand_tests "$root/root/tests"
@@ -2650,6 +2653,15 @@ fi
 fs=ok
 for d in /tmp /var/tmp; do
 	[ -d $d ] && [ -w $d ] && [ -k $d ] || { fs=fail; echo "fs-check: FAIL $d is not a sticky writable directory"; }
+done
+# These directories have restricted modes in BSD.var.dist.
+for d in /var/backups /var/cron; do
+	[ "$(stat -f %Sp "$d" 2>/dev/null)" = drwxr-x--- ] ||
+	    { fs=fail; echo "fs-check: FAIL $d is not mode 750"; }
+done
+for d in /var/cron/tabs /var/db/entropy /var/spool/anacron; do
+	[ "$(stat -f %Sp "$d" 2>/dev/null)" = drwx------ ] ||
+	    { fs=fail; echo "fs-check: FAIL $d is not mode 700"; }
 done
 # sem_open(3) stores named semaphores here; ordinary users must be able
 # to create them without being able to remove another user's semaphore.
