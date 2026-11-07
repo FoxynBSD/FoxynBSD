@@ -2030,11 +2030,14 @@ rm -rf $shim && tar xzf $shim.tar.gz && mkdir $shim/b && cd $shim/b &&
     make >> /tmp/shim-build.log 2>&1 || { tail -n 5 /tmp/shim-build.log |
     sed 's/^/audio-check: /'; fail "build $shim"; done_; }
 grep -q 'Looking for eventfd - found' /tmp/shim-build.log ||
-    fail "$shim did not find eventfd(2)"
-cp src/libepoll-shim.so.0 /usr/local/lib/libepoll-shim.so.0
+    { fail "$shim did not find eventfd(2)"; done_; }
+cp src/libepoll-shim.so.0 /usr/local/lib/libepoll-shim.so.0 ||
+    { fail "install $shim"; done_; }
 cd /tmp
-nm -D /usr/local/lib/libepoll-shim.so.0 | grep -q ' T eventfd$' &&
-    fail "libepoll-shim still defines eventfd"
+nm -D /usr/local/lib/libepoll-shim.so.0 > /tmp/shim-symbols.log ||
+    { fail "inspect $shim symbols"; done_; }
+grep -q ' T eventfd$' /tmp/shim-symbols.log &&
+    { fail "libepoll-shim still defines eventfd"; done_; }
 echo "audio-check: $shim built against eventfd(2)"
 [ -c /dev/dsp ] || kldload snd_hda || { fail "kldload snd_hda"; done_; }
 [ -c /dev/dsp ] || { fail "no /dev/dsp"; done_; }
