@@ -6,11 +6,16 @@
  * must reach the same semaphore: sem_post(3) through one is seen by
  * sem_trywait(3) through the other.
  */
+#include <sys/types.h>
+#include <sys/wait.h>
 #include <errno.h>
 #include <fcntl.h>
+#include <grp.h>
+#include <pwd.h>
 #include <semaphore.h>
 #include <stdio.h>
 #include <string.h>
+#include <unistd.h>
 
 static int
 check(const char *name, int oflag)
@@ -50,12 +55,35 @@ check(const char *name, int oflag)
 int
 main(void)
 {
-	int ok;
+	struct passwd *pw;
+	pid_t child;
+	int ok, status;
 
 	ok = check("/rt_sem_slash", O_CREAT);
 	ok = check("rt_sem_noslash", O_CREAT | O_RDWR) && ok;
 	if (!ok)
 		return (1);
+	if (geteuid() == 0) {
+		pw = getpwnam("nobody");
+		if (pw == NULL) {
+			puts("rt-sem: FAIL no nobody account");
+			return (1);
+		}
+		child = fork();
+		if (child == 0) {
+			if (setgroups(0, NULL) != 0 || setgid(pw->pw_gid) != 0 ||
+			    setuid(pw->pw_uid) != 0)
+				_exit(1);
+			ok = check("/rt_sem_slash", O_CREAT);
+			ok = check("rt_sem_noslash", O_CREAT | O_RDWR) && ok;
+			_exit(ok ? 0 : 1);
+		}
+		if (child < 0 || waitpid(child, &status, 0) != child ||
+		    !WIFEXITED(status) || WEXITSTATUS(status) != 0) {
+			puts("rt-sem: FAIL unprivileged access");
+			return (1);
+		}
+	}
 	printf("rt-sem: ok\n");
 	return (0);
 }
