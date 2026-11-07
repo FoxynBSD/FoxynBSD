@@ -1379,7 +1379,8 @@ do_rootfs() {
 	done
 	mtree_dirs "$SRCDIR/etc/mtree/BSD.var.dist" "$root/var"
 	# mtree_dirs creates directories but does not apply their mtree modes.
-	chmod 1777 "$root/tmp" "$root/var/tmp" "$root/var/run/sem"
+	chmod 1777 "$root/tmp" "$root/var/tmp" "$root/var/tmp/vi.recover" \
+	    "$root/var/run/sem"
 	chmod 0750 "$root/var/backups" "$root/var/cron"
 	chmod 0700 "$root/var/cron/tabs" "$root/var/db/entropy" \
 	    "$root/var/spool/anacron"
@@ -2654,6 +2655,9 @@ fs=ok
 for d in /tmp /var/tmp; do
 	[ -d $d ] && [ -w $d ] && [ -k $d ] || { fs=fail; echo "fs-check: FAIL $d is not a sticky writable directory"; }
 done
+if [ "$(stat -f %Sp /var/tmp/vi.recover 2>/dev/null)" != drwxrwxrwt ]; then
+	fs=fail; echo "fs-check: FAIL /var/tmp/vi.recover is not mode 1777"
+fi
 # These directories have restricted modes in BSD.var.dist.
 for d in /var/backups /var/cron; do
 	[ "$(stat -f %Sp "$d" 2>/dev/null)" = drwxr-x--- ] ||
