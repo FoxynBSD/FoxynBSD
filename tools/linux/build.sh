@@ -1891,7 +1891,19 @@ ok=1
 fail() { echo "desktop-check: FAIL $*"; ok=0; }
 test_user= test_uid= test_dir= account_created=0 x_granted=0
 done_() {
-    [ -z "$test_uid" ] || pkill -u "$test_uid" -x Sudoku
+    if [ -n "$test_uid" ]; then
+        # GNUstep can start per-user helpers that keep writing in the home
+        # after Sudoku exits.  This UID belongs only to the temporary account.
+        pkill -u "$test_uid" || :
+        sleep 2
+        # A graphical client may ignore SIGTERM while its event loop runs.
+        pkill -KILL -u "$test_uid" || :
+        i=0
+        while pgrep -u "$test_uid" >/dev/null && [ "$i" -lt 10 ]; do
+            sleep 1; i=$((i + 1))
+        done
+        pgrep -u "$test_uid" >/dev/null && fail "stop desktop test processes"
+    fi
     if [ "$x_granted" = 1 ]; then
         xhost -SI:localuser:"$test_user" >/dev/null 2>&1 || fail "revoke X access"
     fi
