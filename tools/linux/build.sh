@@ -1378,7 +1378,8 @@ do_rootfs() {
 		mkdir -p "$root/$d"
 	done
 	mtree_dirs "$SRCDIR/etc/mtree/BSD.var.dist" "$root/var"
-	chmod 1777 "$root/tmp" "$root/var/tmp"
+	# mtree_dirs creates directories but does not apply their mtree modes.
+	chmod 1777 "$root/tmp" "$root/var/tmp" "$root/var/run/sem"
 	[ $content = world ] || rootfs_base "$root"
 	# The tests run at boot go in first: their libraries are copied too.
 	write_brand_tests "$root/root/tests"
@@ -2613,6 +2614,11 @@ fs=ok
 for d in /tmp /var/tmp; do
 	[ -d $d ] && [ -w $d ] && [ -k $d ] || { fs=fail; echo "fs-check: FAIL $d is not a sticky writable directory"; }
 done
+# sem_open(3) stores named semaphores here; ordinary users must be able
+# to create them without being able to remove another user's semaphore.
+if [ "$(stat -f %Sp /var/run/sem 2>/dev/null)" != drwxrwxrwt ]; then
+	fs=fail; echo "fs-check: FAIL /var/run/sem is not mode 1777"
+fi
 for d in /etc /var/run /var/log /var/db /root; do
 	if touch $d/.fs-check 2>/dev/null; then rm -f $d/.fs-check
 	else fs=fail; echo "fs-check: FAIL $d is not writable"; fi
