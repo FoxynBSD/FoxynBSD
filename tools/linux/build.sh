@@ -1978,9 +1978,21 @@ write_audio_test() {
 #!/bin/sh
 ok=1
 fail() { echo "audio-check: FAIL $*"; ok=0; }
-done_() { pkill -x pw-play; pkill -x wireplumber; pkill -x pipewire
-    pkill -x jackd; [ $ok = 1 ] && echo "audio-check: ok" ||
-    echo "audio-check: fail"; [ $ok = 1 ]; exit; }
+audio_home= audio_user= audio_uid= audio_account=0
+done_() {
+    if [ -n "$audio_uid" ]; then
+        for process in pw-play wireplumber pipewire jackd; do
+            pkill -u "$audio_uid" -x "$process" || :
+        done
+    fi
+    if [ "$audio_account" = 1 ]; then
+        pw userdel "$audio_user" || fail "remove audio test account"
+    fi
+    if [ -n "$audio_home" ]; then
+        rm -rf "$audio_home" || fail "remove audio test home"
+    fi
+    [ $ok = 1 ] && echo "audio-check: ok" || echo "audio-check: fail"
+    [ $ok = 1 ]; exit; }
 if ! /root/tests/rt-shmpath > /tmp/audio-shmpath.log 2>&1; then
 	sed 's/^/audio-check: /' /tmp/audio-shmpath.log
 	fail "/dev/shm and shm_open do not share objects"
@@ -2032,26 +2044,51 @@ printf 'wireplumber.profiles = {\n  main = { monitor.v4l2 = disabled }\n}\n' \
     > /usr/local/etc/wireplumber/wireplumber.conf.d/90-no-v4l2.conf
 ruby -e 'r = 48000; d = (0...r * 4).map { |i| (Math.sin(2 * Math::PI * 440 * i / r) * 12000).to_i }.pack("s<*")
     File.binwrite("/tmp/tone.wav", ["RIFF", 36 + d.size, "WAVE", "fmt ", 16, 1, 1, r, r * 2, 2, 16, "data", d.size].pack("a4Va4a4VvvVVvva4V") + d)'
-jackd -d oss -r 48000 -p 1024 -n 2 -i 0 -o 2 -P /dev/dsp > /tmp/jackd.log 2>&1 &
+audio_home=$(mktemp -d /tmp/audio-user.XXXXXXXX) || { fail "audio test home"; done_; }
+audio_user=fxaudio$$
+pw useradd -n "$audio_user" -g nobody -d "$audio_home" -s /bin/sh ||
+    { fail "create audio test account"; done_; }
+audio_account=1
+audio_uid=$(id -u "$audio_user") || { fail "audio test UID"; done_; }
+case $audio_uid in
+    ''|*[!0-9]*|0) audio_uid=; fail "audio account is not unprivileged"; done_ ;;
+esac
+cat > "$audio_home/session.sh" <<'USER_SESSION'
+#!/bin/sh
+PATH=/usr/local/bin:/usr/local/sbin:/usr/bin:/bin:/usr/sbin:/sbin
+export PATH
+XDG_RUNTIME_DIR="$HOME/run"
+export XDG_RUNTIME_DIR
+mkdir -m 700 "$XDG_RUNTIME_DIR" || exit 1
+jackd -d oss -r 48000 -p 1024 -n 2 -i 0 -o 2 -P /dev/dsp > "$HOME/jackd.log" 2>&1 &
+jack=$!
+trap 'kill "$jack" 2>/dev/null || :' EXIT HUP INT TERM
 sleep 4
-pgrep -x jackd > /dev/null || { tail -n 3 /tmp/jackd.log | sed 's/^/audio-check: /'; fail "jackd"; done_; }
-# PipeWire starts WirePlumber itself (DPorts' pipewire.conf.d/
-# 10-wireplumber.conf): a second session manager would stall both.
+kill -0 "$jack" 2>/dev/null || { cat "$HOME/jackd.log"; exit 1; }
 dbus-run-session -- sh -c '
-	pipewire > /tmp/pipewire.log 2>&1 & sleep 9
-	pgrep -x wireplumber | wc -l | tr -d " " > /tmp/wireplumbers
-	timeout 10 pw-cli ls Node > /tmp/nodes.txt 2>&1
-	timeout 30 pw-play /tmp/tone.wav > /tmp/play.log 2>&1
-	echo $? > /tmp/play.rc
-	sleep 1'
-[ "$(cat /tmp/wireplumbers)" = 1 ] && echo "audio-check: PipeWire started WirePlumber" ||
-    fail "$(cat /tmp/wireplumbers) WirePlumber processes, not 1"
-grep -q '"jack_sink"' /tmp/nodes.txt && echo "audio-check: PipeWire: jack_sink node" ||
-    fail "no jack_sink node"
-grep -a 'error -45' /tmp/pipewire.log | head -n 2 | sed 's/^/audio-check: /'
-grep -aq 'error -45' /tmp/pipewire.log && fail "descriptor passing (EOPNOTSUPP)"
-[ "$(cat /tmp/play.rc)" = 0 ] && echo "audio-check: pw-play played /tmp/tone.wav (440 Hz, 4 s)" ||
-    { tail -n 3 /tmp/play.log | sed 's/^/audio-check: /'; fail "pw-play"; }
+    pipewire > "$HOME/pipewire.log" 2>&1 &
+    pipewire_pid=$!
+    trap "kill $pipewire_pid 2>/dev/null || :" EXIT HUP INT TERM
+    sleep 9
+    count=$(pgrep -u "$(id -u)" -x wireplumber | wc -l | tr -d " ")
+    [ "$count" = 1 ] || { echo "WirePlumber processes: $count"; exit 1; }
+    timeout 10 pw-cli ls Node > "$HOME/nodes.log" 2>&1 || exit 1
+    grep -q "\"jack_sink\"" "$HOME/nodes.log" || { echo "no jack_sink"; exit 1; }
+    timeout 30 pw-play /tmp/tone.wav > "$HOME/play.log" 2>&1 || { cat "$HOME/play.log"; exit 1; }
+    if grep -q "error -45" "$HOME/pipewire.log"; then
+        echo "descriptor passing failed"; exit 1
+    fi
+'
+USER_SESSION
+chown -R "$audio_user":nobody "$audio_home" || { fail "audio home ownership"; done_; }
+chmod 755 "$audio_home/session.sh"
+chmod 644 /tmp/tone.wav
+if timeout 90 su "$audio_user" -c "$audio_home/session.sh" > "$audio_home/session.log" 2>&1; then
+    echo "audio-check: non-root uid $audio_uid played through PipeWire and JACK"
+else
+    sed 's/^/audio-check: /' "$audio_home/session.log"
+    fail "non-root audio playback"
+fi
 done_
 EOF
 	chmod 755 "$1"

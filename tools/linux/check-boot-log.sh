@@ -259,6 +259,8 @@ check_audio() {
 	lines '^audio-check: \|^audio-wav: ' || :
 	grep -aq '^audio-check: ok' "$LOG" ||
 	    fail audio "$(lines '^audio-check: FAIL' | tr '\n' ';')" || return
+	grep -aq '^audio-check: non-root uid [1-9][0-9]* played through PipeWire and JACK' "$LOG" ||
+	    fail audio "unprivileged audio playback was not verified" || return
 	secs=$(sed -n 's/^audio-wav: \([0-9]*\)\..*/\1/p' "$LOG" | tail -n 1)
 	hz=$(sed -n 's/^audio-wav: .*, \([0-9]*\) Hz.*/\1/p' "$LOG" | tail -n 1)
 	[ "${secs:-0}" -ge 3 ] && [ "${hz:-0}" -ge 430 ] && [ "${hz:-0}" -le 450 ] ||
