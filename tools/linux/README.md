@@ -801,7 +801,7 @@ check per CI step (`all` runs them all):
 | `disk` | on a disk (`disk.img`, an installed disk): the root is UFS or HAMMER2 and writable (skipped for root.iso) |
 | `persist` | not in `all`: a second boot of `disk.img` found the first one's boot count in `/var/db`, kept the password database and had a clean file system |
 | `install` | not in `all`: `foxyn-install` finished (`boot-test.sh --install`) |
-| `desktop` | not in `all`: Xorg (`scfb`), libinput, fonts and GNUstep from DPorts; X runs, the USB keyboard and mouse are X input devices, and a GNUstep application maps its window (`DESKTOP_CHECK=1 boot-test.sh --disk` or `--installed`; needs the internet) |
+| `desktop` | not in `all`: Xorg (`scfb`), libinput, fonts and GNUstep from DPorts; X runs, the USB keyboard and mouse are X input devices, and a GNUstep application runs as a temporary unprivileged user and maps a window (`DESKTOP_CHECK=1 boot-test.sh --disk` or `--installed`; needs the internet) |
 | `audio` | not in `all`: PipeWire, WirePlumber and JACK from DPorts, libepoll-shim built against `eventfd(2)`; `pw-play` plays a 440 Hz tone through the JACK tunnel to the HDA card, and QEMU's recording of the card has at least 3 s of it (`AUDIO_CHECK=1 boot-test.sh --disk` or `--installed`; needs the internet) |
 | `pkg` | not in `all`: `pkg(8)` bootstrapped from DragonFly's mirror, the dynamic `pkg` runs, `pkg install inxi` brought Perl, and both run (`PKG_CHECK=1 boot-test.sh --disk` or `--installed`; needs the internet) |
 | `cc` | gcc 12 (`cc`, `c++`) and gcc 8 (`CCVER=gcc80`) compile, link and run C, static C and C++ with an exception in the image (skipped for an image without compilers) |

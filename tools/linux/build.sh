@@ -1884,14 +1884,24 @@ write_desktop_test() {
 #!/bin/sh
 ok=1
 fail() { echo "desktop-check: FAIL $*"; ok=0; }
-done_() { pkill -x Sudoku; pkill -x Xorg; [ $ok = 1 ] && echo "desktop-check: ok" ||
+test_user= test_uid= test_dir= account_created=0 x_granted=0
+done_() {
+    [ -z "$test_uid" ] || pkill -u "$test_uid" -x Sudoku
+    if [ "$x_granted" = 1 ]; then
+        xhost -SI:localuser:"$test_user" >/dev/null 2>&1 || fail "revoke X access"
+    fi
+    if [ "$account_created" = 1 ]; then
+        pw userdel "$test_user" || fail "remove test account"
+    fi
+    [ -z "$test_dir" ] || rm -rf "$test_dir"
+    pkill -x Xorg; [ $ok = 1 ] && echo "desktop-check: ok" ||
     echo "desktop-check: fail"; [ $ok = 1 ]; exit; }
 if [ ! -x /usr/local/sbin/pkg ] &&
     ! make -C /usr pkg-bootstrap > /tmp/pkg-bootstrap.log 2>&1; then
 	fail "pkg bootstrap"; done_
 fi
 pkgs="xorg-minimal xf86-video-scfb xf86-input-libinput dejavu xinput xwininfo
-    gnustep gnustep-sudoku"
+    xhost gnustep gnustep-sudoku"
 if ! pkg install -y $pkgs > /tmp/desktop-pkg.log 2>&1; then
 	tail -n 5 /tmp/desktop-pkg.log | sed 's/^/desktop-check: /'
 	fail "pkg install"; done_
@@ -1914,14 +1924,29 @@ echo "desktop-check: X $(sed -n 's/.*scfb(0): Using: \(.*\)/\1/p' /var/log/Xorg.
 xinput list --name-only | sed 's/^/desktop-check: input: /'
 xinput list --name-only | grep -q 'USB Keyboard' || fail "no USB keyboard in X"
 xinput list --name-only | grep -q 'USB Mouse' || fail "no USB mouse in X"
-. /usr/local/GNUstep/System/Library/Makefiles/GNUstep.sh
-/usr/local/GNUstep/System/Applications/Sudoku.app/Sudoku > /tmp/sudoku.log 2>&1 &
+test_dir=$(mktemp -d /tmp/desktop-user.XXXXXXXX) || { fail "temporary user directory"; done_; }
+test_user=fxd$$
+pw useradd -n "$test_user" -g nobody -d "$test_dir" -s /bin/sh ||
+    { fail "create test account"; done_; }
+account_created=1
+test_uid=$(id -u "$test_user") || { fail "test account UID"; done_; }
+case $test_uid in
+    ''|*[!0-9]*|0) fail "test account is not unprivileged"; done_ ;;
+esac
+chown "$test_user":nobody "$test_dir" || { fail "test home ownership"; done_; }
+xhost +SI:localuser:"$test_user" >/dev/null 2>&1 || { fail "grant X access"; done_; }
+x_granted=1
+su "$test_user" -c '. /usr/local/GNUstep/System/Library/Makefiles/GNUstep.sh; exec /usr/local/GNUstep/System/Applications/Sudoku.app/Sudoku' > /tmp/sudoku.log 2>&1 &
 i=0
-while ! xwininfo -root -tree | grep -q '"Sudoku"' && [ $i -lt 60 ]; do
+while [ $i -lt 60 ]; do
+	if pgrep -u "$test_uid" -x Sudoku >/dev/null &&
+	    xwininfo -root -tree | grep -q '"Sudoku"'; then
+		break
+	fi
 	sleep 1; i=$((i + 1))
 done
-if xwininfo -root -tree | grep -q '"Sudoku"'; then
-	echo "desktop-check: GNUstep: Sudoku.app mapped $(xwininfo -root -tree | grep -c '"Sudoku"') windows"
+if pgrep -u "$test_uid" -x Sudoku >/dev/null && xwininfo -root -tree | grep -q '"Sudoku"'; then
+	echo "desktop-check: GNUstep: Sudoku.app mapped a window as uid $test_uid"
 else
 	tail -n 3 /tmp/sudoku.log | sed 's/^/desktop-check: /'
 	fail "GNUstep application did not map a window"
