@@ -33,10 +33,11 @@ tools/desktop/check-windowmanager.sh /path/to/WindowManager.app/WindowManager \
 
 The check starts WindowManager with compositing disabled, opens a temporary
 text document, and requires both processes to remain alive after the window
-appears. It stops the processes it started and removes its temporary file.
+appears. It also checks that the document window is viewable and reparented.
+It stops the processes it started and removes its temporary file.
 It rejects a display that advertises another EWMH window manager; use a
-throwaway display even if this check finds none. It does not validate window
-management, input, logout, or a complete session.
+throwaway display even if this check finds none. It does not validate all
+window-management behavior, input, logout, or a complete session.
 
 In QEMU, WindowManager announced `_NET_SUPPORTING_WM_CHECK` and then died
 with SIGSEGV when TextEdit opened; the regression check returned 1. A
@@ -46,7 +47,25 @@ showed `objc_msgSend_fpret` called from GNUstep GUI's `cacheAttributes`,
 `NSStringDrawing`, `GSTheme` titlebar drawing and WindowManager's
 `renderGSThemeToWindow:frame:title:active:`. The faulting instruction
 dereferenced a null dispatch-table pointer. This identifies the observed
-failure path, not the root cause or a proven FoxynBSD-specific defect.
+failure path, not a proven FoxynBSD-specific defect.
+
+Further inspection of that core showed the private GNUstep titlebar method
+using state 6 as an index into `titleTextAttributes`, which the installed
+library's symbol table reports as a three-pointer array. The caller passes
+`GSThemeSelectedState` for an inactive window; in the installed headers
+that enum has value 6. The out-of-range read produced a pointer into
+Objective-C metadata, which was then sent a message.
+
+In a disposable guest only, an experiment mapped the active and inactive
+cases to the key-window and normal-window slots (0 and 1) when calling the
+base GSTheme method. It left the separate Eau-theme call unchanged. The
+regression check passed with that experimental build and failed again after
+a clean rebuild of the original. Two TextEdit windows were reparented; one
+could be moved and activated through X requests while the manager remained
+alive. This supports the diagnosis for the tested package versions, but is
+not a complete session or theme test. The experimental source change is not
+distributed here: the affected upstream file has no individual license
+notice and its provenance still needs review.
 
 The upstream `WindowManager/LICENSE` contains an MIT license, while many
 source files lack individual license headers. The XCB layer is bundled in
