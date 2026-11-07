@@ -251,7 +251,9 @@ check_pkg() {
 check_desktop() {
 	lines '^desktop-check: ' || :
 	grep -aq '^desktop-check: ok' "$LOG" ||
-	    fail desktop "$(lines '^desktop-check: FAIL' | tr '\n' ';')"
+	    fail desktop "$(lines '^desktop-check: FAIL' | tr '\n' ';')" || return
+	grep -aq '^desktop-check: xterm: pty shell and window verified as uid [1-9][0-9]*' "$LOG" ||
+	    fail desktop 'unprivileged xterm was not verified'
 }
 
 check_audio() {

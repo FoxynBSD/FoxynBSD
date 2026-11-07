@@ -1401,6 +1401,8 @@ do_rootfs() {
 	    copy { sub(/^    /, ""); print }' "$SRCDIR/docs/hardware-report.md" > "$root/root/tests/hardware-redact.rb"
 	[ -s "$root/root/tests/hardware-redact.rb" ] || die "hardware report redactor not found"
 	write_desktop_test "$root/root/tests/desktop-check"
+	cp "$SRCDIR/tools/desktop/check-xterm.sh" "$root/root/tests/check-xterm"
+	chmod 755 "$root/root/tests/check-xterm"
 	write_audio_test "$root/root/tests/audio-check"
 	# The kernel modules that `build.sh modules` built, without debug
 	# information, in /boot/kernel as installkernel puts them: devd(8)
@@ -1920,7 +1922,7 @@ if [ ! -x /usr/local/sbin/pkg ] &&
 	fail "pkg bootstrap"; done_
 fi
 pkgs="xorg-minimal xf86-video-scfb xf86-input-libinput dejavu xinput xwininfo
-    xhost gnustep gnustep-sudoku"
+    xhost xterm gnustep gnustep-sudoku"
 if ! pkg install -y $pkgs > /tmp/desktop-pkg.log 2>&1; then
 	tail -n 5 /tmp/desktop-pkg.log | sed 's/^/desktop-check: /'
 	fail "pkg install"; done_
@@ -1969,6 +1971,13 @@ if pgrep -u "$test_uid" -x Sudoku >/dev/null && xwininfo -root -tree | grep -q '
 else
 	tail -n 3 /tmp/sudoku.log | sed 's/^/desktop-check: /'
 	fail "GNUstep application did not map a window"
+fi
+cp /root/tests/check-xterm "$test_dir/check-xterm" || { fail "copy xterm check"; done_; }
+if su "$test_user" -c "$test_dir/check-xterm /usr/local/bin/xterm" > /tmp/xterm-check.log 2>&1; then
+	echo "desktop-check: xterm: pty shell and window verified as uid $test_uid"
+else
+	sed 's/^/desktop-check: /' /tmp/xterm-check.log
+	fail "unprivileged xterm check"
 fi
 done_
 EOF
