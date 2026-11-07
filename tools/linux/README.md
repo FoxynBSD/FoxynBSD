@@ -156,9 +156,9 @@ Environment: `OBJDIR`, `JOBS` (default: `nproc`), `HOST_CC`/`HOST_CFLAGS`
 
 ## Incremental builds
 
-Every command keeps what it built and, run again, rebuilds only what
-changed in the tree since, and what depends on it. The edit-and-boot
-loop is:
+Build commands keep their outputs and, when rerun, rebuild what their
+dependencies identify as changed. Image commands assemble the staged
+outputs; they do not necessarily rebuild them. The edit-and-boot loop is:
 
     $EDITOR sys/dev/misc/syscons/scterm-xterm.c bin/ls/ls.c
     tools/linux/build.sh            # compiles those two files, relinks, packs the images
@@ -186,7 +186,10 @@ followed by `build.sh rootfs`.
   every world command (`libc`, `base`, `world`, `subdir`): a header
   whose contents changed is copied again, the others keep their mtimes.
 * The root image (`rootfs`), the disk image and the ESP are assembled
-  from scratch each time; that takes copies, not compiles.
+  from scratch each time; that takes copies, not compiles. In particular,
+  `rootfs` reuses a completed world in the sysroot. After changing a world
+  component, run `build.sh world` or the relevant `build.sh subdir` before
+  `rootfs`; rebuilding only the image can otherwise package older files.
 
 To start a piece from scratch, remove its output: `$OBJDIR/sys/<KERNCONF>`
 (the kernel), `$OBJDIR/world` (the world's objects), `$OBJDIR/sysroot`
