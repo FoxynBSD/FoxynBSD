@@ -52,4 +52,14 @@ done
 sleep 5
 kill -0 "$wm_pid" 2>/dev/null || fail 'window manager exited after application window appeared'
 kill -0 "$app_pid" 2>/dev/null || fail 'application exited after its window appeared'
+tree=$(xwininfo -root -tree) || fail 'cannot inspect X window tree'
+root=$(printf '%s\n' "$tree" | awk '/Root window id:/ { print $4; exit }')
+# The client is nested below its frame; the last matching window is the
+# deepest one when both frame and client carry the document title.
+client=$(printf '%s\n' "$tree" | awk '/wm-check[.]txt/ { id = $1 } END { print id }')
+[ -n "$root" ] && [ -n "$client" ] || fail 'cannot identify application window'
+info=$(xwininfo -id "$client" -tree) || fail 'cannot inspect application window'
+parent=$(printf '%s\n' "$info" | awk '/Parent window id:/ { print $4; exit }')
+[ -n "$parent" ] && [ "$parent" != "$root" ] || fail 'application window was not reparented'
+xwininfo -id "$client" | grep -q 'Map State: IsViewable' || fail 'application window is not viewable'
 echo 'wm-check: ok'
