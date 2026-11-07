@@ -3,8 +3,8 @@
 This is an exploratory build, not an installed desktop package. On a
 disposable FoxynBSD QEMU UFS disk with Xorg using the `scfb` framebuffer
 driver, Gershwin TextEdit commit
-`f7dc768641c1a23609cfb53e6cf17c2ea7f0c898` built and created X windows as
-an unprivileged user. The test used GNUstep Make 2.9.2 and DPorts
+`f7dc768641c1a23609cfb53e6cf17c2ea7f0c898` built and ran as an
+unprivileged user. The test used GNUstep Make 2.9.2 and DPorts
 `llvm19-19.1.7_1`; GNUstep Make was configured to invoke `clang19`.
 The FoxynBSD image used kernel `a0cc260ef3` (built November 6, 2026).
 
@@ -12,31 +12,38 @@ On a writable installation with pkg configured, install the build and
 runtime dependencies as root:
 
 ```sh
-pkg install gnustep gmake git-lite llvm19 dejavu
+pkg install gnustep gmake llvm19 dejavu
 ```
 
-In a user's working directory, obtain the exact source revision and build:
+In a user's working directory, run the build script from this source tree:
 
 ```sh
-git clone https://github.com/gershwin-desktop/gershwin-textedit.git
-cd gershwin-textedit
-git checkout --detach f7dc768641c1a23609cfb53e6cf17c2ea7f0c898
-. /usr/local/GNUstep/System/Library/Makefiles/GNUstep.sh
-gmake
+/path/to/FoxynBSD/tools/desktop/build-textedit.sh
 ```
 
-From a working X session with the same GNUstep environment, run
-`./TextEdit.app/TextEdit`. The QEMU experiment started Xorg as root and
+The script downloads the pinned source archive, checks its SHA-256 and
+builds `TextEdit.app` in the current directory. It refuses to overwrite an
+existing output; an alternate output path can be supplied as its argument.
+From a working X session, run:
+
+```sh
+. /usr/local/GNUstep/System/Library/Makefiles/GNUstep.sh
+./TextEdit.app/TextEdit
+```
+
+The QEMU experiment started Xorg as root and
 granted a temporary account local X access with `xhost`; it confirmed the
-TextEdit process belonged to that account and `xwininfo` listed its windows.
-The window listing does not verify their map state or usability. That access
-grant was only for the isolated experiment, not a recommended
+TextEdit process belonged to that account and the document window was
+viewable. With a virtual USB keyboard, the test opened a plain-text file,
+inserted text and selected Document > Save; the changed content was read
+back from the file. That access grant was only for the isolated experiment,
+not a recommended
 authorization setup for a shared desktop.
 
 The DPorts packages and their dependencies are not pinned by this recipe;
 the test does not establish reproducible package builds, installation or
-upgrades. Editing and saving, application integration, XLibre, a complete
-Gershwin session, and physical hardware remain untested. The application
+upgrades. Other editing operations, application integration, XLibre, a
+complete Gershwin session, and physical hardware remain untested. The application
 reported GNUstep style-offset and hyphenation warnings at startup.
 
 ## Source and license review
