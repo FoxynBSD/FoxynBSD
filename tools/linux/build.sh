@@ -1893,7 +1893,9 @@ done_() {
     if [ "$account_created" = 1 ]; then
         pw userdel "$test_user" || fail "remove test account"
     fi
-    [ -z "$test_dir" ] || rm -rf "$test_dir"
+    if [ -n "$test_dir" ]; then
+        rm -rf "$test_dir" || fail "remove test home"
+    fi
     pkill -x Xorg; [ $ok = 1 ] && echo "desktop-check: ok" ||
     echo "desktop-check: fail"; [ $ok = 1 ]; exit; }
 if [ ! -x /usr/local/sbin/pkg ] &&
