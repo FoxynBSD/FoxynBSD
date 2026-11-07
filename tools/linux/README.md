@@ -914,6 +914,8 @@ license-review gaps, is described in
 [`docs/desktop-textedit.md`](../../docs/desktop-textedit.md).
 The WindowManager build and its currently failing client-launch check are
 described in [`docs/desktop-windowmanager.md`](../../docs/desktop-windowmanager.md).
+The tested X terminal and Gershwin Terminal build investigation are in
+[`docs/desktop-terminal.md`](../../docs/desktop-terminal.md).
 
 Sound: `AUDIO_CHECK=1 boot-test.sh --disk` gives the machine an Intel HDA
 card whose output QEMU writes to `$OBJDIR/qemu/audio.wav`, and runs
