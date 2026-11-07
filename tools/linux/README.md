@@ -909,6 +909,9 @@ GNUstep applications abort without a font package ("Glyph generation
 with no font"). To see it: `qemu.sh --disk` (a window) after running the
 test on `disk.img`, or `--serial --disk -- -vga std` and QEMU's
 `screendump`. XLibre, Gershwin and OpenRC are not in DPorts (issue #13).
+An experimental source build of Gershwin TextEdit, including its known
+license-review gaps, is described in
+[`docs/desktop-textedit.md`](../../docs/desktop-textedit.md).
 
 Sound: `AUDIO_CHECK=1 boot-test.sh --disk` gives the machine an Intel HDA
 card whose output QEMU writes to `$OBJDIR/qemu/audio.wav`, and runs
