@@ -1,0 +1,12 @@
+--- a/Source/NSConnection.m
++++ b/Source/NSConnection.m
+@@ -568,7 +568,8 @@
+ 	      con = [self connectionWithReceivePort: recvPort
+ 					   sendPort: sendPort];
+ 	    }
+-	  ASSIGNCOPY(GSIVar(con, _remoteName), n);
++	  if (con != nil)
++	    ASSIGNCOPY(GSIVar(con, _remoteName), n);
+ 	}
+     }
+   return con;
