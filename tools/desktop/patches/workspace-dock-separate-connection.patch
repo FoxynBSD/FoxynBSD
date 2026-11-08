@@ -1,0 +1,28 @@
+--- a/Workspace/Desktop/Dock/DockService.m
++++ b/Workspace/Desktop/Dock/DockService.m
+@@ -436,13 +436,15 @@
+ @end
+ 
+ static DockServiceImplementation *sharedService = nil;
++static NSConnection *labDockConnection = nil;
+ 
+ void DockServiceStart(id dock)
+ {
+   if (sharedService == nil)
+     {
+       sharedService = [[DockServiceImplementation alloc] initWithDock:dock];
+-      NSConnection *conn = [NSConnection defaultConnection];
++      NSConnection *conn = [[NSConnection alloc] initWithReceivePort:[NSPort port] sendPort:nil];
++      labDockConnection = conn;
+       [conn setRootObject:sharedService];
+       [conn setDelegate:sharedService];
+       /* Only serving the default mode left clients unanswered while a menu
+@@ -458,6 +460,8 @@
+ {
+   if (sharedService)
+     {
++      [labDockConnection invalidate];
++      DESTROY(labDockConnection);
+       DESTROY(sharedService);
+     }
+ }
