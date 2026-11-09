@@ -205,15 +205,13 @@ _ALL_DEPENDS=${__FLAGS_FILES:N*.[csS]:N*.cc:N*.C:N*.cpp:N*.cxx:N*.m}
 .endif
 	# In case that the custom ${MKDEPCMD} does not create the depend file
 	# for empty dependency.
-	>> ${.TARGET}
+	@[ -e ${.TARGET} ] || touch ${.TARGET}
 .if ${_FG} == "_" && !empty(_DEPENDFILES)
 	cat ${_DEPENDFILES} >> ${.TARGET}
 .endif
 .if defined(MKDEPINTDEPS) && !empty(MKDEPINTDEPS)
 . for _ITD in ${MKDEPINTDEPS:O:u}
-	TMP=_depend$$$$; \
-	sed -e "s,${_ITD:C/^(.*:)(.*)/\1,\2 \1/},g" < ${.TARGET} > $$TMP; \
-	mv $$TMP ${.TARGET}
+	sed -i '' -e "s,${_ITD:C/^(.*:)(.*)/\1,\2 \1/},g" ${.TARGET}
 . endfor
 .endif
 .endfor
@@ -221,6 +219,28 @@ _ALL_DEPENDS=${__FLAGS_FILES:N*.[csS]:N*.cc:N*.C:N*.cpp:N*.cxx:N*.m}
 .if target(_EXTRADEPEND)
 _EXTRADEPEND: .USE
 ${DEPENDFILE}: _EXTRADEPEND
+.endif
+
+# Bootstrap and cross tools link against host libraries for target libraries
+# that the stage does not build into ${DESTDIR}.  Skip those missing entries;
+# otherwise, bmake would complain with "ignoring stale .depend".
+#
+# _EXTRADEPLIBS_VARS names the variables holding the dependency lists.
+# <bsd.prog.mk> and <bsd.lib.mk> use the default _EXTRADEPLIBS;
+# <bsd.hostprog.mk> sets one list per program.
+.if defined(BOOTSTRAPPING)
+. if !defined(_EXTRADEPLIBS_VARS)
+_EXTRADEPLIBS_VARS=	_EXTRADEPLIBS
+. endif
+. for _var in ${_EXTRADEPLIBS_VARS}
+__DEPLIBS=
+.  for _lib in ${${_var}}
+.   if exists(${_lib})
+__DEPLIBS+=	${_lib}
+.   endif
+.  endfor
+${_var}:=	${__DEPLIBS}
+. endfor
 .endif
 
 .else  # !defined(SRCS)

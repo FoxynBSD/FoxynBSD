@@ -58,8 +58,8 @@ kvm_t	*kvmd;
 
 struct	nlist nl[] = {
 #define	N_IFNET	0
-	{ .n_name = "_ifnet" },
-	{ .n_name = "" },
+	{ .n_name = "ifnet" },
+	{ .n_name = NULL },
 };
 
 const char *inet6_n2a(struct in6_addr *);

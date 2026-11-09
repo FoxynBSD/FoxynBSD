@@ -48,10 +48,10 @@
 static struct nlist namelist[] = {
 #define X_FIRST		0
 #define	X_HZ		0
-	{ .n_name = "_hz" },
-#define	X_STATHZ		1
-	{ .n_name = "_stathz" },
-	{ .n_name = "" }
+	{ .n_name = "hz" },
+#define	X_STATHZ	1
+	{ .n_name = "stathz" },
+	{ .n_name = NULL }
 };
 static int     dellave;
 

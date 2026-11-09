@@ -59,11 +59,11 @@
 #include "kvm_private.h"
 
 static struct nlist kvm_swap_nl[] = {
-	{ .n_name = "_swapblist" },	/* new radix swap list */
-	{ .n_name = "_swdevt" },	/* list of swap devices and sizes */
-	{ .n_name = "_nswdev" },	/* number of swap devices */
-	{ .n_name = "_dmmax" },		/* maximum size of a swap block */
-	{ .n_name = "" }
+	{ .n_name = "swapblist" },	/* new radix swap list */
+	{ .n_name = "swdevt" },	/* list of swap devices and sizes */
+	{ .n_name = "nswdev" },	/* number of swap devices */
+	{ .n_name = "dmmax" },		/* maximum size of a swap block */
+	{ .n_name = NULL }
 };
 
 #define NL_SWAPBLIST	0
