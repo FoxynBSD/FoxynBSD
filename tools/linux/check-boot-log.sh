@@ -252,6 +252,10 @@ check_desktop() {
 	lines '^desktop-check: ' || :
 	grep -aq '^desktop-check: ok' "$LOG" ||
 	    fail desktop "$(lines '^desktop-check: FAIL' | tr '\n' ';')" || return
+	grep -aq '^desktop-check: X rejected a client without its cookie' "$LOG" ||
+	    fail desktop 'unauthorized X client was not rejected' || return
+	grep -aq '^desktop-check: X accepted the authorized client as uid [1-9][0-9]*' "$LOG" ||
+	    fail desktop 'authorized unprivileged X client was not verified' || return
 	grep -aq '^desktop-check: xterm: pty shell and window verified as uid [1-9][0-9]*' "$LOG" ||
 	    fail desktop 'unprivileged xterm was not verified'
 }

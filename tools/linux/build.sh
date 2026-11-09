@@ -1896,7 +1896,7 @@ write_desktop_test() {
 #!/bin/sh
 ok=1
 fail() { echo "desktop-check: FAIL $*"; ok=0; }
-test_user= test_uid= test_dir= account_created=0 x_granted=0
+test_user= test_uid= test_dir= auth_dir= x_pid= account_created=0
 done_() {
     if [ -n "$test_uid" ] && [ "$test_uid" != 0 ]; then
         # GNUstep can start per-user helpers that keep writing in the home
@@ -1911,34 +1911,59 @@ done_() {
         done
         pgrep -u "$test_uid" >/dev/null && fail "stop desktop test processes"
     fi
-    if [ "$x_granted" = 1 ]; then
-        xhost -SI:localuser:"$test_user" >/dev/null 2>&1 || fail "revoke X access"
-    fi
     if [ "$account_created" = 1 ]; then
         pw userdel "$test_user" || fail "remove test account"
     fi
     if [ -n "$test_dir" ]; then
         rm -rf "$test_dir" || fail "remove test home"
     fi
-    pkill -x Xorg; [ $ok = 1 ] && echo "desktop-check: ok" ||
+    if [ -n "$x_pid" ]; then
+        kill "$x_pid" 2>/dev/null || :
+        wait "$x_pid" 2>/dev/null || :
+    fi
+    if [ -n "$auth_dir" ]; then
+        rm -rf "$auth_dir" || fail "remove X authority directory"
+    fi
+    [ $ok = 1 ] && echo "desktop-check: ok" ||
     echo "desktop-check: fail"; [ $ok = 1 ]; exit; }
 if [ ! -x /usr/local/sbin/pkg ] &&
     ! make -C /usr pkg-bootstrap > /tmp/pkg-bootstrap.log 2>&1; then
 	fail "pkg bootstrap"; done_
 fi
 pkgs="xorg-minimal xf86-video-scfb xf86-input-libinput dejavu xinput xwininfo
-    xhost xterm gnustep gnustep-sudoku"
+    xauth xterm gnustep gnustep-sudoku"
 if ! pkg install -y $pkgs > /tmp/desktop-pkg.log 2>&1; then
 	tail -n 5 /tmp/desktop-pkg.log | sed 's/^/desktop-check: /'
 	fail "pkg install"; done_
 fi
 echo "desktop-check: installed $(echo $pkgs)"
+test_dir=$(mktemp -d /tmp/desktop-user.XXXXXXXX) || { fail "temporary user directory"; done_; }
+test_user=fxd$$
+pw useradd -n "$test_user" -g nobody -d "$test_dir" -s /bin/sh ||
+    { fail "create test account"; done_; }
+account_created=1
+test_uid=$(id -u "$test_user") || { fail "test account UID"; done_; }
+case $test_uid in
+    ''|*[!0-9]*|0) test_uid=; fail "test account is not unprivileged"; done_ ;;
+esac
+chown "$test_user":nobody "$test_dir" || { fail "test home ownership"; done_; }
+auth_dir=$(mktemp -d /tmp/desktop-auth.XXXXXXXX) || { fail "X authority directory"; done_; }
+chmod 700 "$auth_dir" || { fail "X authority directory mode"; done_; }
+XAUTHORITY=$auth_dir/server.auth
+export XAUTHORITY
+cookie=$(openssl rand -hex 16) || { fail "X authority random cookie"; done_; }
+xauth -f "$XAUTHORITY" add :0 MIT-MAGIC-COOKIE-1 "$cookie" >/dev/null 2>&1 || { fail "create X authority"; done_; }
+unset cookie
+cp "$XAUTHORITY" "$test_dir/.Xauthority" || { fail "copy X authority"; done_; }
+chown "$test_user":nobody "$test_dir/.Xauthority" || { fail "X authority ownership"; done_; }
+chmod 600 "$test_dir/.Xauthority" || { fail "X authority mode"; done_; }
 # Several drivers match the framebuffer, and Xorg then gives up ("Cannot
 # run in framebuffer mode"): name scfb.
 mkdir -p /usr/local/etc/X11/xorg.conf.d
 printf 'Section "Device"\n\tIdentifier "fb"\n\tDriver "scfb"\nEndSection\n' \
     > /usr/local/etc/X11/xorg.conf.d/10-scfb.conf
-X :0 -nolisten tcp vt9 > /tmp/X.out 2>&1 &
+X :0 -nolisten tcp -auth "$XAUTHORITY" vt9 > /tmp/X.out 2>&1 &
+x_pid=$!
 i=0
 while [ ! -S /tmp/.X11-unix/X0 ] && [ $i -lt 30 ]; do sleep 1; i=$((i + 1)); done
 export DISPLAY=:0
@@ -1950,19 +1975,16 @@ echo "desktop-check: X $(sed -n 's/.*scfb(0): Using: \(.*\)/\1/p' /var/log/Xorg.
 xinput list --name-only | sed 's/^/desktop-check: input: /'
 xinput list --name-only | grep -q 'USB Keyboard' || fail "no USB keyboard in X"
 xinput list --name-only | grep -q 'USB Mouse' || fail "no USB mouse in X"
-test_dir=$(mktemp -d /tmp/desktop-user.XXXXXXXX) || { fail "temporary user directory"; done_; }
-test_user=fxd$$
-pw useradd -n "$test_user" -g nobody -d "$test_dir" -s /bin/sh ||
-    { fail "create test account"; done_; }
-account_created=1
-test_uid=$(id -u "$test_user") || { fail "test account UID"; done_; }
-case $test_uid in
-    ''|*[!0-9]*|0) test_uid=; fail "test account is not unprivileged"; done_ ;;
-esac
-chown "$test_user":nobody "$test_dir" || { fail "test home ownership"; done_; }
-xhost +SI:localuser:"$test_user" >/dev/null 2>&1 || { fail "grant X access"; done_; }
-x_granted=1
-su "$test_user" -c '. /usr/local/GNUstep/System/Library/Makefiles/GNUstep.sh; exec /usr/local/GNUstep/System/Applications/Sudoku.app/Sudoku' > /tmp/sudoku.log 2>&1 &
+if su "$test_user" -c 'DISPLAY=:0 XAUTHORITY=/dev/null xwininfo -root' > /tmp/desktop-auth-negative.log 2>&1; then
+    fail "X accepted a client without its cookie"
+else
+    echo "desktop-check: X rejected a client without its cookie"
+fi
+if ! su "$test_user" -c "DISPLAY=:0 XAUTHORITY=$test_dir/.Xauthority xwininfo -root" > /tmp/desktop-auth-positive.log 2>&1; then
+    fail "X rejected the authorized client"; done_
+fi
+echo "desktop-check: X accepted the authorized client as uid $test_uid"
+su "$test_user" -c "export DISPLAY=:0 XAUTHORITY=$test_dir/.Xauthority; . /usr/local/GNUstep/System/Library/Makefiles/GNUstep.sh; exec /usr/local/GNUstep/System/Applications/Sudoku.app/Sudoku" > /tmp/sudoku.log 2>&1 &
 i=0
 while [ $i -lt 60 ]; do
 	if pgrep -u "$test_uid" -x Sudoku >/dev/null &&
@@ -1978,7 +2000,7 @@ else
 	fail "GNUstep application did not map a window"
 fi
 cp /root/tests/check-xterm "$test_dir/check-xterm" || { fail "copy xterm check"; done_; }
-if su "$test_user" -c "$test_dir/check-xterm /usr/local/bin/xterm" > /tmp/xterm-check.log 2>&1; then
+if su "$test_user" -c "export DISPLAY=:0 XAUTHORITY=$test_dir/.Xauthority; $test_dir/check-xterm /usr/local/bin/xterm" > /tmp/xterm-check.log 2>&1; then
 	echo "desktop-check: xterm: pty shell and window verified as uid $test_uid"
 else
 	sed 's/^/desktop-check: /' /tmp/xterm-check.log

@@ -900,16 +900,15 @@ It needs the internet and DragonFly's mirror, so CI does not run it.
 
 A first graphical session comes from the same packages.
 `DESKTOP_CHECK=1 boot-test.sh --disk` gives the machine a VGA card and a
-USB mouse and runs `/root/tests/desktop-check`, which does what a user
-does by hand:
+USB mouse and runs `/root/tests/desktop-check`. It installs Xorg/scfb,
+libinput, fonts, GNUstep, Sudoku, xterm and the X authority utilities.
 
-    # pkg install xorg-minimal xf86-video-scfb xf86-input-libinput dejavu \
-          gnustep gnustep-sudoku xterm
-    # printf 'Section "Device"\n\tIdentifier "fb"\n\tDriver "scfb"\nEndSection\n' \
-          > /usr/local/etc/X11/xorg.conf.d/10-scfb.conf
-    # X :0 vt9 &
-    # . /usr/local/GNUstep/System/Library/Makefiles/GNUstep.sh
-    # DISPLAY=:0 /usr/local/GNUstep/System/Applications/Sudoku.app/Sudoku
+The test creates a temporary unprivileged account and a per-run Xauthority
+cookie, starts X with `-auth` and `-nolisten tcp`, and checks that a client
+without the cookie is rejected while the test user with the cookie can
+connect. It starts Sudoku and xterm as that user, then removes the account
+and temporary authority files. This is an isolated smoke test, not a
+production session launcher or a security audit.
 
 Xorg draws on syscons' EFI framebuffer with `scfb` (there is no KMS
 under QEMU, so no `/dev/dri`); with modesetting, scfb and vesa all
