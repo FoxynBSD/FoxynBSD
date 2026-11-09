@@ -19,7 +19,8 @@
 #	tools/linux/build.sh rootfs		(root tree and root.iso: the whole
 #					 world; ROOTFS=base for a minimal one)
 #	tools/linux/build.sh disk		(disk.img: the root tree on a
-#					 writable UFS disk; DISK_SIZE=4G)
+#					 writable UFS disk; DISK_SIZE=4G;
+#					 DISK_ROOTFS selects an existing root tree)
 #	tools/linux/build.sh world		(the whole userland, buildworld
 #					 order; KEEP_GOING=1 lists failures)
 #	tools/linux/build.sh subdir DIR...	(build and install world dirs)
@@ -31,6 +32,7 @@
 #
 # Environment:
 #	OBJDIR	output directory (default ${XDG_CACHE_HOME:-~/.cache}/foxynbsd)
+#	DISK_ROOTFS	optional pre-staged root tree for `disk`
 #	JOBS	parallel jobs (default: nproc)
 #	HOST_CC, HOST_CFLAGS	compiler and flags for the host tools (gcc, -O2)
 #	KERNCC	kernel and module compiler: gcc (default, the host gcc
@@ -1607,11 +1609,14 @@ disk_manifest() {
 # (default 4G) is its size, not what it takes on the host.  It is made
 # anew each time, so what was written into the old one is lost.
 do_disk() {
-	local root=$OBJDIR/rootfs over=$OBJDIR/disk-etc img=${DISK:-$OBJDIR/disk.img}
+	local root=${DISK_ROOTFS:-$OBJDIR/rootfs} over=$OBJDIR/disk-etc img=${DISK:-$OBJDIR/disk.img}
 	local size mib off=1048576 sectors
 	[ -x "$HOSTBIN/makefs" ] || do_tools
 	need sfdisk
-	[ -f "$root/etc/rc.conf" ] || ( do_rootfs )
+	if [ ! -f "$root/etc/rc.conf" ]; then
+		[ -z "${DISK_ROOTFS:-}" ] || die "DISK_ROOTFS has no etc/rc.conf: $root"
+		( do_rootfs )
+	fi
 	size=${DISK_SIZE:-4G}
 	case $size in
 	*[Gg])	mib=$((${size%?} * 1024)) ;;

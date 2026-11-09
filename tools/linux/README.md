@@ -67,6 +67,13 @@ writable disk:
     tools/linux/build.sh disk       # $OBJDIR/disk.img: UFS root on a GPT disk
     tools/linux/qemu.sh --disk      # boot it; changes stay for the next boot
 
+To package a separately prepared root tree without replacing the default
+`$OBJDIR/rootfs`, set `DISK_ROOTFS` to that tree. It must already contain
+`etc/rc.conf`; a missing tree fails instead of building the default root.
+Use a separate `OBJDIR` or `DISK` when the resulting disk must not replace
+an existing image. This selects the tree to package; it does not build or
+install a desktop into it.
+
 The network comes up at boot either way (`dhcpcd` on QEMU's user-mode
 network), and `fetch` reaches HTTP and HTTPS servers.
 
