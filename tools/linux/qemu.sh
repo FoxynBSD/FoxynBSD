@@ -24,6 +24,8 @@
 #	--installed	boot a disk that foxyn-install installed FoxynBSD on
 #			($OBJDIR/installed.img), alone: the firmware starts the
 #			loader on its own ESP, without the ESP from build.sh.
+#	--desktop-devices add a VGA framebuffer and xHCI USB keyboard and mouse
+#			for desktop tests; this does not install a desktop.
 #	--gui, --root	the defaults, spelled out.
 #	--firmware	print the OVMF images that would be used, and exit.
 #
@@ -65,10 +67,11 @@ OBJDIR=${OBJDIR:-${XDG_CACHE_HOME:-$HOME/.cache}/foxynbsd}
 GUI=${GUI:-}
 ROOT=${ROOT:-1}
 FWONLY=0
+DESKTOP_DEVICES=0
 
 die() { echo "qemu.sh: $*" >&2; exit 1; }
 usage() {
-	die "usage: qemu.sh [--serial|--gui] [--kernel-only|--root|--disk|--installed] [--firmware] [KERNCONF] [-- qemu args]"
+	die "usage: qemu.sh [--serial|--gui] [--kernel-only|--root|--disk|--installed] [--firmware] [--desktop-devices] [KERNCONF] [-- qemu args]"
 }
 
 while :; do
@@ -80,6 +83,7 @@ while :; do
 	--disk)	ROOT=disk; shift ;;
 	--installed) ROOT=installed; shift ;;
 	--firmware) FWONLY=1; shift ;;
+	--desktop-devices) DESKTOP_DEVICES=1; shift ;;
 	--)	break ;;
 	-h|--help) usage ;;
 	-*)	echo "qemu.sh: unknown option: $1" >&2; usage ;;
@@ -294,6 +298,16 @@ set -- \
     -netdev "user,id=n0${NETDEV_OPTS:-}" -device virtio-net-pci,netdev=n0 \
     $CONSOLE \
     "$@"
+
+# Add a known framebuffer and USB input devices for desktop testing.
+# GUI mode already selects VGA in CONSOLE; serial mode needs it explicitly.
+if [ "$DESKTOP_DEVICES" = 1 ]; then
+	if [ "$GUI" != 1 ]; then
+		set -- "$@" -vga std
+	fi
+	set -- "$@" -device qemu-xhci,id=xhci \
+	    -device usb-kbd,bus=xhci.0 -device usb-mouse,bus=xhci.0
+fi
 
 # The root is the second virtio disk (vbd1).  The ISO goes on virtio-blk
 # rather than as an AHCI CD: QEMU's ATAPI emulation times out with the

@@ -121,8 +121,12 @@ fi
 # that the kernel's xhci driver (xhci.ko, which the loader loads)
 # enumerates it.  The desktop test also needs a display and a mouse.
 DESKTOP_DEVS=
-[ "${DESKTOP_CHECK:-0}" = 1 ] &&
-    DESKTOP_DEVS="-vga std -device usb-mouse,bus=xhci.0"
+DESKTOP_OPTION=
+USB_DEVS="-device qemu-xhci,id=xhci -device usb-kbd,bus=xhci.0"
+if [ "${DESKTOP_CHECK:-0}" = 1 ]; then
+    DESKTOP_OPTION=--desktop-devices
+    USB_DEVS=
+fi
 # The audio test: an HDA card whose output QEMU writes to a WAV file.
 WAV=$OBJDIR/qemu/audio.wav
 if [ "${AUDIO_CHECK:-0}" = 1 ]; then
@@ -132,9 +136,8 @@ if [ "${AUDIO_CHECK:-0}" = 1 ]; then
 fi
 # shellcheck disable=SC2086
 env OBJDIR="$OBJDIR" "$CONSOLE_ENV" "$SRCDIR/tools/linux/qemu.sh" \
-    --serial ${ROOTARG:---kernel-only} \
-    "$CONF" -- -device qemu-xhci,id=xhci -device usb-kbd,bus=xhci.0 \
-    $DESKTOP_DEVS </dev/null >/dev/null 2>"$LOG.stderr" &
+    --serial ${ROOTARG:---kernel-only} $DESKTOP_OPTION \
+    "$CONF" -- $USB_DEVS $DESKTOP_DEVS </dev/null >/dev/null 2>"$LOG.stderr" &
 pid=$!
 
 result=1
