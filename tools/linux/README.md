@@ -918,8 +918,10 @@ GNUstep applications abort without a font package ("Glyph generation
 with no font"). The automated test also starts xterm as the temporary
 unprivileged user and checks its window and shell's terminal descriptors.
 To see it: `qemu.sh --disk` (a window) after running the
-test on `disk.img`, or `--serial --disk -- -vga std` and QEMU's
-`screendump`. XLibre, Gershwin and OpenRC are not in DPorts (issue #13).
+test on `disk.img`. For headless screenshots, set `MONITOR_SOCKET` to a
+new local Unix socket path and use `--serial --disk --desktop-devices`;
+connect to the QEMU monitor and run `screendump /absolute/path/image.ppm`.
+The monitor controls the VM and is intended for trusted local use. XLibre, Gershwin and OpenRC are not in DPorts (issue #13).
 An experimental source build of Gershwin TextEdit, including its known
 license-review gaps, is described in
 [`docs/desktop-textedit.md`](../../docs/desktop-textedit.md).

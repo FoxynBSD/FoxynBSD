@@ -47,6 +47,8 @@
 #	ROOTDISK	optional disk image to attach as another virtio disk
 #	NETDEV_OPTS	more options for the user-mode network (-netdev user),
 #			starting with a comma: ",hostfwd=tcp::2222-:22"
+#	MONITOR_SOCKET	optional QEMU monitor Unix socket for screenshots and
+#			debugging; must not already exist (local trusted use)
 #	SERIAL_LOG	headless: write the serial console to this file
 #	SERIAL_PIPE	headless: connect the serial console to the FIFOs
 #			$SERIAL_PIPE.in and $SERIAL_PIPE.out (made by the caller),
@@ -307,6 +309,17 @@ if [ "$DESKTOP_DEVICES" = 1 ]; then
 	fi
 	set -- "$@" -device qemu-xhci,id=xhci \
 	    -device usb-kbd,bus=xhci.0 -device usb-mouse,bus=xhci.0
+fi
+
+# An explicit monitor remains available in headless runs for screendump.
+# Refuse an existing path rather than replacing an unrelated socket or file.
+if [ -n "${MONITOR_SOCKET:-}" ]; then
+	case $MONITOR_SOCKET in
+	*,*) die "MONITOR_SOCKET must not contain a comma" ;;
+	esac
+	[ ! -e "$MONITOR_SOCKET" ] && [ ! -L "$MONITOR_SOCKET" ] ||
+	    die "MONITOR_SOCKET already exists: $MONITOR_SOCKET"
+	set -- "$@" -monitor "unix:$MONITOR_SOCKET,server=on,wait=off"
 fi
 
 # The root is the second virtio disk (vbd1).  The ISO goes on virtio-blk

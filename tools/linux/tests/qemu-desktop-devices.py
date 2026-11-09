@@ -26,6 +26,7 @@ with tempfile.TemporaryDirectory() as directory:
                DISPLAY=":99", DISPLAY_BACKEND="gtk")
     env.pop("SERIAL_LOG", None)
     env.pop("SERIAL_PIPE", None)
+    env.pop("MONITOR_SOCKET", None)
     expected = ("qemu-xhci,id=xhci", "usb-kbd,bus=xhci.0",
                 "usb-mouse,bus=xhci.0")
     for name, options, count in (
@@ -42,3 +43,23 @@ with tempfile.TemporaryDirectory() as directory:
         assert all(devices.count(device) == count for device in expected), (
             name, devices)
         print(f"{name}: ok")
+
+    socket_path = root / "monitor socket"
+    monitor_env = dict(env, MONITOR_SOCKET=str(socket_path))
+    subprocess.run([str(repo / "tools/linux/qemu.sh"), "--serial", "--disk",
+                    "--desktop-devices"], env=monitor_env, check=True,
+                   capture_output=True, text=True)
+    args = (root / "args").read_text().splitlines()
+    assert f"unix:{socket_path},server=on,wait=off" in args
+    socket_path.write_text("keep")
+    result = subprocess.run([str(repo / "tools/linux/qemu.sh"), "--serial",
+                             "--disk"], env=monitor_env, capture_output=True,
+                            text=True)
+    assert result.returncode != 0 and "already exists" in result.stderr
+    assert socket_path.read_text() == "keep"
+    monitor_env["MONITOR_SOCKET"] = str(root / "bad,socket")
+    result = subprocess.run([str(repo / "tools/linux/qemu.sh"), "--serial",
+                             "--disk"], env=monitor_env, capture_output=True,
+                            text=True)
+    assert result.returncode != 0 and "comma" in result.stderr
+    print("monitor: ok")
