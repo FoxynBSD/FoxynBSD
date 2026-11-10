@@ -1,0 +1,31 @@
+The kernel-memory test lacks a parenthesis in AC_LANG_SOURCE, so the
+generated program starts with '[#include' and never compiles: every
+system without procfs then falls back to GS_FAKE_MAIN, and any +load
+method that reaches NSProcessInfo before main() aborts (Gershwin
+Workspace's NSWorkspace(GWAppImageIconProvider)).  With the test fixed,
+DragonFly's libkvm provides the arguments (HAVE_KVM_ENV).
+
+diff -ruN a/configure b/configure
+--- a/configure
++++ b/configure
+@@ -12676,7 +12676,7 @@
+ else case e in #(
+   e) cat confdefs.h - <<_ACEOF >conftest.$ac_ext
+ /* end confdefs.h.  */
+-[#include "$srcdir/config/config.kvmopen.c"])
++#include "$srcdir/config/config.kvmopen.c"
+ _ACEOF
+ if ac_fn_c_try_run "$LINENO"
+ then :
+diff -ruN a/configure.ac b/configure.ac
+--- a/configure.ac
++++ b/configure.ac
+@@ -2973,7 +2973,7 @@
+ if test "$ac_cv_lib_kvm_kvm_getenvv" = yes; then
+   AC_MSG_CHECKING(if we can access kernel memory)
+   AC_RUN_IFELSE(
+-	[AC_LANG_SOURCE[[#include "$srcdir/config/config.kvmopen.c"]])],
++	[AC_LANG_SOURCE([[#include "$srcdir/config/config.kvmopen.c"]])],
+ 	[have_kvm_env=1],
+ 	[have_kvm_env=0],
+ 	[have_kvm_env="$cross_have_kvm_env"])

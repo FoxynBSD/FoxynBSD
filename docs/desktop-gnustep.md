@@ -1,0 +1,98 @@
+# GNUstep from the pinned sources
+
+`tools/desktop/build-gnustep.sh` builds the GNUstep runtime that the
+Gershwin desktop uses from the revisions pinned by the `contrib/gnustep-*`
+submodules, instead of DPorts' older packages (Base 1.29, GUI 0.31).
+`foxyn-desktop(8)` runs it by default (`-g source`); `build.sh desktop`
+puts the helper and its patches in the image's
+`/usr/share/foxynbsd/desktop`.
+
+| Component | Submodule | Revision | Version |
+| --- | --- | --- | --- |
+| GNUstep Make | `contrib/gnustep-make` | `4e31a0310df5f0aa96ccd816d3b626e67c36f535` | 2.9.3 + 59 |
+| libobjc2 | `contrib/gnustep-objc2` | `c9f4002ade04d755f2a0e6c83daf2738dca03759` | 2.2 + 82 (`libobjc.so.4.6`) |
+| GNUstep Base | `contrib/gnustep-base` | `5bda52220a6d67382c9851cdfd91d459bfd2b489` | 1.31.1 + 652 |
+| GNUstep GUI | `contrib/gnustep-gui` | `8f804fd520c60800961e0bee072066f4bbadca94` | 0.32.0 + 1294 |
+| GNUstep Back | `contrib/gnustep-back` | `bbcc3de7cab63b6e65944edf02f2bbef9d8a7bbd` | 0.32.0 + 114 (Cairo) |
+
+The guest has no copy of the source tree, so the helper downloads each
+revision's GitHub archive and checks its SHA-256 (recorded in the script).
+On the build host, each archive's contents were compared with the
+submodule's checkout and were identical. libobjc2 also needs robin-map
+v1.4.0 (MIT), which its CMake build would clone with git; the helper uses
+that tag's archive, also checksummed. DPorts has robin-map 1.3.0.
+
+## Layout and linking
+
+GNUstep Make is configured with `--with-layout=gershwin`: everything is
+under `/System` (`/System/Library/Libraries`, `/System/Library/Headers`,
+`/System/Library/Makefiles`, `/System/Applications`), and the
+configuration file is `/System/Library/Preferences/GNUstep.conf`. The
+libraries install in the System domain. Make is configured twice, before
+and after libobjc2, so that it records libobjc2's runtime: the library
+combo is `ng-gnu-gnu`, with the `gnustep-2.2` ABI, native exceptions and
+ARC.
+
+Everything is compiled with DPorts' `clang19` and linked with its lld.
+With GNU gold, libobjc2 got two `DT_INIT_ARRAY` entries and programs
+aborted at exit in `__deregister_frame_info_bases` (see
+[desktop-eau.md](desktop-eau.md)). The libraries and every program built
+with this GNUstep Make get a runpath of `/System/Library/Libraries`
+(GNUstep Make records the `LDFLAGS`), so they load without `GNUstep.sh`'s
+`LD_LIBRARY_PATH`.
+
+DPorts' GNUstep cannot be installed at the same time: its libobjc2 has
+the same library name, `libobjc.so.4.6`, and its headers in
+`/usr/local/include/objc` would be used before the new ones. The helper
+and `foxyn-desktop -g source` refuse to run when DPorts' `libobjc2` is
+installed.
+
+## FoxynBSD changes
+
+Two patches are applied to GNUstep Base, from `tools/desktop/patches`:
+
+- `gnustep-base-dragonfly-uuid.txt`: on DragonFly, `<sys/statvfs.h>`,
+  `<sys/mount.h>` and `<sys/user.h>` include `<sys/uuid.h>`, whose
+  `uuid_t` conflicts with `NSUUID.h`'s once it renames `uuid_t`; including
+  it first avoids that.
+- `gnustep-base-kvm-configure.txt`: configure's kernel-memory test has a
+  missing parenthesis and never compiles, so every system without procfs
+  falls back to `GS_FAKE_MAIN`; then a `+load` method that reaches
+  `NSProcessInfo` before `main()` aborts (Gershwin Workspace). With the
+  test fixed, DragonFly's libkvm provides the arguments.
+
+Both are small changes to the upstream sources that should go upstream.
+Make, libobjc2, GUI and Back build unmodified.
+
+## Licenses
+
+GNUstep Make is GPL; Base, GUI and Back are LGPL with GPL parts (see
+`COPYING` and `COPYING.LIB` in each); libobjc2 and robin-map are MIT.
+These are the source trees' notices, not a file-level audit. The build
+uses DPorts' libraries (libxml2, libxslt, libffi, GnuTLS, ICU, Cairo,
+libXft, libjpeg, libtiff, ...), which are not part of the base.
+
+## Test, 2026-11-10
+
+QEMU with KVM, OVMF, `-vga std`, kernel and world from `69d12dacac`, on a
+copy of the `build.sh desktop` image with DPorts' GNUstep removed. As the
+unprivileged user `foxyn`, the helper built and installed everything in
+`/System` (41 MB), reporting `installed in /System (ng-gnu-gnu)`. Then
+`foxyn-desktop -g source` built WindowManager and TextEdit against it;
+`ldd` shows `libgnustep-gui.so.0.32.0`, `libgnustep-base.so.1.31.1` and
+`libobjc.so.4.6` from `/System/Library/Libraries`. The session started by
+`service foxyn_desktop start` ran WindowManager, TextEdit (window
+`UNTITLED`) and an xterm as `foxyn`, and the desktop-session test passed,
+including the stop. This tests startup only: no input, theme, Workspace,
+Menu, XLibre or physical hardware.
+
+The whole path was then run from a new image on the Linux host:
+`build.sh rootfs`, then `build.sh desktop` with the SJTU DPorts mirror. In
+about 15 minutes, `foxyn-desktop` reported `installed GNUstep in /System`,
+WindowManager and TextEdit in `/System/Applications`. On the next boot,
+`boot-test.sh --desktop` passed: WindowManager, xterm and TextEdit ran as
+`foxyn`, the `Terminal` and `UNTITLED` windows were mapped, X rejected a
+client without the cookie, and `service foxyn_desktop stop` ended X and
+the user's processes. The sessions log `Failed to get _NET_WORKAREA`
+and `gdnc - unable to register with name server`; their causes were not
+investigated.

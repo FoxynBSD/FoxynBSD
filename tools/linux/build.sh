@@ -22,8 +22,8 @@
 #					 writable UFS disk; DISK_SIZE=4G;
 #					 DISK_ROOTFS selects an existing root tree)
 #	tools/linux/build.sh desktop		(desktop.img: a disk on which
-#					 foxyn-desktop installed X and GNUstep
-#					 from DPorts; needs the internet and
+#					 foxyn-desktop installed X (DPorts) and
+#					 GNUstep (source); needs the internet and
 #					 QEMU; DESKTOP_SIZE=8G; boot it with
 #					 qemu.sh --desktop)
 #	tools/linux/build.sh world		(the whole userland, buildworld
@@ -1452,11 +1452,17 @@ do_rootfs() {
 	install -m 555 "$SRCDIR/tools/linux/foxyn-install" "$root/usr/sbin/foxyn-install"
 	install -m 555 "$SRCDIR/tools/linux/foxyn-desktop" "$root/usr/sbin/foxyn-desktop"
 	install -m 755 "$SRCDIR/tools/linux/tests/desktop-session.sh" "$root/root/tests/desktop-session"
-	# What foxyn-desktop builds Gershwin's WindowManager with.
+	# What foxyn-desktop builds GNUstep (contrib/gnustep-*'s revisions)
+	# and Gershwin's WindowManager and TextEdit with.
 	mkdir -p "$root/usr/share/foxynbsd/desktop/patches"
-	install -m 444 "$SRCDIR/tools/desktop/build-windowmanager.sh" "$root/usr/share/foxynbsd/desktop/"
+	install -m 444 "$SRCDIR/tools/desktop/build-gnustep.sh" \
+	    "$SRCDIR/tools/desktop/build-windowmanager.sh" \
+	    "$SRCDIR/tools/desktop/build-textedit.sh" "$root/usr/share/foxynbsd/desktop/"
 	install -m 444 "$SRCDIR/tools/desktop/patches/windowmanager-titlebar-state.txt" \
-	    "$SRCDIR/tools/desktop/patches/windowmanager-LICENSE" "$root/usr/share/foxynbsd/desktop/patches/"
+	    "$SRCDIR/tools/desktop/patches/windowmanager-LICENSE" \
+	    "$SRCDIR/tools/desktop/patches/gnustep-base-dragonfly-uuid.txt" \
+	    "$SRCDIR/tools/desktop/patches/gnustep-base-kvm-configure.txt" \
+	    "$root/usr/share/foxynbsd/desktop/patches/"
 	# Copy the shared libraries, following NEEDED entries to a fixpoint
 	# (not for /boot: the kernel and its modules do not load them).
 	# They are looked up where rtld looks: the standard directories and
@@ -1662,8 +1668,9 @@ EOF
 }
 
 # The interim graphical desktop (issue #13): a new disk image, booted
-# once in QEMU to run foxyn-desktop(8) on it, which installs X, GNUstep
-# and a session from DPorts and enables the foxyn_desktop rc.d service.
+# once in QEMU to run foxyn-desktop(8) on it, which installs X from
+# DPorts, builds GNUstep from contrib/gnustep-*'s revisions and a
+# Gershwin session, and enables the foxyn_desktop rc.d service.
 # DESKTOP_IMG names the image (default $OBJDIR/desktop.img); a failed
 # run leaves the previous image alone.  DPORTS_MIRROR picks the mirror.
 do_desktop() {

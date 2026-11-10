@@ -1,8 +1,9 @@
 #!/bin/sh
 # The desktop that foxyn-desktop(8) installed (boot-test.sh --desktop).
 #	wait	wait for the session that rc.d started at boot: X, a window
-#		manager (WindowManager or twm), an xterm and Sudoku's window,
-#		all clients as the desktop user
+#		manager (WindowManager or twm), an xterm and the GNUstep
+#		application's window (TextEdit's with GNUstep from source in
+#		/System, else Sudoku's), all clients as the desktop user
 #	stop	`service foxyn_desktop stop` ends the session and X
 ok=1
 fail() { echo "desktop-session: FAIL $*"; ok=0; }
@@ -10,12 +11,17 @@ user=$(sed -n 's/^foxyn_desktop_user="\(.*\)"$/\1/p' /etc/rc.conf | tail -n 1)
 [ -n "$user" ] || { echo "desktop-session: FAIL foxyn_desktop_user is not set"; exit 1; }
 uid=$(id -u "$user") || exit 1
 export DISPLAY=:0 XAUTHORITY=
+if [ -x /System/Applications/TextEdit.app/TextEdit ]; then
+	app=TextEdit appwin=UNTITLED
+else
+	app=Sudoku appwin=Sudoku
+fi
 case ${1:-} in
 wait)
 	i=0
 	while [ "$i" -lt 90 ]; do
 		XAUTHORITY=$(cat /var/run/foxyn-session.xauthority 2>/dev/null)
-		xwininfo -root -tree 2>/dev/null | grep -q '"Sudoku"' &&
+		xwininfo -root -tree 2>/dev/null | grep -q "\"$appwin\"" &&
 		    xwininfo -root -tree | grep -q '"Terminal"' && break
 		sleep 2; i=$((i + 1))
 	done
@@ -28,7 +34,7 @@ wait)
 	else
 		fail "no window manager runs as $user"
 	fi
-	for p in xterm Sudoku; do
+	for p in xterm "$app"; do
 		if pgrep -u "$uid" -x "$p" >/dev/null; then
 			echo "desktop-session: $p runs as $user"
 		else
@@ -36,7 +42,7 @@ wait)
 		fi
 	done
 	pgrep -u 0 -x Xorg >/dev/null || fail "Xorg is not running"
-	for w in Terminal Sudoku; do
+	for w in Terminal "$appwin"; do
 		xwininfo -root -tree | grep -q "\"$w\"" &&
 		    echo "desktop-session: window \"$w\" is mapped" ||
 		    fail "no \"$w\" window"

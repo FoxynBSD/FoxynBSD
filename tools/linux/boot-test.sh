@@ -15,7 +15,8 @@
 # --bsdinstaller logs in as "installer" instead and passes when the BSD
 # Installer shows its welcome screen (the image with the world has it).
 # --desktop-setup boots a disk ($DISK) with a VGA card, logs in, runs
-# foxyn-desktop(8) on it (X and GNUstep from DPorts: needs the internet)
+# foxyn-desktop(8) on it (X from DPorts, GNUstep built from the pinned
+# sources: needs the internet)
 # and powers off; `build.sh desktop` uses it.  --desktop boots the result
 # ($OBJDIR/desktop.img by default), checks that the session started at
 # boot (X, twm, an xterm and a GNUstep window, as the desktop user),
@@ -46,6 +47,8 @@
 #			how long and at what frequency it sounded
 #	DISK		disk for --disk and --desktop-setup (default
 #			$OBJDIR/disk.img; --desktop: $OBJDIR/desktop.img)
+#	DESKTOP_GNUSTEP	source (default) or dports: foxyn-desktop -g, where
+#			--desktop-setup's GNUstep comes from
 #	DPORTS_MIRROR	DPorts mirror for audio-check and --desktop-setup
 #			(default: pkg's), e.g.
 #			https://mirror.sjtu.edu.cn/dragonflybsd/dports
@@ -236,9 +239,10 @@ fi
 
 # --desktop-setup: install the desktop (foxyn-desktop: lines, dsetup-42).
 if [ "$result" -eq 0 ] && [ "$MODE" = desktopsetup ]; then
-	printf "sh -c 'foxyn-desktop -y ${DPORTS_MIRROR:+-m $DPORTS_MIRROR}; echo dsetup-\$((6*7)): \$?'\r" >&3
+	printf "sh -c 'foxyn-desktop -y -g ${DESKTOP_GNUSTEP:-source} ${DPORTS_MIRROR:+-m $DPORTS_MIRROR}; echo dsetup-\$((6*7)): \$?'\r" >&3
+	# Up to 90 minutes: building GNUstep from source takes most of it.
 	tries=0
-	while [ "$tries" -lt 360 ] && ! grep -aq '^dsetup-42:' "$LOG"; do
+	while [ "$tries" -lt 1080 ] && ! grep -aq '^dsetup-42:' "$LOG"; do
 		sleep 5
 		tries=$((tries + 1))
 	done

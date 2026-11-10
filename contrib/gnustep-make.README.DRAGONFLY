@@ -6,9 +6,12 @@ tag    = none: pinned to the revision listed by Gershwin Developer corelibs (202
 commit = 4e31a0310df5f0aa96ccd816d3b626e67c36f535
 date   = 2026-07-22
 
-This submodule is currently source-only: it is not built, installed, or
-validated as part of FoxynBSD. Keep generated files and future build output
-outside the submodule. No bundled code is selected for the base yet.
+This revision is built by tools/desktop/build-gnustep.sh, which
+foxyn-desktop(8) runs on the desktop image (tools/linux/build.sh desktop):
+it downloads the revision's archive, checks its SHA-256 and installs in
+/System (Gershwin layout). It is not part of buildworld. Keep generated
+files and build output outside the submodule; see docs/desktop-gnustep.md.
+When upgrading, update the revision and checksum in build-gnustep.sh too.
 
 License: GPL; see COPYING and README. These are source-tree notices, not a
 completed file-level distribution audit. Check third-party code and assets,

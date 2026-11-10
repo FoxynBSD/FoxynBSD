@@ -3,9 +3,15 @@
 # foxyn-desktop: install the interim FoxynBSD graphical desktop from DPorts
 # on a writable root, and start it at boot (issue #13).
 #
-# Usage: foxyn-desktop [-y] [-m mirror] [-u user] [-w gershwin|twm]
+# Usage: foxyn-desktop [-y] [-g source|dports] [-m mirror] [-u user]
+#		[-w gershwin|twm]
 #
 #	-y	do not ask for confirmation
+#	-g	where GNUstep comes from: source (default) builds Make,
+#		libobjc2, Base, GUI and Back from the revisions pinned by
+#		contrib/gnustep-* (build-gnustep.sh, as the desktop user)
+#		and installs them in /System, Gershwin's layout; dports
+#		installs DPorts' older GNUstep in /usr/local/GNUstep.
 #	-m	DPorts mirror URL instead of pkg's default, e.g.
 #		https://mirror.sjtu.edu.cn/dragonflybsd/dports
 #	-u	the desktop user (default: foxyn); created without a password
@@ -13,7 +19,7 @@
 #	-w	the window manager: gershwin (default) builds Gershwin's
 #		WindowManager from its pinned source as the desktop user
 #		(build-windowmanager.sh, with the llvm19 compiler from
-#		DPorts) and installs it in /usr/local/GNUstep/Local; twm
+#		DPorts) and installs it with GNUstep's applications; twm
 #		skips that.  twm is installed either way, and the session
 #		falls back to it when WindowManager is missing.
 #
@@ -35,9 +41,11 @@ user=foxyn
 mirror=
 yes=0
 wm=gershwin
-usage="usage: foxyn-desktop [-y] [-m mirror] [-u user] [-w gershwin|twm]"
-while getopts m:u:w:y opt; do
+gnustep=source
+usage="usage: foxyn-desktop [-y] [-g source|dports] [-m mirror] [-u user] [-w gershwin|twm]"
+while getopts g:m:u:w:y opt; do
 	case $opt in
+	g)	gnustep=$OPTARG ;;
 	m)	mirror=$OPTARG ;;
 	u)	user=$OPTARG ;;
 	w)	wm=$OPTARG ;;
@@ -48,7 +56,9 @@ done
 shift $((OPTIND - 1))
 [ $# -eq 0 ] || { echo "$usage" >&2; exit 2; }
 case $wm in gershwin|twm) ;; *) echo "$usage" >&2; exit 2 ;; esac
-# build-windowmanager.sh and its patch, installed by tools/linux/build.sh.
+case $gnustep in source|dports) ;; *) echo "$usage" >&2; exit 2 ;; esac
+# The build-*.sh helpers and their patches, installed by
+# tools/linux/build.sh.
 share=/usr/share/foxynbsd/desktop
 
 say() { echo "foxyn-desktop: $*"; }
@@ -79,8 +89,26 @@ if [ -n "$mirror" ]; then
 	pkg update -f >> "$log" 2>&1 || die "pkg update failed (see $log)"
 fi
 pkgs="xorg-minimal xf86-video-scfb xf86-input-libinput dejavu font-misc-misc
-    font-alias xauth xinput
-    xwininfo xsetroot xterm twm gnustep gnustep-sudoku"
+    font-alias xauth xinput xwininfo xsetroot xterm twm"
+if [ "$gnustep" = dports ]; then
+	pkgs="$pkgs gnustep gnustep-sudoku"
+	gsroot=/usr/local/GNUstep
+	apps=$gsroot/Local/Applications
+else
+	# What GNUstep Make, Base, GUI and Back build and link with (DPorts'
+	# GNUstep's dependencies), and the compiler.
+	pkgs="$pkgs gmake llvm19 pkgconf cmake-core ninja libxml2 libxslt
+	    libffi gnutls icu curl avahi-app gmp libgcrypt cups giflib
+	    jpeg-turbo png tiff libsndfile libao flite cairo fontconfig
+	    freetype2 libXcursor libXext libXfixes libXft libXmu libXrender
+	    libXt libglvnd"
+	gsroot=
+	apps=/System/Applications
+	# Its libraries have DPorts' names (libobjc.so.4.6): not both.
+	pkg info -e libobjc2 &&
+	    die "DPorts' GNUstep is installed: pkg delete libobjc2, or use -g dports"
+fi
+gnustep_sh=$gsroot/System/Library/Makefiles/GNUstep.sh
 [ "$wm" = gershwin ] && pkgs="$pkgs gmake llvm19 pkgconf xcb-util xcb-util-wm
     xcb-util-cursor"
 say "installing $(echo $pkgs)"
@@ -101,36 +129,83 @@ fi
 home=$(pw usershow "$user" | cut -d: -f9)
 [ -d "$home" ] || die "$user has no home directory: $home"
 
-# Gershwin's WindowManager: compiled by the desktop user (not root) in a
-# directory of their own, then installed root-owned for every user.
-wmapp=/usr/local/GNUstep/Local/Applications/WindowManager.app
+# build_as WHAT SCRIPT ARGS: run a build helper as the desktop user (not
+# root) in a directory of their own.  su -m runs the command with root's
+# shell, csh on the full image.
+build_as()
+{
+	what=$1; shift
+	say "building $what as $user"
+	su -m "$user" -c "cd '$work' && env HOME='$home' GNUSTEP_SH='$gnustep_sh' sh $*" \
+	    >> "$log" 2>&1 || { tail -n 5 "$log" >&2; rm -rf "$work"
+		die "$what build failed (see $log)"; }
+}
+# install_app BUNDLE: install a bundle built in $work root-owned in $apps.
+install_app()
+{
+	mkdir -p "$apps"
+	rm -rf "${apps:?}/$1"
+	cp -R "$work/$1" "$apps/$1"
+	chown -R root:wheel "$apps/$1"
+	chmod -R go-w "$apps/$1"
+	say "installed $apps/$1"
+}
+
+# GNUstep from the pinned sources, built in /System as the desktop user,
+# which then becomes root's.
+if [ "$gnustep" = source ] && [ ! -e /System/Library/Libraries/libgnustep-gui.so ]; then
+	[ -r "$share/build-gnustep.sh" ] || die "$share/build-gnustep.sh is missing"
+	mkdir -p /System
+	chown "$user" /System
+	work=$(mktemp -d /tmp/foxyn-gnustep.XXXXXXXX) || die "mktemp failed"
+	chown "$user" "$work"
+	su -m "$user" -c "cd '$work' && env HOME='$home' TMPDIR='$work' sh '$share/build-gnustep.sh'" \
+	    >> "$log" 2>&1 || { tail -n 5 "$log" >&2; chown root:wheel /System
+		rm -rf "$work"; die "GNUstep build failed (see $log)"; }
+	chown -R root:wheel /System
+	chmod -R go-w /System
+	rm -rf "$work"
+	say "installed GNUstep in /System"
+fi
+
+# Gershwin's WindowManager, and (with GNUstep from source, which has no
+# Sudoku) TextEdit as the session's first application.
+wmapp=$apps/WindowManager.app
 if [ "$wm" = gershwin ] && [ ! -x "$wmapp/WindowManager" ]; then
 	[ -r "$share/build-windowmanager.sh" ] ||
 	    die "$share/build-windowmanager.sh is missing"
-	say "building Gershwin WindowManager as $user"
 	work=$(mktemp -d /tmp/foxyn-wm.XXXXXXXX) || die "mktemp failed"
 	chown "$user" "$work"
-	# su -m runs the command with root's shell, csh on the full image.
-	su -m "$user" -c "cd '$work' && env HOME='$home' sh '$share/build-windowmanager.sh' '$work/WindowManager.app'" \
-	    >> "$log" 2>&1 || { tail -n 5 "$log" >&2; rm -rf "$work"
-		die "WindowManager build failed (see $log)"; }
-	mkdir -p "${wmapp%/*}"
-	rm -rf "$wmapp"
-	cp -R "$work/WindowManager.app" "$wmapp"
-	chown -R root:wheel "$wmapp"
-	chmod -R go-w "$wmapp"
+	build_as "Gershwin WindowManager" "'$share/build-windowmanager.sh' '$work/WindowManager.app'"
+	install_app WindowManager.app
 	rm -rf "$work"
-	say "installed $wmapp"
+fi
+if [ "$gnustep" = source ] && [ ! -x "$apps/TextEdit.app/TextEdit" ]; then
+	[ -r "$share/build-textedit.sh" ] || die "$share/build-textedit.sh is missing"
+	work=$(mktemp -d /tmp/foxyn-te.XXXXXXXX) || die "mktemp failed"
+	chown "$user" "$work"
+	build_as "Gershwin TextEdit" "'$share/build-textedit.sh' '$work/TextEdit.app'"
+	install_app TextEdit.app
+	rm -rf "$work"
 fi
 if [ ! -e "$home/.xsession" ]; then
 	cat > "$home/.xsession" <<'EOF'
 #!/bin/sh
 # The FoxynBSD interim desktop session (foxyn-desktop(8)); the session
 # ends when the window manager does: Gershwin's WindowManager when it is
-# installed, else twm (its menu: Log out).
-. /usr/local/GNUstep/System/Library/Makefiles/GNUstep.sh
+# installed, else twm (its menu: Log out).  GNUstep is in /System when
+# built from source (foxyn-desktop -g source), else DPorts'.
+if [ -r /System/Library/Makefiles/GNUstep.sh ]; then
+	gs=/System/Library/Makefiles/GNUstep.sh apps=/System/Applications
+	app=$apps/TextEdit.app/TextEdit
+else
+	gs=/usr/local/GNUstep/System/Library/Makefiles/GNUstep.sh
+	apps=/usr/local/GNUstep/Local/Applications
+	app=/usr/local/GNUstep/System/Applications/Sudoku.app/Sudoku
+fi
+. "$gs"
 xsetroot -solid '#3a6ea5'
-cat > "$HOME/.twmrc" <<'TWM'
+cat > "$HOME/.twmrc" <<TWM
 BorderWidth 2
 TitleFont "-misc-fixed-bold-r-normal--13-*-*-*-*-*-iso8859-1"
 MenuFont "-misc-fixed-medium-r-normal--13-*-*-*-*-*-iso8859-1"
@@ -140,14 +215,14 @@ Button1 = : root : f.menu "FoxynBSD"
 menu "FoxynBSD" {
 	"FoxynBSD"	f.title
 	"Terminal"	f.exec "exec xterm -fa 'DejaVu Sans Mono' -fs 11 &"
-	"Sudoku"	f.exec "exec /usr/local/GNUstep/System/Applications/Sudoku.app/Sudoku &"
+	"GNUstep"	f.exec "exec $app &"
 	""		f.nop
 	"Log out"	f.quit
 }
 TWM
 # The window manager first: clients mapped before it starts are not
 # redrawn when twm reparents them.  -dc: no compositing (no GL here).
-wmapp=/usr/local/GNUstep/Local/Applications/WindowManager.app
+wmapp=$apps/WindowManager.app
 if [ -x "$wmapp/WindowManager" ]; then
 	"$wmapp/WindowManager" -dc &
 else
@@ -155,7 +230,7 @@ else
 fi
 wm=$!
 sleep 1
-/usr/local/GNUstep/System/Applications/Sudoku.app/Sudoku &
+"$app" &
 # An xterm mapped while the GNUstep application starts stays blank (seen
 # under QEMU with scfb; cause not found): start it a little later.
 sleep 3

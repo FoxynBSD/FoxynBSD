@@ -4,7 +4,9 @@ set -eu
 
 revision=f7dc768641c1a23609cfb53e6cf17c2ea7f0c898
 sha256=be7aae93a9eb9e6f0697ef58d0ee4359681c4a935ce421eb1b622c3c0cca0b5b
-makefiles=/usr/local/GNUstep/System/Library/Makefiles/GNUstep.sh
+# The GNUstep to build with: GNUstep.sh of DPorts' GNUstep by default,
+# /System/Library/Makefiles/GNUstep.sh for build-gnustep.sh's.
+makefiles=${GNUSTEP_SH:-/usr/local/GNUstep/System/Library/Makefiles/GNUstep.sh}
 output=${1:-./TextEdit.app}
 
 [ "$#" -le 1 ] || { echo "usage: $0 [output-bundle]" >&2; exit 1; }

@@ -4,7 +4,9 @@ set -eu
 
 revision=10b6797a3bfd391d559820232805f1a107fa9ec3
 sha256=9ad4d8061faed0a9df8da9dbe6140f810f81ba93347ad6e6333ad691996cfa40
-makefiles=/usr/local/GNUstep/System/Library/Makefiles/GNUstep.sh
+# The GNUstep to build with: GNUstep.sh of DPorts' GNUstep by default,
+# /System/Library/Makefiles/GNUstep.sh for build-gnustep.sh's.
+makefiles=${GNUSTEP_SH:-/usr/local/GNUstep/System/Library/Makefiles/GNUstep.sh}
 script_dir=$(CDPATH= cd -- "$(dirname "$0")" && pwd)
 output=${1:-./WindowManager.app}
 patch_file=$script_dir/patches/windowmanager-titlebar-state.txt

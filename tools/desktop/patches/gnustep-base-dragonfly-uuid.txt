@@ -1,0 +1,18 @@
+On DragonFly, <sys/statvfs.h>, <sys/mount.h> and <sys/user.h> include
+<sys/uuid.h>, whose "typedef struct uuid uuid_t" becomes a conflicting
+typedef of gsuuid_t once the macro below is defined.  Include it first:
+its guard then keeps it from being read again after the macro.
+
+--- a/Headers/Foundation/NSUUID.h
++++ b/Headers/Foundation/NSUUID.h
+@@ -35,6 +35,10 @@
+ 
+ typedef uint8_t gsuuid_t[16];
+ 
++#if	defined(__DragonFly__)
++#include	<sys/uuid.h>
++#endif
++
+ #if	defined(uuid_t)
+ #undef	uuid_t
+ #endif
