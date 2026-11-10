@@ -1,0 +1,19 @@
+GNUstep Objective-C runtime
+===========================
+
+url    = https://github.com/gnustep/libobjc2.git
+tag    = none: pinned to the revision listed by Gershwin Developer corelibs (2026-07-26 pins)
+commit = c9f4002ade04d755f2a0e6c83daf2738dca03759
+date   = 2026-07-26
+
+This submodule is currently source-only: it is not built, installed, or
+validated as part of FoxynBSD. Keep generated files and future build output
+outside the submodule. No bundled code is selected for the base yet.
+
+License: MIT; see COPYING and per-file notices. These are source-tree notices, not a
+completed file-level distribution audit. Check third-party code and assets,
+preserve applicable notices and satisfy source obligations before shipping.
+
+When upgrading, review GNUstep ABI, build order, compatible Gershwin
+revisions, portability changes and license notices; run the desktop build
+and runtime tests against the complete selected set.

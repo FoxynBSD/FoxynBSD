@@ -1,0 +1,19 @@
+GNUstep backend
+===============
+
+url    = https://github.com/gnustep/libs-back.git
+tag    = none: pinned to the revision listed by Gershwin Developer corelibs (2026-07-26 pins)
+commit = bbcc3de7cab63b6e65944edf02f2bbef9d8a7bbd
+date   = 2026-07-24
+
+This submodule is currently source-only: it is not built, installed, or
+validated as part of FoxynBSD. Keep generated files and future build output
+outside the submodule. No bundled code is selected for the base yet.
+
+License: LGPL and GPL components; see COPYING.LIB and COPYING. These are source-tree notices, not a
+completed file-level distribution audit. Check third-party code and assets,
+preserve applicable notices and satisfy source obligations before shipping.
+
+When upgrading, review GNUstep ABI, build order, compatible Gershwin
+revisions, portability changes and license notices; run the desktop build
+and runtime tests against the complete selected set.

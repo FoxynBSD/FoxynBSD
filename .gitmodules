@@ -2,3 +2,23 @@
 	path = contrib/cronie
 	url = https://github.com/cronie-crond/cronie.git
 	shallow = true
+[submodule "contrib/gnustep-make"]
+	path = contrib/gnustep-make
+	url = https://github.com/gnustep/tools-make.git
+	shallow = true
+[submodule "contrib/gnustep-objc2"]
+	path = contrib/gnustep-objc2
+	url = https://github.com/gnustep/libobjc2.git
+	shallow = true
+[submodule "contrib/gnustep-base"]
+	path = contrib/gnustep-base
+	url = https://github.com/gnustep/libs-base.git
+	shallow = true
+[submodule "contrib/gnustep-gui"]
+	path = contrib/gnustep-gui
+	url = https://github.com/gnustep/libs-gui.git
+	shallow = true
+[submodule "contrib/gnustep-back"]
+	path = contrib/gnustep-back
+	url = https://github.com/gnustep/libs-back.git
+	shallow = true
