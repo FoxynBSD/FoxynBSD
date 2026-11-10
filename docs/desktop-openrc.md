@@ -51,6 +51,74 @@ and started both again, in that order (the services' own log). Stopping
 with `Call to flock failed: Resource temporarily unavailable`: OpenRC's
 lock on the service, held by the restart.
 
-Not done yet: no FoxynBSD service is managed by OpenRC, nothing starts a
-runlevel at boot, and there is no migration or rollback between rc.d
-and OpenRC. `foxyn-desktop` does not build OpenRC yet.
+## The desktop's services under OpenRC
+
+`foxyn-desktop -o` (with GNUstep from source, not with `-l`) builds
+OpenRC with `build-openrc.sh` as the desktop user and installs the
+root-owned staged files (files only: the system's directories keep
+their owners and modes). DragonFly's init and rc.d still boot the
+system: the links OpenRC installs in its own `sysinit`, `boot`,
+`default` and `nonetwork` runlevels (file systems, network, syslogd and
+so on, which rc.d already runs) are removed. `foxyn-desktop` then adds:
+
+- `/usr/local/etc/init.d/dbus`: DPorts' D-Bus system bus.
+- `/usr/local/etc/init.d/foxyn-desktop`: the session that the rc.d
+  service `foxyn_desktop` otherwise runs (`foxyn-session`: XLibre with a
+  fresh cookie, then the user's `~/.xsession`), with `need dbus`; the
+  user is in `/usr/local/etc/conf.d/foxyn-desktop`. Stopping it ends the
+  session as Log Out does.
+- the runlevel `desktop` with both, and an empty runlevel `off`;
+- the rc.d service `foxyn_openrc` (`REQUIRE: LOGIN devd`), enabled in
+  `rc.conf` instead of `foxyn_desktop`. At boot it mounts a tmpfs on
+  OpenRC's state directory (`/usr/local/libexec/rc/init.d`, on disk
+  otherwise: the state from before a reboot would say the services are
+  still started), as OpenRC's own BSD `sysinit` does, and runs
+  `openrc desktop`. `service foxyn_openrc stop` (also at shutdown) runs
+  `openrc off`, which stops the services in reverse order.
+
+Rollback: run `foxyn-desktop` again without `-o`; it sets
+`foxyn_desktop_enable` and removes `foxyn_openrc_enable` from
+`rc.conf` (by hand: `foxyn_openrc_enable=NO`,
+`foxyn_desktop_enable=YES`). OpenRC stays installed but unused.
+
+## Test of the desktop runlevel, 2026-11-10
+
+Same QEMU setup, on the test VM above after removing the test services;
+`boot-test.sh --desktop` gained `DESKTOP_OPENRC=1` (setup with `-o`), and
+`desktop-session` checks OpenRC's runlevel when `foxyn_openrc` is
+enabled.
+
+- `foxyn-desktop -y -o` built and installed OpenRC and enabled
+  `foxyn_openrc`.
+- Boot: `Starting OpenRC runlevel desktop.`, `Caching service
+  dependencies`, `Starting dbus ... [ ok ]`, `Starting foxyn-desktop ...
+  [ ok ]`, then the console login; the tmpfs was mounted on the state
+  directory.
+- `service foxyn_openrc stop` stopped `foxyn-desktop`, then `dbus`;
+  `start` started them in the other order, and `desktop-session wait`
+  passed: XLibre, WindowManager, Menu, Workspace, `gershwin-session`,
+  TextEdit and xterm as `foxyn`, a client without the cookie rejected.
+- `desktop-session stop` (Log Out, then `service foxyn_openrc stop`):
+  X, the user's processes and the system bus were gone.
+- Recovery: with an X configuration that stops the server, the system
+  booted to the console login; `rc-status` showed `dbus` started and
+  `foxyn-desktop` crashed, and `foxyn-session.log` said `X did not
+  start`. After removing the file, `rc-service foxyn-desktop restart`
+  from the console started the desktop.
+- Rollback: `foxyn-desktop -y` without `-o`, then a reboot: rc.d's
+  `foxyn_desktop` ran the session (`desktop-session wait` passed), and
+  OpenRC's services stayed stopped, with no system bus.
+
+- End to end: `DESKTOP_OPENRC=1 build.sh desktop`, then `boot-test.sh
+  --desktop`, passed: on the fresh image the boot started `dbus` and
+  `foxyn-desktop` from the `desktop` runlevel, the session check passed,
+  and Log Out then `service foxyn_openrc stop` left no X, no user
+  processes and no system bus. (The first such run found that the
+  empty runlevel directories were not installed; `foxyn-desktop` now
+  creates the staged directories that are missing.)
+
+Limits: after Log Out (or a session that ends by itself) OpenRC shows
+`foxyn-desktop` as crashed, since its process exited without OpenRC
+stopping it; the console remains and `rc-service foxyn-desktop restart`
+starts a new session. LoginWindow (`-l`) still runs from rc.d only. Not
+tested on physical hardware.

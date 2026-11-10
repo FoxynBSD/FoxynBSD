@@ -51,6 +51,8 @@
 #			(desktop-session login); not reliable yet
 #	DESKTOP_GNUSTEP	source (default) or dports: foxyn-desktop -g, where
 #			--desktop-setup's GNUstep comes from
+#	DESKTOP_OPENRC	1: --desktop-setup runs foxyn-desktop -o (the session
+#			from OpenRC's desktop runlevel)
 #	DPORTS_MIRROR	DPorts mirror for audio-check and --desktop-setup
 #			(default: pkg's), e.g.
 #			https://mirror.sjtu.edu.cn/dragonflybsd/dports
@@ -241,7 +243,9 @@ fi
 
 # --desktop-setup: install the desktop (foxyn-desktop: lines, dsetup-42).
 if [ "$result" -eq 0 ] && [ "$MODE" = desktopsetup ]; then
-	printf "sh -c 'foxyn-desktop -y -g ${DESKTOP_GNUSTEP:-source} ${DPORTS_MIRROR:+-m $DPORTS_MIRROR}; echo dsetup-\$((6*7)): \$?'\r" >&3
+	orc=
+	[ "${DESKTOP_OPENRC:-0}" = 1 ] && orc=" -o"
+	printf "sh -c 'foxyn-desktop -y -g ${DESKTOP_GNUSTEP:-source} ${DPORTS_MIRROR:+-m $DPORTS_MIRROR}$orc; echo dsetup-\$((6*7)): \$?'\r" >&3
 	# Up to 90 minutes: building GNUstep from source takes most of it.
 	tries=0
 	while [ "$tries" -lt 1080 ] && ! grep -aq '^dsetup-42:' "$LOG"; do

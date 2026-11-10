@@ -1,6 +1,7 @@
 #!/bin/sh
 # The desktop that foxyn-desktop(8) installed (boot-test.sh --desktop).
-#	wait	wait for the session that rc.d started at boot: X, a window
+#	wait	wait for the session that rc.d (foxyn_desktop) or OpenRC
+#		(foxyn_openrc, foxyn-desktop -o) started at boot: X, a window
 #		manager (WindowManager or twm), an xterm and the GNUstep
 #		application's window (TextEdit's with GNUstep from source in
 #		/System, else Sudoku's) and Gershwin's Menu when installed,
@@ -8,7 +9,8 @@
 #	stop	end the session: as Menu's Log Out does, SIGTERM to the
 #		user's gershwin-session when it runs, else `service
 #		foxyn_desktop stop`; X, the service and the user's
-#		processes must be gone
+#		processes must be gone; with OpenRC, then `service
+#		foxyn_openrc stop`, which must stop the system bus too
 #	login	(after stop) Gershwin's LoginWindow, when installed: start
 #		foxyn_loginwindow with a test password for the user; check
 #		that another account cannot use the display, that a wrong
@@ -21,6 +23,8 @@ fail() { echo "desktop-session: FAIL $*"; ok=0; }
 user=$(sed -n 's/^foxyn_desktop_user="\(.*\)"$/\1/p' /etc/rc.conf | tail -n 1)
 [ -n "$user" ] || { echo "desktop-session: FAIL foxyn_desktop_user is not set"; exit 1; }
 uid=$(id -u "$user") || exit 1
+svc=foxyn_desktop
+grep -q '^foxyn_openrc_enable="YES"' /etc/rc.conf && svc=foxyn_openrc
 export DISPLAY=:0 XAUTHORITY=
 if [ -x /System/Applications/TextEdit.app/TextEdit ]; then
 	app=TextEdit appwin=UNTITLED
@@ -36,7 +40,9 @@ wait)
 		    xwininfo -root -tree | grep -q '"Terminal"' && break
 		sleep 2; i=$((i + 1))
 	done
-	service foxyn_desktop status | sed 's/^/desktop-session: /'
+	service $svc status | sed 's/^/desktop-session: /'
+	[ "$svc" = foxyn_openrc ] &&
+	    rc-status desktop | sed 's/^/desktop-session: openrc: /'
 	echo "desktop-session: X $(sed -n 's/.*scfb(0): Using: \(.*\)/\1/p' /var/log/Xorg.0.log | head -n 1 | tr -s ' ')"
 	echo "desktop-session: server $(sed -n 's/^\(XLibre X Server [0-9.]*\).*/\1/p;s/^\(X.Org X Server [0-9.]*\).*/\1/p' /var/log/Xorg.0.log | head -n 1)"
 	if pgrep -u "$uid" -x WindowManager >/dev/null; then
@@ -80,16 +86,22 @@ stop)
 		echo "desktop-session: logging out (SIGTERM to gershwin-session $sup)"
 		kill -TERM $sup
 	else
-		service foxyn_desktop stop | sed 's/^/desktop-session: /'
+		service $svc stop | sed 's/^/desktop-session: /'
 	fi
 	i=0
 	while { pgrep -x Xorg || pgrep -u "$uid" ||
-	    service foxyn_desktop status; } >/dev/null && [ "$i" -lt 30 ]; do
+	    service $svc status; } >/dev/null && [ "$i" -lt 30 ]; do
 		sleep 1; i=$((i + 1))
 	done
 	pgrep -x Xorg >/dev/null && fail "Xorg still runs"
 	pgrep -u "$uid" >/dev/null && fail "processes of $user remain: $(pgrep -u "$uid" -l | tr '\n' ' ')"
-	service foxyn_desktop status >/dev/null && fail "foxyn_desktop still runs"
+	service $svc status >/dev/null && fail "$svc still runs"
+	if [ "$svc" = foxyn_openrc ]; then
+		service foxyn_openrc stop 2>&1 | sed 's/^/desktop-session: /'
+		pgrep -f 'dbus-daemon --system' >/dev/null &&
+		    fail "the system bus still runs"
+		rc-status desktop | sed 's/^/desktop-session: openrc: /'
+	fi
 	[ "$ok" = 1 ] && echo "desktop-session: X and the session stopped"
 	;;
 login)

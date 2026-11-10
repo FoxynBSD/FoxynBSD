@@ -3,12 +3,18 @@
 # foxyn-desktop: install the interim FoxynBSD graphical desktop from DPorts
 # on a writable root, and start it at boot (issue #13).
 #
-# Usage: foxyn-desktop [-ly] [-g source|dports] [-m mirror] [-u user]
+# Usage: foxyn-desktop [-loy] [-g source|dports] [-m mirror] [-u user]
 #		[-w gershwin|twm]
 #
 #	-l	start Gershwin's LoginWindow at boot (foxyn_loginwindow,
 #		needs -g source) instead of the desktop user's session
 #		(foxyn_desktop); the user then logs in with their password
+#	-o	run the desktop user's session from OpenRC (needs -g source,
+#		not with -l): build OpenRC (build-openrc.sh), install the
+#		services dbus (the system bus) and foxyn-desktop (the
+#		session, after dbus) in its "desktop" runlevel, and enable
+#		the foxyn_openrc rc.d service, which starts that runlevel at
+#		boot, instead of foxyn_desktop
 #	-y	do not ask for confirmation
 #	-g	where GNUstep comes from: source (default) builds Make,
 #		libobjc2, Base, GUI and Back from the revisions pinned by
@@ -47,10 +53,12 @@ yes=0
 wm=gershwin
 gnustep=source
 login=0
-usage="usage: foxyn-desktop [-ly] [-g source|dports] [-m mirror] [-u user] [-w gershwin|twm]"
-while getopts g:lm:u:w:y opt; do
+openrc=0
+usage="usage: foxyn-desktop [-loy] [-g source|dports] [-m mirror] [-u user] [-w gershwin|twm]"
+while getopts g:lm:ou:w:y opt; do
 	case $opt in
 	l)	login=1 ;;
+	o)	openrc=1 ;;
 	g)	gnustep=$OPTARG ;;
 	m)	mirror=$OPTARG ;;
 	u)	user=$OPTARG ;;
@@ -64,6 +72,8 @@ shift $((OPTIND - 1))
 case $wm in gershwin|twm) ;; *) echo "$usage" >&2; exit 2 ;; esac
 case $gnustep in source|dports) ;; *) echo "$usage" >&2; exit 2 ;; esac
 [ "$login" = 0 ] || [ "$gnustep" = source ] || { echo "$usage" >&2; exit 2; }
+[ "$openrc" = 0 ] || { [ "$gnustep" = source ] && [ "$login" = 0 ]; } ||
+    { echo "$usage" >&2; exit 2; }
 # The build-*.sh helpers and their patches, installed by
 # tools/linux/build.sh.
 share=/usr/share/foxynbsd/desktop
@@ -569,12 +579,149 @@ run_rc_command "$1"
 EOF
 chmod 555 /usr/local/etc/rc.d/foxyn_loginwindow
 
+# OpenRC for the desktop's services (-o), next to init and rc.d: the
+# rc.d service foxyn_openrc runs `openrc desktop` at boot, and switches
+# to the empty runlevel "off" to stop them.  OpenRC keeps the services'
+# state in its svcdir, on disk here: foxyn_openrc mounts a tmpfs on it
+# at boot, as OpenRC's own sysinit does on FreeBSD.
+if [ "$openrc" = 1 ]; then
+	if [ ! -x /sbin/openrc ]; then
+		[ -r "$share/build-openrc.sh" ] || die "$share/build-openrc.sh is missing"
+		work=$(mktemp -d /tmp/foxyn-openrc.XXXXXXXX) || die "mktemp failed"
+		chown "$user" "$work"
+		build_as OpenRC "'$share/build-openrc.sh' '$work/root'"
+		chown -R root:wheel "$work/root"
+		chmod -R go-w "$work/root"
+		# Missing directories (empty ones too: OpenRC's runlevels), then
+		# the files: the system's existing directories keep their
+		# owners and modes.
+		(cd "$work/root" && find . -type d -print) | while read -r d; do
+			[ -d "/$d" ] || mkdir -p "/$d"
+		done
+		(cd "$work/root" && find . ! -type d -print | cpio -pdmu / 2>> "$log") ||
+		    { rm -rf "$work"; die "cannot install OpenRC"; }
+		rm -rf "$work"
+		# rc.d keeps the system's own services (file systems, network,
+		# syslogd): no OpenRC service of its default runlevels starts.
+		for r in sysinit boot default nonetwork; do
+			find "/usr/local/etc/runlevels/$r" -type l -delete
+		done
+		say "installed OpenRC"
+	fi
+	initd=/usr/local/etc/init.d
+	cat > $initd/dbus <<'EOF'
+#!/sbin/openrc-run
+# D-Bus's system bus (DPorts' dbus), for the desktop (foxyn-desktop -o).
+description="D-Bus system message bus"
+command=/usr/local/bin/dbus-daemon
+command_args="--system --nofork --nopidfile"
+command_background=yes
+pidfile=/var/run/dbus/openrc.pid
+
+start_pre()
+{
+	mkdir -p /var/run/dbus
+	/usr/local/bin/dbus-uuidgen --ensure
+	# A socket left by a bus that did not stop cleanly.
+	rm -f /var/run/dbus/system_bus_socket
+}
+EOF
+	cat > $initd/foxyn-desktop <<'EOF'
+#!/sbin/openrc-run
+# X and the desktop user's ~/.xsession (foxyn-session), as the rc.d
+# service foxyn_desktop does; foxyn-desktop -o.
+description="FoxynBSD desktop session"
+: ${foxyn_desktop_user:=foxyn}
+command=/usr/local/libexec/foxyn-session
+command_args=$foxyn_desktop_user
+command_background=yes
+pidfile=/var/run/foxyn-session.openrc.pid
+
+depend()
+{
+	need dbus
+}
+
+# End Gershwin's session as Log Out does, and X; foxyn-session then
+# cleans up and exits (up to 20 s).
+stop()
+{
+	ebegin "Stopping $RC_SVCNAME"
+	pkill -TERM -u "$foxyn_desktop_user" -x gershwin-session
+	[ -f /var/run/foxyn-session.X.pid ] &&
+	    kill "$(cat /var/run/foxyn-session.X.pid)" 2>/dev/null
+	pid=$(cat "$pidfile" 2>/dev/null)
+	i=0
+	while [ -n "$pid" ] && kill -0 "$pid" 2>/dev/null && [ "$i" -lt 20 ]; do
+		sleep 1; i=$((i + 1))
+	done
+	[ -n "$pid" ] && kill "$pid" 2>/dev/null
+	rm -f "$pidfile"
+	eend 0
+}
+EOF
+	chmod 555 $initd/dbus $initd/foxyn-desktop
+	printf 'foxyn_desktop_user="%s"\n' "$user" > /usr/local/etc/conf.d/foxyn-desktop
+	mkdir -p /usr/local/etc/runlevels/desktop /usr/local/etc/runlevels/off
+	ln -sf $initd/dbus $initd/foxyn-desktop /usr/local/etc/runlevels/desktop/
+	cat > /usr/local/etc/rc.d/foxyn_openrc <<'EOF'
+#!/bin/sh
+#
+# PROVIDE: foxyn_openrc
+# REQUIRE: LOGIN devd
+# KEYWORD: shutdown
+
+. /etc/rc.subr
+
+name=foxyn_openrc
+rcvar=foxyn_openrc_enable
+load_rc_config $name
+: ${foxyn_openrc_enable:=NO}
+: ${foxyn_openrc_runlevel:=desktop}
+extra_commands=status
+start_cmd=foxyn_openrc_start
+stop_cmd=foxyn_openrc_stop
+status_cmd=foxyn_openrc_status
+svcdir=/usr/local/libexec/rc/init.d
+
+foxyn_openrc_start()
+{
+	echo "Starting OpenRC runlevel $foxyn_openrc_runlevel."
+	# The services' state from before the last boot is stale.
+	if [ "$(df "$svcdir" | awk 'END { print $NF }')" != "$svcdir" ]; then
+		mount -t tmpfs -o rw,noexec,nosuid tmpfs "$svcdir" || return 1
+	fi
+	/sbin/openrc "$foxyn_openrc_runlevel"
+}
+
+foxyn_openrc_stop()
+{
+	echo "Stopping OpenRC services (runlevel off)."
+	/sbin/openrc off
+}
+
+# Running while the session's service is.
+foxyn_openrc_status()
+{
+	/sbin/rc-service foxyn-desktop status
+}
+
+run_rc_command "$1"
+EOF
+	chmod 555 /usr/local/etc/rc.d/foxyn_openrc
+fi
+
 sed -i.bak -e '/^foxyn_desktop_enable=/d' -e '/^foxyn_desktop_user=/d' \
-    -e '/^foxyn_loginwindow_enable=/d' /etc/rc.conf
+    -e '/^foxyn_loginwindow_enable=/d' -e '/^foxyn_openrc_enable=/d' /etc/rc.conf
 rm -f /etc/rc.conf.bak
 if [ "$login" = 1 ]; then
 	printf 'foxyn_loginwindow_enable="YES"\n' >> /etc/rc.conf
 	say "done: LoginWindow starts at the next boot (or: service foxyn_loginwindow start)"
+elif [ "$openrc" = 1 ]; then
+	# foxyn_desktop_user stays for the boot test; OpenRC's service reads
+	# its conf.d.
+	printf 'foxyn_openrc_enable="YES"\nfoxyn_desktop_user="%s"\n' "$user" >> /etc/rc.conf
+	say "done: OpenRC starts the desktop at the next boot (or: service foxyn_openrc start)"
 else
 	printf 'foxyn_desktop_enable="YES"\nfoxyn_desktop_user="%s"\n' "$user" >> /etc/rc.conf
 	say "done: the desktop starts at the next boot (or: service foxyn_desktop start)"
