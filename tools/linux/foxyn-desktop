@@ -114,8 +114,9 @@ if [ "$gnustep" = dports ]; then
 else
 	# What GNUstep Make, Base, GUI and Back build and link with (DPorts'
 	# GNUstep's dependencies), dbus and gettext for Menu, the compiler,
-	# what XLibre builds with, and xdotool for the login window test
-	# (boot-test.sh --desktop).
+	# what XLibre builds with, xdotool for the login window test
+	# (boot-test.sh --desktop), and what PipeWire and WirePlumber build
+	# and run with (jackd, the sound server PipeWire plays through).
 	pkgs="$pkgs gmake llvm19 pkgconf cmake-core ninja libxml2 libxslt
 	    libffi gnutls icu curl avahi-app gmp libgcrypt cups giflib
 	    jpeg-turbo png tiff libsndfile libao flite cairo fontconfig
@@ -124,7 +125,8 @@ else
 	    meson autoconf automake libtool xorg-macros pixman libxkbfile
 	    libXfont2 libxcvt libxshmfence libdrm libpciaccess xorgproto xtrans
 	    libXau libXdmcp font-util libinput libepoll-shim libXrandr
-	    libXinerama xkbcomp xkeyboard-config evdev-proto xdotool"
+	    libXinerama xkbcomp xkeyboard-config evdev-proto xdotool
+	    jackit libinotify glib lua54 libsndfile readline"
 	gsroot=
 	apps=/System/Applications
 	# Its libraries have DPorts' names (libobjc.so.4.6): not both.
@@ -196,7 +198,7 @@ build_system()
 if [ "$gnustep" = source ]; then
 	for f in build-gnustep.sh build-menu.sh build-systempreferences.sh \
 	    build-workspace.sh build-eau.sh install-gershwin-system.sh \
-	    build-xlibre.sh; do
+	    build-xlibre.sh build-pipewire.sh; do
 		[ -r "$share/$f" ] || die "$share/$f is missing"
 	done
 	mkdir -p /System
@@ -221,6 +223,12 @@ if [ "$gnustep" = source ]; then
 	if [ ! -x /System/Library/XLibre/bin/X ]; then
 		build_system XLibre build-xlibre.sh
 		say "installed /System/Library/XLibre"
+	fi
+	# Sound: PipeWire and WirePlumber from contrib/pipewire and
+	# contrib/wireplumber.
+	if [ ! -x /System/Library/PipeWire/bin/pipewire ]; then
+		build_system PipeWire build-pipewire.sh
+		say "installed /System/Library/PipeWire"
 	fi
 	mkdir -p /System/Library/XLibre/etc/X11/xorg.conf.d
 	cp /usr/local/etc/X11/xorg.conf.d/10-scfb.conf /System/Library/XLibre/etc/X11/xorg.conf.d/
@@ -259,6 +267,22 @@ if [ "$gnustep" = source ]; then
 	    ln -s ../../Applications/Workspace.app/Workspace "$gwbin/Workspace"
 	[ -e "$gwbin/Menu" ] ||
 	    ln -s ../CoreServices/Applications/Menu.app/Menu "$gwbin/Menu"
+	# PipeWire plays through its JACK tunnel (no OSS backend) and starts
+	# WirePlumber; foxyn-audio starts jackd first.
+	pwconf=/System/Library/PipeWire/etc/pipewire/pipewire.conf.d
+	mkdir -p "$pwconf"
+	cat > "$pwconf/10-foxyn.conf" <<'EOF'
+# FoxynBSD (foxyn-desktop): sound through jackd on OSS, and the session
+# manager.
+context.modules = [
+  { name = libpipewire-module-jack-tunnel
+    args = { tunnel.mode = sink } }
+]
+context.exec = [
+  { path = "/System/Library/PipeWire/bin/wireplumber" args = "" }
+]
+EOF
+	chmod -R go-w /System/Library/PipeWire/etc
 fi
 
 # Gershwin's WindowManager, and (with GNUstep from source, which has no
@@ -321,6 +345,7 @@ if [ -x /System/Library/Tools/gershwin-session ] &&
 	PATH=/System/Library/Tools:$PATH
 	export PATH
 	[ -n "${DBUS_SESSION_BUS_ADDRESS:-}" ] || eval "$(dbus-launch --sh-syntax --exit-with-x11)"
+	[ -x /usr/local/libexec/foxyn-audio ] && /usr/local/libexec/foxyn-audio &
 	(sleep 6; exec "$app") &
 	(sleep 9; exec xterm -fa 'DejaVu Sans Mono' -fs 11 -geometry 80x24+40+60 -title Terminal) &
 	exec gershwin-session Workspace Menu WindowManager
@@ -382,6 +407,26 @@ printf 'Section "ServerLayout"\n\tIdentifier "layout"\n\tScreen "screen"\n%sEndS
 } > $xl/etc/X11/xorg.conf.d/20-input.conf
 EOF
 chmod 555 /usr/local/libexec/foxyn-xinput
+cat > /usr/local/libexec/foxyn-audio <<'EOF'
+#!/bin/sh
+# The desktop session's sound, as its user: jackd on the first OSS device
+# (/dev/dsp, playback only), then PipeWire, which plays through its JACK
+# tunnel and starts WirePlumber.  Nothing without PipeWire or a sound
+# card.  Logs in $XDG_RUNTIME_DIR.
+pw=/System/Library/PipeWire
+[ -x $pw/bin/pipewire ] && [ -c /dev/dsp ] || exit 0
+[ -n "${XDG_RUNTIME_DIR:-}" ] && [ -d "$XDG_RUNTIME_DIR" ] || exit 1
+PATH=$pw/bin:/usr/local/bin:/usr/bin:/bin
+export PATH
+jackd -d oss -r 48000 -p 1024 -n 2 -i 0 -o 2 -P /dev/dsp \
+    > "$XDG_RUNTIME_DIR/jackd.log" 2>&1 &
+jack=$!
+sleep 3
+kill -0 "$jack" 2>/dev/null || exit 1
+pipewire > "$XDG_RUNTIME_DIR/pipewire.log" 2>&1
+kill "$jack" 2>/dev/null
+EOF
+chmod 555 /usr/local/libexec/foxyn-audio
 cat > /usr/local/libexec/foxyn-session <<'EOF'
 #!/bin/sh
 # Run X as root on vt9 with a fresh cookie and the desktop user's
@@ -404,6 +449,12 @@ xauth -q -f "$auth/user" add :0 MIT-MAGIC-COOKIE-1 "$cookie" || exit 1
 unset cookie
 chown "$user" "$auth/user" || exit 1
 echo "$auth/user" > /var/run/foxyn-session.xauthority
+# The user's runtime directory (XDG): PipeWire's sockets.
+uid=$(id -u "$user") || exit 1
+rt=/var/run/user/$uid
+mkdir -p -m 755 /var/run/user
+rm -rf "$rt"
+mkdir -m 700 "$rt" && chown "$user" "$rt" || exit 1
 # XLibre, when foxyn-desktop built it, else DPorts' Xorg.
 xl=/System/Library/XLibre
 if [ -x $xl/bin/X ]; then
@@ -420,11 +471,11 @@ while [ ! -S /tmp/.X11-unix/X0 ] && [ "$i" -lt 30 ]; do sleep 1; i=$((i + 1)); d
 if ! kill -0 "$xpid" 2>/dev/null || [ ! -S /tmp/.X11-unix/X0 ]; then
 	echo "X did not start (see /var/log/foxyn-session.X.log); no session"
 	kill "$xpid" 2>/dev/null
-	rm -rf "$auth" /var/run/foxyn-session.X.pid /var/run/foxyn-session.xauthority
+	rm -rf "$auth" "$rt" /var/run/foxyn-session.X.pid /var/run/foxyn-session.xauthority
 	exit 1
 fi
 echo "session for $user started"
-su -l "$user" -c "DISPLAY=:0 XAUTHORITY=$auth/user exec \$HOME/.xsession" &
+su -l "$user" -c "DISPLAY=:0 XAUTHORITY=$auth/user XDG_RUNTIME_DIR=$rt exec \$HOME/.xsession" &
 spid=$!
 # Gershwin's supervisor does not notice that X went away (it would
 # restart its applications for ever): when X exits first, end the
@@ -439,14 +490,15 @@ wait "$spid"
 echo "session for $user ended: $?"
 kill "$xpid" 2>/dev/null
 wait "$xpid"
-# GNUstep's per-user daemons and Workspace's helpers outlive the
-# session's clients; wait (up to 10 s) for them to exit.
-pkill -u "$user" -x 'gdnc|gpbs|ddbd|fswatcher'
+# GNUstep's per-user daemons, Workspace's helpers and the sound servers
+# outlive the session's clients; wait (up to 10 s) for them to exit.
+daemons='gdnc|gpbs|ddbd|fswatcher|pipewire|wireplumber|jackd'
+pkill -u "$user" -x "$daemons"
 i=0
-while pgrep -u "$user" -x 'gdnc|gpbs|ddbd|fswatcher' >/dev/null && [ "$i" -lt 10 ]; do
+while pgrep -u "$user" -x "$daemons" >/dev/null && [ "$i" -lt 10 ]; do
 	sleep 1; i=$((i + 1))
 done
-rm -rf "$auth" /var/run/foxyn-session.X.pid /var/run/foxyn-session.xauthority
+rm -rf "$auth" "$rt" /var/run/foxyn-session.X.pid /var/run/foxyn-session.xauthority
 EOF
 chmod 555 /usr/local/libexec/foxyn-session
 cat > /usr/local/etc/rc.d/foxyn_desktop <<'EOF'

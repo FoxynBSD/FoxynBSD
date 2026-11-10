@@ -1464,7 +1464,8 @@ do_rootfs() {
 	    "$SRCDIR/tools/desktop/build-eau.sh" \
 	    "$SRCDIR/tools/desktop/install-gershwin-system.sh" \
 	    "$SRCDIR/tools/desktop/build-xlibre.sh" \
-	    "$SRCDIR/tools/desktop/build-openrc.sh" "$root/usr/share/foxynbsd/desktop/"
+	    "$SRCDIR/tools/desktop/build-openrc.sh" \
+	    "$SRCDIR/tools/desktop/build-pipewire.sh" "$root/usr/share/foxynbsd/desktop/"
 	install -m 444 "$SRCDIR/tools/desktop/patches/windowmanager-titlebar-state.txt" \
 	    "$SRCDIR/tools/desktop/patches/windowmanager-LICENSE" \
 	    "$SRCDIR/tools/desktop/patches/gnustep-base-dragonfly-uuid.txt" \
@@ -1478,6 +1479,8 @@ do_rootfs() {
 	    "$SRCDIR/tools/desktop/patches/loginwindow-dragonfly.txt" \
 	    "$SRCDIR/tools/desktop/patches/eau-searchfield-keydown.txt" \
 	    "$SRCDIR/tools/desktop/patches/openrc-dragonfly.txt" \
+	    "$SRCDIR/tools/desktop/patches/pipewire-dragonfly.txt" \
+	    "$SRCDIR/tools/desktop/patches/wireplumber-dragonfly.txt" \
 	    "$root/usr/share/foxynbsd/desktop/patches/"
 	# Copy the shared libraries, following NEEDED entries to a fixpoint
 	# (not for /boot: the kernel and its modules do not load them).

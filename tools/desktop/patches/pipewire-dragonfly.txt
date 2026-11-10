@@ -1,0 +1,354 @@
+diff -ruN a/meson.build b/meson.build
+--- a/meson.build	2026-10-29 06:58:07.000000000 -0300
++++ b/meson.build	2026-11-10 16:24:22.363763946 -0300
+@@ -488,11 +488,11 @@
+ endif
+ 
+ # On FreeBSD and MidnightBSD, epoll-shim library is required for eventfd() and timerfd()
+-epoll_shim_dep = (host_machine.system() == 'freebsd' or host_machine.system() == 'midnightbsd'
++epoll_shim_dep = (host_machine.system() == 'freebsd' or host_machine.system() == 'midnightbsd' or host_machine.system() == 'dragonfly'
+     ? dependency('epoll-shim', required: true)
+     : dependency('', required: false))
+ 
+-libinotify_dep = (host_machine.system() == 'freebsd' or host_machine.system() == 'midnightbsd'
++libinotify_dep = (host_machine.system() == 'freebsd' or host_machine.system() == 'midnightbsd' or host_machine.system() == 'dragonfly'
+     ? dependency('libinotify', required: true)
+     : dependency('', required: false))
+ 
+@@ -507,7 +507,7 @@
+ alsa_dep = dependency('alsa', version : '>=1.2.6', required: need_alsa)
+ summary({'pipewire-alsa': alsa_dep.found()}, bool_yn: true)
+ 
+-if host_machine.system() == 'freebsd' or host_machine.system() == 'midnightbsd'
++if host_machine.system() == 'freebsd' or host_machine.system() == 'midnightbsd' or host_machine.system() == 'dragonfly'
+ # On FreeBSD and MidnightBSD the OpenSSL library may come from base or a package.
+ # Check for a package first and fallback to the base library if we can't find it via pkgconfig
+     openssl_lib = dependency('openssl', required: false)
+diff -ruN a/spa/include/spa/utils/defs.h b/spa/include/spa/utils/defs.h
+--- a/spa/include/spa/utils/defs.h	2026-10-29 06:58:07.000000000 -0300
++++ b/spa/include/spa/utils/defs.h	2026-11-10 16:24:22.365388489 -0300
+@@ -11,6 +11,15 @@
+ #include <string.h>
+ #include <stddef.h>
+ #include <stdio.h>
++#ifdef __DragonFly__
++#include <errno.h>
++#ifndef ECHRNG
++#define ECHRNG ERANGE
++#endif
++#ifndef EBADFD
++#define EBADFD EBADF
++#endif
++#endif
+ 
+ #ifdef __cplusplus
+ extern "C" {
+diff -ruN a/spa/include/spa/utils/endian.h b/spa/include/spa/utils/endian.h
+--- a/spa/include/spa/utils/endian.h	2026-10-29 06:58:07.000000000 -0300
++++ b/spa/include/spa/utils/endian.h	2026-11-10 16:24:22.365225939 -0300
+@@ -5,7 +5,7 @@
+ #ifndef SPA_ENDIAN_H
+ #define SPA_ENDIAN_H
+ 
+-#if defined(__FreeBSD__) || defined(__MidnightBSD__)
++#if defined(__FreeBSD__) || defined(__MidnightBSD__) || defined(__DragonFly__)
+ #include <sys/endian.h>
+ #define bswap_16 bswap16
+ #define bswap_32 bswap32
+diff -ruN a/spa/plugins/support/cpu.c b/spa/plugins/support/cpu.c
+--- a/spa/plugins/support/cpu.c	2026-10-29 06:58:07.000000000 -0300
++++ b/spa/plugins/support/cpu.c	2026-11-10 16:24:22.365261839 -0300
+@@ -12,7 +12,7 @@
+ #include <sched.h>
+ #include <fcntl.h>
+ 
+-#if defined(__FreeBSD__) || defined(__MidnightBSD__)
++#if defined(__FreeBSD__) || defined(__MidnightBSD__) || defined(__DragonFly__)
+ #include <sys/sysctl.h>
+ #endif
+ 
+diff -ruN a/spa/plugins/support/logger.c b/spa/plugins/support/logger.c
+--- a/spa/plugins/support/logger.c	2026-10-29 06:58:07.000000000 -0300
++++ b/spa/plugins/support/logger.c	2026-11-10 16:24:22.365316194 -0300
+@@ -20,7 +20,7 @@
+ #include <spa/utils/string.h>
+ #include <spa/utils/ansi.h>
+ 
+-#if defined(__FreeBSD__) || defined(__MidnightBSD__)
++#if defined(__FreeBSD__) || defined(__MidnightBSD__) || defined(__DragonFly__)
+ #define CLOCK_MONOTONIC_RAW CLOCK_MONOTONIC
+ #elif defined(_MSC_VER)
+ static inline void setlinebuf(FILE* stream) {
+diff -ruN a/spa/tests/benchmark-aec.c b/spa/tests/benchmark-aec.c
+--- a/spa/tests/benchmark-aec.c	2026-10-29 06:58:07.000000000 -0300
++++ b/spa/tests/benchmark-aec.c	2026-11-10 16:24:22.365451397 -0300
+@@ -6,7 +6,11 @@
+ 
+ #include <dlfcn.h>
+ #include <fcntl.h>
++#ifdef __linux__
+ #include <linux/limits.h>
++#else
++#include <limits.h>
++#endif
+ #include <stdlib.h>
+ #include <stdint.h>
+ #include <stdio.h>
+diff -ruN a/src/modules/module-jack-tunnel/weakjack.h b/src/modules/module-jack-tunnel/weakjack.h
+--- a/src/modules/module-jack-tunnel/weakjack.h	2026-10-29 06:58:07.000000000 -0300
++++ b/src/modules/module-jack-tunnel/weakjack.h	2026-11-10 16:24:22.366817671 -0300
+@@ -168,6 +168,9 @@
+ 	search_dirs = getenv("LIBJACK_PATH");
+ 	if (!search_dirs)
+ 		search_dirs = PREFIX "/lib64/:" PREFIX "/lib/:"
++#ifdef __DragonFly__
++			"/usr/local/lib/:"
++#endif
+ 			"/usr/lib64/:/usr/lib/:" LIBDIR;
+ 
+ 	res = -ENAMETOOLONG;
+diff -ruN a/src/modules/module-protocol-native.c b/src/modules/module-protocol-native.c
+--- a/src/modules/module-protocol-native.c	2026-10-29 06:58:07.000000000 -0300
++++ b/src/modules/module-protocol-native.c	2026-11-10 16:24:22.364274222 -0300
+@@ -22,9 +22,12 @@
+ #ifdef HAVE_GRP_H
+ #include <grp.h>
+ #endif
+-#if defined(__FreeBSD__) || defined(__MidnightBSD__)
++#if defined(__FreeBSD__) || defined(__MidnightBSD__) || defined(__DragonFly__)
+ #include <sys/ucred.h>
+ #endif
++#ifdef __DragonFly__
++#define cr_gid cr_groups[0]
++#endif
+ 
+ #include <spa/pod/parser.h>
+ #include <spa/pod/builder.h>
+@@ -599,7 +602,7 @@
+ 	struct pw_impl_client *client;
+ 	struct pw_protocol *protocol = s->this.protocol;
+ 	socklen_t len;
+-#if defined(__FreeBSD__) || defined(__MidnightBSD__)
++#if defined(__FreeBSD__) || defined(__MidnightBSD__) || defined(__DragonFly__)
+ 	struct xucred xucred;
+ #else
+ 	struct ucred ucred;
+@@ -648,7 +651,7 @@
+ 					(int)len, buffer);
+ 		}
+ 	}
+-#elif defined(__FreeBSD__) || defined(__MidnightBSD__)
++#elif defined(__FreeBSD__) || defined(__MidnightBSD__) || defined(__DragonFly__)
+ 	len = sizeof(xucred);
+ 	if (getsockopt(fd, 0, LOCAL_PEERCRED, &xucred, &len) < 0) {
+ 		pw_log_warn("server %p: no peercred: %m", s);
+diff -ruN a/src/modules/module-protocol-pulse/message-handler.c b/src/modules/module-protocol-pulse/message-handler.c
+--- a/src/modules/module-protocol-pulse/message-handler.c	2026-10-29 06:58:07.000000000 -0300
++++ b/src/modules/module-protocol-pulse/message-handler.c	2026-11-10 16:24:22.366721905 -0300
+@@ -6,7 +6,9 @@
+ #include <stdio.h>
+ 
+ #include <regex.h>
++#ifndef __DragonFly__
+ #include <malloc.h>
++#endif
+ 
+ #include <spa/param/props.h>
+ #include <spa/pod/builder.h>
+diff -ruN a/src/modules/module-protocol-pulse/utils.c b/src/modules/module-protocol-pulse/utils.c
+--- a/src/modules/module-protocol-pulse/utils.c	2026-10-29 06:58:07.000000000 -0300
++++ b/src/modules/module-protocol-pulse/utils.c	2026-11-10 16:24:22.364325320 -0300
+@@ -132,7 +132,7 @@
+ 		pw_log_warn("client %p: no peercred: %m", client);
+ 	} else
+ 		return ucred.pid;
+-#elif defined(__FreeBSD__) || defined(__MidnightBSD__)
++#elif defined(__FreeBSD__) || defined(__MidnightBSD__) || defined(__DragonFly__)
+ 	struct xucred xucred;
+ 	len = sizeof(xucred);
+ 	if (getsockopt(client_fd, 0, LOCAL_PEERCRED, &xucred, &len) < 0) {
+diff -ruN a/src/modules/module-rt.c b/src/modules/module-rt.c
+--- a/src/modules/module-rt.c	2026-10-29 06:58:07.000000000 -0300
++++ b/src/modules/module-rt.c	2026-11-10 16:24:22.364424741 -0300
+@@ -253,6 +253,8 @@
+ 	return (pid_t) gettid();
+ #elif defined(__linux__)
+ 	return syscall(SYS_gettid);
++#elif defined(__DragonFly__)
++	return (pid_t) lwp_gettid();
+ #elif defined(__FreeBSD__) || defined(__MidnightBSD__)
+ 	long pid;
+ 	thr_self(&pid);
+diff -ruN a/src/modules/module-rtp-sap.c b/src/modules/module-rtp-sap.c
+--- a/src/modules/module-rtp-sap.c	2026-10-29 06:58:07.000000000 -0300
++++ b/src/modules/module-rtp-sap.c	2026-11-10 16:24:22.364615554 -0300
+@@ -31,6 +31,9 @@
+ #ifdef __FreeBSD__
+ #define SO_PASSCRED LOCAL_CREDS_PERSISTENT
+ #endif
++#ifdef __DragonFly__
++#define SO_PASSCRED (-1)
++#endif
+ 
+ /** \page page_module_rtp_sap SAP Announce and create RTP streams
+  *
+diff -ruN a/src/modules/network-utils.h b/src/modules/network-utils.h
+--- a/src/modules/network-utils.h	2026-10-29 06:58:07.000000000 -0300
++++ b/src/modules/network-utils.h	2026-11-10 16:24:22.366785916 -0300
+@@ -3,6 +3,7 @@
+ 
+ #include <stdio.h>
+ #include <netdb.h>
++#include <netinet/in.h>
+ #include <string.h>
+ #include <arpa/inet.h>
+ #include <net/if.h>
+@@ -14,7 +15,7 @@
+ 
+ #include <spa/utils/string.h>
+ 
+-#ifdef __FreeBSD__
++#if defined(__FreeBSD__) || defined(__DragonFly__)
+ #define ifr_ifindex ifr_index
+ #endif
+ 
+diff -ruN a/src/pipewire/conf.c b/src/pipewire/conf.c
+--- a/src/pipewire/conf.c	2026-10-29 06:58:07.000000000 -0300
++++ b/src/pipewire/conf.c	2026-11-10 16:24:22.364739915 -0300
+@@ -18,7 +18,7 @@
+ #ifdef HAVE_PWD_H
+ #include <pwd.h>
+ #endif
+-#if defined(__FreeBSD__) || defined(__MidnightBSD__) || defined(__GNU__)
++#if defined(__FreeBSD__) || defined(__MidnightBSD__) || defined(__DragonFly__) || defined(__GNU__)
+ #ifndef O_PATH
+ #define O_PATH 0
+ #endif
+diff -ruN a/src/pipewire/context.c b/src/pipewire/context.c
+--- a/src/pipewire/context.c	2026-10-29 06:58:07.000000000 -0300
++++ b/src/pipewire/context.c	2026-11-10 16:24:22.366437058 -0300
+@@ -351,16 +351,28 @@
+ 		[RLIMIT_CPU]        = "cpu",
+ 		[RLIMIT_DATA]       = "data",
+ 		[RLIMIT_FSIZE]      = "fsize",
++#ifdef RLIMIT_LOCKS
+ 		[RLIMIT_LOCKS]      = "locks",
++#endif
+ 		[RLIMIT_MEMLOCK]    = "memlock",
++#ifdef RLIMIT_MSGQUEUE
+ 		[RLIMIT_MSGQUEUE]   = "msgqueue",
++#endif
++#ifdef RLIMIT_NICE
+ 		[RLIMIT_NICE]       = "nice",
++#endif
+ 		[RLIMIT_NOFILE]     = "nofile",
+ 		[RLIMIT_NPROC]      = "nproc",
+ 		[RLIMIT_RSS]        = "rss",
++#ifdef RLIMIT_RTPRIO
+ 		[RLIMIT_RTPRIO]     = "rtprio",
++#endif
++#ifdef RLIMIT_RTTIME
+ 		[RLIMIT_RTTIME]     = "rttime",
++#endif
++#ifdef RLIMIT_SIGPENDING
+ 		[RLIMIT_SIGPENDING] = "sigpending",
++#endif
+ 		[RLIMIT_STACK]      = "stack",
+ 	};
+ 	int res;
+diff -ruN a/src/pipewire/impl-node.c b/src/pipewire/impl-node.c
+--- a/src/pipewire/impl-node.c	2026-10-29 06:58:07.000000000 -0300
++++ b/src/pipewire/impl-node.c	2026-11-10 16:24:22.366667651 -0300
+@@ -10,7 +10,9 @@
+ #include <unistd.h>
+ #include <errno.h>
+ #include <time.h>
++#ifndef __DragonFly__
+ #include <malloc.h>
++#endif
+ #include <limits.h>
+ 
+ #include <spa/support/system.h>
+diff -ruN a/src/pipewire/mem.c b/src/pipewire/mem.c
+--- a/src/pipewire/mem.c	2026-10-29 06:58:07.000000000 -0300
++++ b/src/pipewire/mem.c	2026-11-10 16:24:22.365153027 -0300
+@@ -26,7 +26,7 @@
+ PW_LOG_TOPIC_EXTERN(log_mem);
+ #define PW_LOG_TOPIC_DEFAULT log_mem
+ 
+-#if !defined(__FreeBSD__) && !defined(__MidnightBSD__) && !defined(__GNU__) \
++#if !defined(__FreeBSD__) && !defined(__MidnightBSD__) && !defined(__GNU__) && !defined(__DragonFly__) \
+        && !defined(HAVE_MEMFD_CREATE)
+ /*
+  * No glibc wrappers exist for memfd_create(2), so provide our own.
+@@ -44,7 +44,7 @@
+ #define HAVE_MEMFD_CREATE 1
+ #endif
+ 
+-#if defined(__FreeBSD__) || defined(__MidnightBSD__) || defined(__GNU__)
++#if defined(__FreeBSD__) || defined(__MidnightBSD__) || defined(__DragonFly__) || defined(__GNU__)
+ #define MAP_LOCKED 0
+ #endif
+ 
+diff -ruN a/src/pipewire/meson.build b/src/pipewire/meson.build
+--- a/src/pipewire/meson.build	2026-10-29 06:58:07.000000000 -0300
++++ b/src/pipewire/meson.build	2026-11-10 16:24:22.363836316 -0300
+@@ -97,7 +97,7 @@
+   '-DOLD_MEDIA_SESSION_WORKAROUND=1'
+ ]
+ 
+-if host_machine.system() != 'freebsd' and host_machine.system() != 'midnightbsd'
++if host_machine.system() != 'freebsd' and host_machine.system() != 'midnightbsd' and host_machine.system() != 'dragonfly'
+   libpipewire_c_args += [
+     '-D_POSIX_C_SOURCE'
+   ]
+diff -ruN a/src/pipewire/pipewire.c b/src/pipewire/pipewire.c
+--- a/src/pipewire/pipewire.c	2026-10-29 06:58:07.000000000 -0300
++++ b/src/pipewire/pipewire.c	2026-11-10 16:24:22.364987155 -0300
+@@ -7,7 +7,7 @@
+ #include <unistd.h>
+ #include <limits.h>
+ #include <stdio.h>
+-#if !defined(__FreeBSD__) && !defined(__MidnightBSD__) && !defined(__GNU__)
++#if !defined(__FreeBSD__) && !defined(__MidnightBSD__) && !defined(__GNU__) && !defined(__DragonFly__)
+ #include <sys/prctl.h>
+ #endif
+ #include <pwd.h>
+@@ -673,6 +673,11 @@
+ 		}
+ 	}
+ #endif
++#if defined(__DragonFly__)
++	snprintf(name, sizeof(name), "%s", getprogname());
++	prgname = name;
++	return;
++#endif
+ #if defined __FreeBSD__ || defined(__MidnightBSD__)
+ 	{
+ 		ssize_t len;
+@@ -683,7 +688,7 @@
+ 		}
+ 	}
+ #endif
+-#if !defined(__FreeBSD__) && !defined(__MidnightBSD__) && !defined(__GNU__)
++#if !defined(__FreeBSD__) && !defined(__MidnightBSD__) && !defined(__GNU__) && !defined(__DragonFly__)
+ 	{
+ 		if (prctl(PR_GET_NAME, (unsigned long) name, 0, 0, 0) == 0) {
+ 			prgname = name;
+diff -ruN a/src/pipewire/thread.c b/src/pipewire/thread.c
+--- a/src/pipewire/thread.c	2026-10-29 06:58:07.000000000 -0300
++++ b/src/pipewire/thread.c	2026-11-10 16:24:22.366754482 -0300
+@@ -6,9 +6,12 @@
+ #include <unistd.h>
+ #include <sys/types.h>
+ #include <pthread.h>
+-#ifdef __FreeBSD__
++#if defined(__FreeBSD__) || defined(__DragonFly__)
+ #include <pthread_np.h>
+ #endif
++#ifndef SCHED_RESET_ON_FORK
++#define SCHED_RESET_ON_FORK 0
++#endif
+ 
+ #include <spa/utils/dict.h>
+ #include <spa/utils/defs.h>

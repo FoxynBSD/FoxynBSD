@@ -44,7 +44,9 @@
 #			audio-check; needs the internet); the machine gets an
 #			HDA card whose output QEMU writes to $OBJDIR/qemu/
 #			audio.wav, and the "audio-wav:" line in the log says
-#			how long and at what frequency it sounded
+#			how long and at what frequency it sounded.  With
+#			--desktop: the tone through the session's own
+#			PipeWire (desktop-session audio), no download
 #	DISK		disk for --disk and --desktop-setup (default
 #			$OBJDIR/disk.img; --desktop: $OBJDIR/desktop.img)
 #	LOGIN_CHECK	1: --desktop also drives Gershwin's LoginWindow
@@ -266,6 +268,17 @@ if [ "$result" -eq 0 ] && [ "$MODE" = desktop ]; then
 		tries=$((tries + 1))
 	done
 	grep -aq '^dsession-42: 0' "$LOG" || result=1
+	# AUDIO_CHECK=1: a tone through the session's PipeWire (daudio-42);
+	# what reached the card is in the WAV file ("audio-wav:" line).
+	if [ "$result" -eq 0 ] && [ "${AUDIO_CHECK:-0}" = 1 ]; then
+		printf "sh -c 'sh /root/tests/desktop-session audio; echo daudio-\$((6*7)): \$?'\r" >&3
+		tries=0
+		while [ "$tries" -lt 12 ] && ! grep -aq '^daudio-42:' "$LOG"; do
+			sleep 5
+			tries=$((tries + 1))
+		done
+		grep -aq '^daudio-42: 0' "$LOG" || result=1
+	fi
 	# What the video console shows: the screen QEMU's VGA card scans out.
 	rm -f "$OBJDIR/qemu/desktop.ppm"
 	python3 -I - "$MONITOR" "$OBJDIR/qemu/desktop.ppm" <<'EOF' || :

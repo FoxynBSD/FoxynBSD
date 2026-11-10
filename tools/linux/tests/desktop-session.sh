@@ -11,6 +11,9 @@
 #		foxyn_desktop stop`; X, the service and the user's
 #		processes must be gone; with OpenRC, then `service
 #		foxyn_openrc stop`, which must stop the system bus too
+#	audio	(after wait, with a sound card) play a 4 s 440 Hz tone as
+#		the desktop user through the session's PipeWire (JACK sink);
+#		boot-test.sh checks what reached the card
 #	login	(after stop) Gershwin's LoginWindow, when installed: start
 #		foxyn_loginwindow with a test password for the user; check
 #		that another account cannot use the display, that a wrong
@@ -56,6 +59,9 @@ wait)
 	# Gershwin's menu bar, which foxyn-desktop builds with GNUstep.
 	[ -x /System/Library/CoreServices/Applications/Menu.app/Menu ] &&
 	    procs="$procs Menu"
+	# The session's sound (foxyn-audio), with PipeWire and a sound card.
+	[ -x /System/Library/PipeWire/bin/pipewire ] && [ -c /dev/dsp ] &&
+	    procs="$procs jackd pipewire wireplumber"
 	# Gershwin's session: its supervisor and Workspace.
 	[ -x /System/Library/Tools/gershwin-session ] && [ -x /System/Library/Tools/Workspace ] &&
 	    procs="$procs gershwin-session Workspace"
@@ -211,6 +217,26 @@ login)
 	pgrep -x Xorg >/dev/null && fail "Xorg still runs after stopping LoginWindow"
 	[ "$ok" = 1 ] && echo "desktop-session: LoginWindow stopped"
 	;;
-*)	echo "usage: desktop-session wait|stop|login" >&2; exit 2 ;;
+audio)
+	[ -c /dev/dsp ] || { echo "desktop-session: FAIL no sound card"; exit 1; }
+	pw=/System/Library/PipeWire/bin
+	[ -x $pw/pw-play ] || { echo "desktop-session: FAIL no PipeWire"; exit 1; }
+	rt=/var/run/user/$uid
+	ruby -e 'r = 48000; d = (0...r * 4).map { |i| (Math.sin(2 * Math::PI * 440 * i / r) * 12000).to_i }.pack("s<*")
+	    File.binwrite("/tmp/tone.wav", ["RIFF", 36 + d.size, "WAVE", "fmt ", 16, 1, 1, r, r * 2, 2, 16, "data", d.size].pack("a4Va4a4VvvVVvva4V") + d)'
+	chmod 644 /tmp/tone.wav
+	sink=$(su -m "$user" -c "env XDG_RUNTIME_DIR=$rt $pw/wpctl inspect @DEFAULT_AUDIO_SINK@" 2>&1 |
+	    sed -n 's/.*node.description = "\(.*\)"/\1/p')
+	echo "desktop-session: default sink: ${sink:-none}"
+	if su -m "$user" -c "env XDG_RUNTIME_DIR=$rt timeout 30 $pw/pw-play /tmp/tone.wav" \
+	    > /tmp/pw-play.log 2>&1; then
+		echo "desktop-session: $user played a 440 Hz tone through PipeWire"
+	else
+		sed 's/^/desktop-session: /' /tmp/pw-play.log
+		fail "pw-play"
+	fi
+	[ "$ok" = 1 ]
+	;;
+*)	echo "usage: desktop-session wait|stop|audio|login" >&2; exit 2 ;;
 esac
 [ "$ok" = 1 ]
