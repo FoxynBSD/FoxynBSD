@@ -2402,6 +2402,7 @@ EOF
 #				constructor and destructor
 #	rt-sem			named semaphores (sem_open(3) names with and
 #				without a leading slash)
+#	rt-umtx			user-address wait and wakeup across processes
 #	rt-eventfd		eventfd(2): a counter passed to another process
 #				over SCM_RIGHTS, readiness, limits, blocking
 #	rt-shmpath		shm_open(3) and /dev/shm name the same object
@@ -2418,6 +2419,7 @@ write_runtime_tests() {
 	xcc -O2 -fPIC -shared -o "$dir/rt-dlmod.so" "$t/rt-dlmod.c"
 	xcc -O2 -Wl,-E -o "$dir/rt-dlopen" "$t/rt-dlopen.c"
 	xcc -O2 -o "$dir/rt-sem" "$t/rt-sem.c"
+	xcc -O2 -o "$dir/rt-umtx" "$t/rt-umtx.c"
 	xcc -O2 -o "$dir/rt-eventfd" "$t/rt-eventfd.c"
 	xcc -O2 -o "$dir/rt-shmpath" "$t/rt-shmpath.c"
 	xcc -O2 -o "$dir/devd-connect" "$t/devd-connect.c"
@@ -2668,7 +2670,7 @@ for b in /root/tests/brand-*; do
 done
 # The compiler runtime and dynamic linking tests (build.sh
 # write_runtime_tests): each prints "<name>: ok" or a FAIL line.
-for t in rt-builtins rt-builtins-static rt-cxx rt-dlopen rt-sem rt-eventfd rt-shmpath; do
+for t in rt-builtins rt-builtins-static rt-cxx rt-dlopen rt-sem rt-umtx rt-eventfd rt-shmpath; do
 	/root/tests/$t || echo "rc: /root/tests/$t failed with status $?"
 done
 # Kernel modules (build.sh rootfs copies them in when they were built):

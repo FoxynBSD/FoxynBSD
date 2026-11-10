@@ -801,7 +801,7 @@ check per CI step (`all` runs them all):
 | `cron` | `cron(8)` (Cronie) ran a root crontab's job and an `/etc/cron.d` job; `nobody` installed, listed and removed a crontab (images with `su`); `/etc/anacrontab` parses and `anacron(8)` ran a test job |
 | `periodic` | `periodic daily` finished and found every command |
 | `cxx` | a static C++ program throws through two frames and catches |
-| `runtime` | compiler-rt builtins in a static and a dynamic program; C++ constructors, destructors and an exception across a shared library; `atexit` order; `dlopen(3)`; named semaphores; `eventfd(2)`; `/dev/shm` and `shm_open(3)` as root and an unprivileged user (sources in `tools/linux/tests`) |
+| `runtime` | compiler-rt builtins in a static and a dynamic program; C++ constructors, destructors and an exception across a shared library; `atexit` order; `dlopen(3)`; named semaphores; `umtx` wait and wake; `eventfd(2)`; `/dev/shm` and `shm_open(3)` as root and an unprivileged user (sources in `tools/linux/tests`) |
 | `fs` | `/tmp` and `/var/tmp` sticky and writable; `/etc`, `/var/run`, `/var/log`, `/var/db`, `/root` writable; devd sockets accept connections and its pidfile names a live process; `/` read-only on root.iso and writable on disk.img; `master.passwd` and `spwd.db` mode 600 |
 | `abi` | programs with either ELF ABI note (FoxynBSD, DragonFly) run |
 | `kld` | the loader loaded `xhci.ko` (and `ehci.ko`) at boot; modules in `KLD_TESTS` load and unload when present and not already loaded; modules already in use are reported and left loaded |
