@@ -1,0 +1,20 @@
+OpenRC
+======
+
+url    = https://github.com/OpenRC/openrc.git
+tag    = 0.62.6
+commit = c3689317b5b028f96c1e4912ab5281f2719665e5
+date   = 2025-07-23
+
+This submodule is source-only. OpenRC is not built, installed, integrated
+with boot, or used as PID 1 by FoxynBSD. Keep build output outside it.
+The pinned tag points at a commit whose subject says version 0.62.5.
+
+An isolated DragonFly QEMU build failed during Meson configuration; a
+separate diagnostic forcing FreeBSD mode failed on MNT_UNION. See
+../docs/desktop-integration-investigation.md for the tested scope.
+
+License: see LICENSE and per-file notices. Complete the file-level license
+and provenance review before distribution. When upgrading, review OS
+support, configuration, service ordering, coexistence with rc.d and recovery,
+then test the whole boot path on disposable and physical systems.

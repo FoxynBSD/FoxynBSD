@@ -70,3 +70,7 @@
 	path = contrib/xlibre-input-libinput
 	url = https://github.com/X11Libre/xf86-input-libinput.git
 	shallow = true
+[submodule "contrib/openrc"]
+	path = contrib/openrc
+	url = https://github.com/OpenRC/openrc.git
+	shallow = true
