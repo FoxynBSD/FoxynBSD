@@ -328,7 +328,19 @@ echo "$xpid" > /var/run/foxyn-session.X.pid
 i=0
 while [ ! -S /tmp/.X11-unix/X0 ] && [ "$i" -lt 30 ]; do sleep 1; i=$((i + 1)); done
 echo "session for $user started"
-su -l "$user" -c "DISPLAY=:0 XAUTHORITY=$auth/user exec \$HOME/.xsession"
+su -l "$user" -c "DISPLAY=:0 XAUTHORITY=$auth/user exec \$HOME/.xsession" &
+spid=$!
+# Gershwin's supervisor does not notice that X went away (it would
+# restart its applications for ever): when X exits first, end the
+# session as Log Out does.
+while kill -0 "$spid" 2>/dev/null; do
+	if ! kill -0 "$xpid" 2>/dev/null; then
+		pkill -TERM -u "$user" -x gershwin-session
+		break
+	fi
+	sleep 1
+done
+wait "$spid"
 echo "session for $user ended: $?"
 kill "$xpid" 2>/dev/null
 wait "$xpid"
@@ -379,8 +391,9 @@ foxyn_desktop_stop()
 {
 	foxyn_desktop_running || { echo "$name is not running."; return 0; }
 	echo "Stopping $name."
-	# Ending X ends the session's clients, then foxyn-session cleans up
-	# and exits.
+	# End Gershwin's session as Log Out does, and X; foxyn-session then
+	# cleans up and exits.
+	pkill -TERM -u "$foxyn_desktop_user" -x gershwin-session
 	[ -f /var/run/foxyn-session.X.pid ] &&
 	    kill "$(cat /var/run/foxyn-session.X.pid)" 2>/dev/null
 	i=0
