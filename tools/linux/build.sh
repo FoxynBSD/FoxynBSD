@@ -2735,24 +2735,26 @@ fi
 # the root stays read-only, the tmpfs mounts are writable, the
 # temporary directories are sticky and the password databases private.
 fs=ok
+# A directory's mode as ls(1) shows it; the base image has no stat(1).
+mode() { set -- $(ls -ld "$1" 2>/dev/null); echo "${1:-}"; }
 for d in /tmp /var/tmp; do
 	[ -d $d ] && [ -w $d ] && [ -k $d ] || { fs=fail; echo "fs-check: FAIL $d is not a sticky writable directory"; }
 done
-if [ "$(stat -f %Sp /var/tmp/vi.recover 2>/dev/null)" != drwxrwxrwt ]; then
+if [ "$(mode /var/tmp/vi.recover)" != drwxrwxrwt ]; then
 	fs=fail; echo "fs-check: FAIL /var/tmp/vi.recover is not mode 1777"
 fi
 # These directories have restricted modes in BSD.var.dist.
 for d in /var/backups /var/cron; do
-	[ "$(stat -f %Sp "$d" 2>/dev/null)" = drwxr-x--- ] ||
+	[ "$(mode "$d")" = drwxr-x--- ] ||
 	    { fs=fail; echo "fs-check: FAIL $d is not mode 750"; }
 done
 for d in /var/cron/tabs /var/db/entropy /var/spool/anacron; do
-	[ "$(stat -f %Sp "$d" 2>/dev/null)" = drwx------ ] ||
+	[ "$(mode "$d")" = drwx------ ] ||
 	    { fs=fail; echo "fs-check: FAIL $d is not mode 700"; }
 done
 # sem_open(3) stores named semaphores here; ordinary users must be able
 # to create them without being able to remove another user's semaphore.
-if [ "$(stat -f %Sp /var/run/sem 2>/dev/null)" != drwxrwxrwt ]; then
+if [ "$(mode /var/run/sem)" != drwxrwxrwt ]; then
 	fs=fail; echo "fs-check: FAIL /var/run/sem is not mode 1777"
 fi
 for d in /etc /var/run /var/log /var/db /root; do
