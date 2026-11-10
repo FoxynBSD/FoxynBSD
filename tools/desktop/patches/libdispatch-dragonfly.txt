@@ -1,0 +1,168 @@
+DragonFly/FoxynBSD port of swift-corelibs-libdispatch at contrib/libdispatch
+(95f592ab637c4d7916fa05d4d80cbc1ec7d0b2b8); apply with patch -p1 to an
+extracted copy, never to the submodule.  Waits use umtx_sleep(2) and
+umtx_wakeup(2), EVFILT_TIMER takes milliseconds, thread ids come from
+lwp_gettid(2).  Changes to Apache-2.0 upstream files; see contrib/libdispatch/LICENSE.
+
+diff -ruN a/src/event/event_kevent.c b/src/event/event_kevent.c
+--- a/src/event/event_kevent.c
++++ b/src/event/event_kevent.c
+@@ -55,13 +55,9 @@
+ #define DISPATCH_NOTE_CLOCK_MONOTONIC NOTE_NSECONDS
+ #define DISPATCH_NOTE_CLOCK_UPTIME    NOTE_NSECONDS
+ #elif defined(__DragonFly__)
+-#ifndef NOTE_NSECONDS
+-#error "DragonFlyBSD EVFILT_TIMER defaults to milliseconds. Adjust timer values before enabling nanosecond timers."
+-#else
+-#define DISPATCH_NOTE_CLOCK_WALL      NOTE_NSECONDS
+-#define DISPATCH_NOTE_CLOCK_MONOTONIC NOTE_NSECONDS
+-#define DISPATCH_NOTE_CLOCK_UPTIME    NOTE_NSECONDS
+-#endif
++#define DISPATCH_NOTE_CLOCK_WALL      0
++#define DISPATCH_NOTE_CLOCK_MONOTONIC 0
++#define DISPATCH_NOTE_CLOCK_UPTIME    0
+ #else
+ #define DISPATCH_NOTE_CLOCK_WALL      0
+ #define DISPATCH_NOTE_CLOCK_MONOTONIC 0
+@@ -2383,6 +2379,13 @@
+ 		pp = _dispatch_qos_to_pp(dth[tidx].dth_max_qos);
+ 	}
+ #endif
++#if defined(__DragonFly__)
++    if (action & EV_ADD) {
++        target = target / 1000000 + (target % 1000000 != 0);
++        if (target == 0) target = 1;
++        if (target > INT32_MAX) target = INT32_MAX;
++    }
++#endif
+ 	dispatch_kevent_s ke = {
+ 		.ident = DISPATCH_KEVENT_TIMEOUT_IDENT_MASK | tidx,
+ 		.filter = EVFILT_TIMER,
+diff -ruN a/src/internal.h b/src/internal.h
+--- a/src/internal.h
++++ b/src/internal.h
+@@ -276,6 +276,12 @@
+ #if !defined(__linux__)
+ #include <sys/sysctl.h>
+ #include <sys/queue.h>
++#ifndef LIST_FOREACH_SAFE
++#define LIST_FOREACH_SAFE(var, head, field, temp) \
++    for ((var) = LIST_FIRST(head); \
++         (var) && ((temp) = LIST_NEXT(var, field), 1); \
++         (var) = (temp))
++#endif
+ #endif
+ #if defined(__FreeBSD__)
+ #include <sys/eventfd.h>
+diff -ruN a/src/queue.c b/src/queue.c
+--- a/src/queue.c
++++ b/src/queue.c
+@@ -7420,6 +7420,13 @@
+ {
+ 	return (pid_t)syscall(SYS_gettid);
+ }
++#elif defined(__DragonFly__)
++DISPATCH_ALWAYS_INLINE
++static inline pid_t
++_gettid(void)
++{
++    return (pid_t)lwp_gettid();
++}
+ #elif defined(__FreeBSD__)
+ DISPATCH_ALWAYS_INLINE
+ static inline pid_t
+diff -ruN a/src/shims/hw_config.h b/src/shims/hw_config.h
+--- a/src/shims/hw_config.h
++++ b/src/shims/hw_config.h
+@@ -197,7 +197,7 @@
+ 	}
+ #elif defined(__FreeBSD__)
+ 	(void)c; name = "kern.smp.cpus";
+-#elif defined(__OpenBSD__)
++#elif defined(__OpenBSD__) || defined(__DragonFly__)
+ 	(void)c;
+ #endif
+ 	if (name) {
+diff -ruN a/src/shims/lock.c b/src/shims/lock.c
+--- a/src/shims/lock.c
++++ b/src/shims/lock.c
+@@ -550,6 +550,22 @@
+ 			? INFINITE : ((nsecs + 1000000) / 1000000);
+ 	if (dwMilliseconds == 0) return ETIMEDOUT;
+ 	return WaitOnAddress(address, &value, sizeof(value), dwMilliseconds) == TRUE;
++#elif defined(__DragonFly__)
++    (void)flags;
++    for (;;) {
++        uint64_t remaining = _dispatch_timeout(timeout);
++        int usecs, result;
++        if (remaining == 0) return ETIMEDOUT;
++        if (remaining == DISPATCH_TIME_FOREVER || remaining >= 1000000000ull)
++            usecs = 1000000;
++        else
++            usecs = (int)((remaining + 999) / 1000);
++        result = umtx_sleep((volatile const int *)address, (int)value, usecs);
++        if (result == 0) return 0;
++        if (errno == EBUSY) return 0;
++        if (errno == EWOULDBLOCK || errno == EINTR) continue;
++        return errno;
++    }
+ #elif defined(__FreeBSD__)
+ 	(void)flags;
+ 	if (nsecs != DISPATCH_TIME_FOREVER) {
+@@ -574,6 +590,8 @@
+ 	_dispatch_futex_wake((uint32_t *)address, INT_MAX, FUTEX_PRIVATE_FLAG);
+ #elif defined(_WIN32)
+ 	WakeByAddressAll((uint32_t *)address);
++#elif defined(__DragonFly__)
++    umtx_wakeup((volatile const int *)address, 0);
+ #elif defined(__FreeBSD__)
+ 	_umtx_op((void*)address, UMTX_OP_WAKE, INT_MAX, 0, 0);
+ #else
+diff -ruN a/src/shims/lock.h b/src/shims/lock.h
+--- a/src/shims/lock.h
++++ b/src/shims/lock.h
+@@ -122,6 +122,23 @@
+ 	return lock_value & DLOCK_OWNER_MASK;
+ }
+ 
++#elif defined(__DragonFly__)
++
++#include <unistd.h>
++typedef uint32_t dispatch_tid;
++typedef uint32_t dispatch_lock;
++#define DLOCK_OWNER_NULL ((dispatch_tid)0)
++#define DLOCK_OWNER_MASK ((dispatch_lock)0xfffffffc)
++#define DLOCK_WAITERS_BIT ((dispatch_lock)0x00000001)
++#define DLOCK_FAILED_TRYLOCK_BIT ((dispatch_lock)0x00000002)
++#define _dispatch_tid_self() ((dispatch_tid)(_dispatch_get_tsd_base()->tid << 2))
++DISPATCH_ALWAYS_INLINE
++static inline dispatch_tid
++_dispatch_lock_owner(dispatch_lock lock_value)
++{
++    return lock_value & DLOCK_OWNER_MASK;
++}
++
+ #elif defined(__OpenBSD__)
+ 
+ typedef uint32_t dispatch_tid;
+diff -ruN a/src/transform.c b/src/transform.c
+--- a/src/transform.c
++++ b/src/transform.c
+@@ -26,7 +26,7 @@
+ #include <endian.h>
+ #define OSLittleEndian __LITTLE_ENDIAN
+ #define OSBigEndian __BIG_ENDIAN
+-#elif defined(__FreeBSD__) || defined(__OpenBSD__)
++#elif defined(__FreeBSD__) || defined(__OpenBSD__) || defined(__DragonFly__)
+ #include <sys/endian.h>
+ #define OSLittleEndian _LITTLE_ENDIAN
+ #define OSBigEndian _BIG_ENDIAN
+@@ -35,7 +35,7 @@
+ #define OSBigEndian 4321
+ #endif
+ 
+-#if defined(__linux__) || defined(__FreeBSD__) || defined(__OpenBSD__)
++#if defined(__linux__) || defined(__FreeBSD__) || defined(__OpenBSD__) || defined(__DragonFly__)
+ #define OSSwapLittleToHostInt16 le16toh
+ #define OSSwapBigToHostInt16 be16toh
+ #define OSSwapHostToLittleInt16 htole16
