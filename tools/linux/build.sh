@@ -1475,6 +1475,7 @@ do_rootfs() {
 	    "$SRCDIR/tools/desktop/patches/menu-dragonfly-extra-poll.txt" \
 	    "$SRCDIR/tools/desktop/patches/workspace-dragonfly.txt" \
 	    "$SRCDIR/tools/desktop/patches/loginwindow-dragonfly.txt" \
+	    "$SRCDIR/tools/desktop/patches/eau-searchfield-keydown.txt" \
 	    "$root/usr/share/foxynbsd/desktop/patches/"
 	# Copy the shared libraries, following NEEDED entries to a fixpoint
 	# (not for /boot: the kernel and its modules do not load them).

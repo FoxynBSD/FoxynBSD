@@ -149,3 +149,12 @@ terms are not recorded in the repository. Eau's own licenses are
 described above. Review them before distributing an image; the image
 built here is for local testing. Keyboard focus, contrast and the
 coverage of every control have not been checked.
+
+`build-eau.sh` applies `tools/desktop/patches/eau-searchfield-keydown.txt`:
+Eau's NSSearchField category exchanged the implementation of `keyDown:`
+that NSSearchField inherits, which swapped the superclass's
+implementation for every view; a key sent to a button then made
+`-[NSButton keyDown:]` and `-eau_keyDown:` call each other until the
+stack overflowed. LoginWindow crashed that way (SIGSEGV; backtrace from
+its core). The patch adds the method to NSSearchField first, as Eau's
+NSButton swizzle already does; no crash was seen after it.

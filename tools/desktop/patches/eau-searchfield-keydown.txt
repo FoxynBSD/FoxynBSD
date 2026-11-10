@@ -1,0 +1,32 @@
+Eau swizzled NSSearchField's keyDown:, which NSSearchField inherits:
+exchanging the inherited method swapped the superclass's implementation,
+and a key sent to a button then recursed between -[NSButton keyDown:]
+and -eau_keyDown: until the stack overflowed (LoginWindow crashed on
+Return after a wrong password).  Add the method to NSSearchField first,
+as the NSButton swizzle does.
+
+--- a/NSSearchField+Eau.m
++++ b/NSSearchField+Eau.m
+@@ -21,8 +21,21 @@
+       {
+         SEL swizSel = @selector(eau_keyDown:);
+         Method swizm = class_getInstanceMethod(searchCls, swizSel);
++        /* NSSearchField inherits keyDown:; exchanging the inherited
++         * method would swap the superclass's implementation for every
++         * view.  Add keyDown: to NSSearchField itself instead, as the
++         * NSButton swizzle does. */
+         if (swizm)
+-          method_exchangeImplementations(km, swizm);
++          {
++            if (class_addMethod(searchCls, keySel,
++                                method_getImplementation(swizm),
++                                method_getTypeEncoding(swizm)))
++              class_replaceMethod(searchCls, swizSel,
++                                  method_getImplementation(km),
++                                  method_getTypeEncoding(km));
++            else
++              method_exchangeImplementations(km, swizm);
++          }
+       }
+   });
+ }
