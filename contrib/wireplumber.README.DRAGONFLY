@@ -1,0 +1,21 @@
+WirePlumber
+===========
+
+url    = https://gitlab.freedesktop.org/pipewire/wireplumber.git
+tag    = 0.5.19
+commit = 4ab992fa2931ae2b17ef73508b1370030b7878c3
+date   = 2026-10-30
+
+PipeWire's session manager. tools/desktop/build-pipewire.sh builds this
+revision (GitLab's archive of the tag, identical to the submodule, checked
+by SHA-256) with tools/desktop/patches/wireplumber-dragonfly.txt
+(lwp_gettid for gettid) against DPorts' lua54 and glib, after PipeWire,
+and installs it in /System/Library/PipeWire (docs/desktop-pipewire.md).
+Keep build output outside the submodule; when upgrading, update the tag
+and checksum in build-pipewire.sh too.
+
+License: see LICENSE and individual file notices. Complete the file-level
+license and provenance review before distribution.
+
+When upgrading, review its Lua scripts and configuration, PipeWire
+version requirements and the desktop audio check.

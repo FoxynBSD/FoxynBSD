@@ -74,3 +74,11 @@
 	path = contrib/openrc
 	url = https://github.com/OpenRC/openrc.git
 	shallow = true
+[submodule "contrib/pipewire"]
+	path = contrib/pipewire
+	url = https://gitlab.freedesktop.org/pipewire/pipewire.git
+	shallow = true
+[submodule "contrib/wireplumber"]
+	path = contrib/wireplumber
+	url = https://gitlab.freedesktop.org/pipewire/wireplumber.git
+	shallow = true
