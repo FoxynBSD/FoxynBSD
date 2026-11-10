@@ -38,3 +38,11 @@
 	path = contrib/gershwin-components
 	url = https://github.com/gershwin-desktop/gershwin-components.git
 	shallow = true
+[submodule "contrib/gershwin-workspace"]
+	path = contrib/gershwin-workspace
+	url = https://github.com/gershwin-desktop/gershwin-workspace.git
+	shallow = true
+[submodule "contrib/gershwin-systempreferences"]
+	path = contrib/gershwin-systempreferences
+	url = https://github.com/gershwin-desktop/gershwin-systempreferences.git
+	shallow = true
