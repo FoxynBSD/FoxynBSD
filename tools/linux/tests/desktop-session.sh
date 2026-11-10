@@ -31,6 +31,7 @@ wait)
 	done
 	service foxyn_desktop status | sed 's/^/desktop-session: /'
 	echo "desktop-session: X $(sed -n 's/.*scfb(0): Using: \(.*\)/\1/p' /var/log/Xorg.0.log | head -n 1 | tr -s ' ')"
+	echo "desktop-session: server $(sed -n 's/^\(XLibre X Server [0-9.]*\).*/\1/p;s/^\(X.Org X Server [0-9.]*\).*/\1/p' /var/log/Xorg.0.log | head -n 1)"
 	if pgrep -u "$uid" -x WindowManager >/dev/null; then
 		echo "desktop-session: Gershwin WindowManager runs as $user"
 	elif pgrep -u "$uid" -x twm >/dev/null; then

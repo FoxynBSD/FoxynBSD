@@ -6,10 +6,12 @@ tag    = xlibre-xserver-25.1.11
 commit = ec1f2d37daa1450d8452abb547de4546321d7bb9
 date   = 2026-10-31
 
-This submodule is source-only: it is not built, installed, or validated as
-part of the FoxynBSD base. Keep build output outside the submodule.
-
-The source has compiled and Xvfb has run in a disposable guest; installed Xorg, drivers and sessions are not validated.
+Built by tools/desktop/build-xlibre.sh, which foxyn-desktop(8) runs on
+the desktop image (tools/linux/build.sh desktop): it downloads this
+revision's archive, checks its SHA-256 and installs in
+/System/Library/XLibre (docs/desktop-xlibre.md). It is not part of
+buildworld. Keep build output outside the submodule. When upgrading,
+update the revision and checksum in build-xlibre.sh too.
 
 License: mixed source notices; see COPYING and individual files. Complete file-level and asset provenance review and preserve
 applicable notices and source obligations before distribution.

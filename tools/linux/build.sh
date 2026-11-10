@@ -1462,7 +1462,8 @@ do_rootfs() {
 	    "$SRCDIR/tools/desktop/build-systempreferences.sh" \
 	    "$SRCDIR/tools/desktop/build-workspace.sh" \
 	    "$SRCDIR/tools/desktop/build-eau.sh" \
-	    "$SRCDIR/tools/desktop/install-gershwin-system.sh" "$root/usr/share/foxynbsd/desktop/"
+	    "$SRCDIR/tools/desktop/install-gershwin-system.sh" \
+	    "$SRCDIR/tools/desktop/build-xlibre.sh" "$root/usr/share/foxynbsd/desktop/"
 	install -m 444 "$SRCDIR/tools/desktop/patches/windowmanager-titlebar-state.txt" \
 	    "$SRCDIR/tools/desktop/patches/windowmanager-LICENSE" \
 	    "$SRCDIR/tools/desktop/patches/gnustep-base-dragonfly-uuid.txt" \

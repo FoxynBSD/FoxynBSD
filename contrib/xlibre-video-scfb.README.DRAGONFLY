@@ -6,7 +6,11 @@ tag    = xlibre-xf86-video-scfb-25.0.0
 commit = df94d49909ec9c22e5044669f9d1363f4ed429a5
 date   = 2025-12-30
 
-Source only: not yet built or installed by FoxynBSD. Build outside the
-submodule and validate driver ABI, device access, input and console recovery.
+Built by tools/desktop/build-xlibre.sh, which foxyn-desktop(8) runs on
+the desktop image (tools/linux/build.sh desktop): it downloads this
+revision's archive, checks its SHA-256 and installs in
+/System/Library/XLibre (docs/desktop-xlibre.md). It is not part of
+buildworld. Keep build output outside the submodule. When upgrading,
+update the revision and checksum in build-xlibre.sh too.
 License: BSD-style terms in COPYING; review individual files and preserve notices before release.
 On upgrade, check compatibility with the pinned XLibre server and retest.
