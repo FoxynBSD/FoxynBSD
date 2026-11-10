@@ -56,6 +56,9 @@
 #	MONITOR_SOCKET	optional QEMU monitor Unix socket for screenshots and
 #			debugging; must not already exist (local trusted use)
 #	SERIAL_LOG	headless: write the serial console to this file
+#	QEMU_STATE	where the VM's ESP copy and UEFI variables are kept
+#			(default $OBJDIR/qemu); give each VM that runs at the
+#			same time its own: the ESP copy is remade at start
 #	SERIAL_PIPE	headless: connect the serial console to the FIFOs
 #			$SERIAL_PIPE.in and $SERIAL_PIPE.out (made by the caller),
 #			so a script can both read the console and type on it
@@ -73,6 +76,7 @@ set -eu
 SRCDIR=$(cd "$(dirname "$0")/../.." && pwd)
 OBJDIR=${OBJDIR:-${XDG_CACHE_HOME:-$HOME/.cache}/foxynbsd}
 GUI=${GUI:-}
+QEMU_STATE=${QEMU_STATE:-$OBJDIR/qemu}
 ROOT=${ROOT:-1}
 FWONLY=0
 DESKTOP_DEVICES=0
@@ -221,7 +225,7 @@ fi
 if [ "$ROOT" = installed ]; then
 	:	# The disk has its own ESP and loader.conf.
 elif [ "$GUI" = 1 ] || [ "$ROOT" != 0 ]; then
-	VESP=$OBJDIR/qemu/esp-$GUI$ROOT/$CONF
+	VESP=$QEMU_STATE/esp-$GUI$ROOT/$CONF
 	rm -rf "$VESP"
 	mkdir -p "$(dirname "$VESP")"
 	cp -al "$ESP" "$VESP" 2>/dev/null || cp -a "$ESP" "$VESP"
@@ -249,8 +253,8 @@ elif [ "$GUI" = 1 ] || [ "$ROOT" != 0 ]; then
 fi
 
 # Writable per-config copy of the UEFI variable store.
-VARS=$OBJDIR/qemu/$CONF.vars.fd
-mkdir -p "$OBJDIR/qemu"
+VARS=$QEMU_STATE/$CONF.vars.fd
+mkdir -p "$QEMU_STATE"
 [ -f "$VARS" ] || cp "$OVMF_VARS_TMPL" "$VARS"
 
 ACCEL="-accel tcg"
