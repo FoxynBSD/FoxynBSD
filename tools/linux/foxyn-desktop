@@ -3,13 +3,19 @@
 # foxyn-desktop: install the interim FoxynBSD graphical desktop from DPorts
 # on a writable root, and start it at boot (issue #13).
 #
-# Usage: foxyn-desktop [-y] [-m mirror] [-u user]
+# Usage: foxyn-desktop [-y] [-m mirror] [-u user] [-w gershwin|twm]
 #
 #	-y	do not ask for confirmation
 #	-m	DPorts mirror URL instead of pkg's default, e.g.
 #		https://mirror.sjtu.edu.cn/dragonflybsd/dports
 #	-u	the desktop user (default: foxyn); created without a password
 #		when it does not exist, like root on the test images
+#	-w	the window manager: gershwin (default) builds Gershwin's
+#		WindowManager from its pinned source as the desktop user
+#		(build-windowmanager.sh, with the llvm19 compiler from
+#		DPorts) and installs it in /usr/local/GNUstep/Local; twm
+#		skips that.  twm is installed either way, and the session
+#		falls back to it when WindowManager is missing.
 #
 # It installs X with the scfb driver (the EFI framebuffer through
 # syscons; no KMS), libinput, fonts, GNUstep, twm and xterm, and
@@ -20,23 +26,30 @@
 # foxyn_desktop_enable=NO in rc.conf turns it off (the recovery path).
 #
 # This is the stopgap until the Gershwin session (contrib/gershwin-*)
-# is built in base: it needs the internet, and the packages are DPorts'.
+# is built in base: it needs the internet, the packages are DPorts', and
+# the Gershwin Workspace, Menu and session supervisor are not installed.
 
 set -eu
 
 user=foxyn
 mirror=
 yes=0
-while getopts m:u:y opt; do
+wm=gershwin
+usage="usage: foxyn-desktop [-y] [-m mirror] [-u user] [-w gershwin|twm]"
+while getopts m:u:w:y opt; do
 	case $opt in
 	m)	mirror=$OPTARG ;;
 	u)	user=$OPTARG ;;
+	w)	wm=$OPTARG ;;
 	y)	yes=1 ;;
-	*)	echo "usage: foxyn-desktop [-y] [-m mirror] [-u user]" >&2; exit 2 ;;
+	*)	echo "$usage" >&2; exit 2 ;;
 	esac
 done
 shift $((OPTIND - 1))
-[ $# -eq 0 ] || { echo "usage: foxyn-desktop [-y] [-m mirror] [-u user]" >&2; exit 2; }
+[ $# -eq 0 ] || { echo "$usage" >&2; exit 2; }
+case $wm in gershwin|twm) ;; *) echo "$usage" >&2; exit 2 ;; esac
+# build-windowmanager.sh and its patch, installed by tools/linux/build.sh.
+share=/usr/share/foxynbsd/desktop
 
 say() { echo "foxyn-desktop: $*"; }
 die() { echo "foxyn-desktop: $*" >&2; exit 1; }
@@ -68,6 +81,8 @@ fi
 pkgs="xorg-minimal xf86-video-scfb xf86-input-libinput dejavu font-misc-misc
     font-alias xauth xinput
     xwininfo xsetroot xterm twm gnustep gnustep-sudoku"
+[ "$wm" = gershwin ] && pkgs="$pkgs gmake llvm19 pkgconf xcb-util xcb-util-wm
+    xcb-util-cursor"
 say "installing $(echo $pkgs)"
 pkg install -y $pkgs >> "$log" 2>&1 || {
 	tail -n 5 "$log" >&2; die "pkg install failed (see $log)"; }
@@ -85,11 +100,34 @@ if ! id "$user" >/dev/null 2>&1; then
 fi
 home=$(pw usershow "$user" | cut -d: -f9)
 [ -d "$home" ] || die "$user has no home directory: $home"
+
+# Gershwin's WindowManager: compiled by the desktop user (not root) in a
+# directory of their own, then installed root-owned for every user.
+wmapp=/usr/local/GNUstep/Local/Applications/WindowManager.app
+if [ "$wm" = gershwin ] && [ ! -x "$wmapp/WindowManager" ]; then
+	[ -r "$share/build-windowmanager.sh" ] ||
+	    die "$share/build-windowmanager.sh is missing"
+	say "building Gershwin WindowManager as $user"
+	work=$(mktemp -d /tmp/foxyn-wm.XXXXXXXX) || die "mktemp failed"
+	chown "$user" "$work"
+	# su -m runs the command with root's shell, csh on the full image.
+	su -m "$user" -c "cd '$work' && env HOME='$home' sh '$share/build-windowmanager.sh' '$work/WindowManager.app'" \
+	    >> "$log" 2>&1 || { tail -n 5 "$log" >&2; rm -rf "$work"
+		die "WindowManager build failed (see $log)"; }
+	mkdir -p "${wmapp%/*}"
+	rm -rf "$wmapp"
+	cp -R "$work/WindowManager.app" "$wmapp"
+	chown -R root:wheel "$wmapp"
+	chmod -R go-w "$wmapp"
+	rm -rf "$work"
+	say "installed $wmapp"
+fi
 if [ ! -e "$home/.xsession" ]; then
 	cat > "$home/.xsession" <<'EOF'
 #!/bin/sh
 # The FoxynBSD interim desktop session (foxyn-desktop(8)); the session
-# ends when twm does (its menu: Exit).
+# ends when the window manager does: Gershwin's WindowManager when it is
+# installed, else twm (its menu: Log out).
 . /usr/local/GNUstep/System/Library/Makefiles/GNUstep.sh
 xsetroot -solid '#3a6ea5'
 cat > "$HOME/.twmrc" <<'TWM'
@@ -108,8 +146,13 @@ menu "FoxynBSD" {
 }
 TWM
 # The window manager first: clients mapped before it starts are not
-# redrawn when twm reparents them.
-twm &
+# redrawn when twm reparents them.  -dc: no compositing (no GL here).
+wmapp=/usr/local/GNUstep/Local/Applications/WindowManager.app
+if [ -x "$wmapp/WindowManager" ]; then
+	"$wmapp/WindowManager" -dc &
+else
+	twm &
+fi
 wm=$!
 sleep 1
 /usr/local/GNUstep/System/Applications/Sudoku.app/Sudoku &

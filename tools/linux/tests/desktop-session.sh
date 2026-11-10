@@ -1,7 +1,8 @@
 #!/bin/sh
 # The desktop that foxyn-desktop(8) installed (boot-test.sh --desktop).
-#	wait	wait for the session that rc.d started at boot: X, twm, an
-#		xterm and Sudoku's window, all clients as the desktop user
+#	wait	wait for the session that rc.d started at boot: X, a window
+#		manager (WindowManager or twm), an xterm and Sudoku's window,
+#		all clients as the desktop user
 #	stop	`service foxyn_desktop stop` ends the session and X
 ok=1
 fail() { echo "desktop-session: FAIL $*"; ok=0; }
@@ -20,7 +21,14 @@ wait)
 	done
 	service foxyn_desktop status | sed 's/^/desktop-session: /'
 	echo "desktop-session: X $(sed -n 's/.*scfb(0): Using: \(.*\)/\1/p' /var/log/Xorg.0.log | head -n 1 | tr -s ' ')"
-	for p in twm xterm Sudoku; do
+	if pgrep -u "$uid" -x WindowManager >/dev/null; then
+		echo "desktop-session: Gershwin WindowManager runs as $user"
+	elif pgrep -u "$uid" -x twm >/dev/null; then
+		echo "desktop-session: twm runs as $user"
+	else
+		fail "no window manager runs as $user"
+	fi
+	for p in xterm Sudoku; do
 		if pgrep -u "$uid" -x "$p" >/dev/null; then
 			echo "desktop-session: $p runs as $user"
 		else

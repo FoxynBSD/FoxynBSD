@@ -939,21 +939,27 @@ A desktop image to try, from the same packages:
 in QEMU (`boot-test.sh --desktop-setup`) and runs `foxyn-desktop -y` on
 it, which is in the image as `/usr/sbin/foxyn-desktop`. That installs X
 (`scfb`), libinput, fonts, GNUstep, twm and xterm, creates the user
-`foxyn` without a password (like root on these images), and enables the
-`foxyn_desktop` rc.d service. At boot, the service starts X as root with
+`foxyn` without a password (like root on these images), builds Gershwin's
+WindowManager as that user with `tools/desktop/build-windowmanager.sh`
+(pinned source, checksum, the titlebar patch; installed in the image's
+`/usr/share/foxynbsd/desktop`) and the `llvm19` compiler from DPorts,
+installs it in `/usr/local/GNUstep/Local/Applications`, and enables the
+`foxyn_desktop` rc.d service. `foxyn-desktop -w twm` skips WindowManager. At boot, the service starts X as root with
 a fresh cookie and no TCP listener, gives the cookie to `foxyn` only, and
-runs `~foxyn/.xsession` as that user: twm with an xterm and Sudoku. The
-twm menu (left button on the background) has "Log out", which ends the
-session and X; the console login remains (Ctrl-Alt-F1). To turn it off,
+runs `~foxyn/.xsession` as that user: WindowManager (twm when it is
+missing) with an xterm and Sudoku. The session ends when the window manager
+exits, and X stops; the console login remains (Ctrl-Alt-F1). WindowManager
+has no logout action without the Gershwin Menu; twm's menu (left button on
+the background) has "Log out". To turn it off,
 set `foxyn_desktop_enable="NO"` in `/etc/rc.conf`; `service foxyn_desktop
 stop` ends a running session. It needs the internet; `DPORTS_MIRROR`
 picks the mirror, and a failed run leaves an existing `desktop.img` in
 place. `boot-test.sh --desktop` checks the result: the session started at
 boot with its windows, a client without the cookie is rejected, the
 service stops X and the user's processes, and QEMU's screen is saved in
-`$OBJDIR/qemu/desktop.ppm`. This twm session is an interim desktop until
-the Gershwin session from `contrib/` is built; it is not the issue #13
-desktop yet.
+`$OBJDIR/qemu/desktop.ppm`. This is an interim desktop on DPorts' Xorg,
+without Gershwin's Workspace, Menu or session supervisor; it is not the
+issue #13 desktop yet.
 
 Sound: `AUDIO_CHECK=1 boot-test.sh --disk` gives the machine an Intel HDA
 card whose output QEMU writes to `$OBJDIR/qemu/audio.wav`, and runs

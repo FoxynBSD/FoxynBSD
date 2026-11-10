@@ -63,14 +63,52 @@ regression check passed with that experimental build and failed again after
 a clean rebuild of the original. Two TextEdit windows were reparented; one
 could be moved and activated through X requests while the manager remained
 alive. This supports the diagnosis for the tested package versions, but is
-not a complete session or theme test. The experimental source change is not
-distributed here: the affected upstream file has no individual license
-notice and its provenance still needs review.
+not a complete session or theme test.
 
-The upstream `WindowManager/LICENSE` contains an MIT license, while many
-source files lack individual license headers. The XCB layer is bundled in
-that source tree; the older README's separate XCBKit dependency description
-is not sufficient to establish its license provenance. ScanCode was not
-available and file and asset provenance remains to be reviewed before
-redistribution. No upstream source was copied into this tree or patched in
-this experiment.
+`tools/desktop/build-windowmanager.sh` downloads the pinned archive, verifies
+its checksum, applies the focused `tools/desktop/patches/windowmanager-titlebar-state.txt` patch, and
+builds a bundle in the current directory. It needs `gnustep gmake llvm19
+xcb-util-cursor xcb-util-wm xcb-util pkgconf` and GNUstep Make configured
+to invoke clang19, as in the experiment above. The patch changes
+`WindowManager/URSThemeIntegration.m` only for the base GSTheme titlebar
+method; the separate Eau method is unchanged. The upstream WindowManager
+MIT notice is retained alongside the patch. Package versions and transitive
+dependencies are not pinned; this is an experimental build, not a package.
+On 2026-11-07, that script built the patched bundle as an unprivileged user
+on a disposable QEMU disk. The existing `check-windowmanager.sh` passed with
+the pinned TextEdit build: both processes stayed alive, and the document
+window was reparented and viewable. This uses the base theme and Xorg/scfb;
+it does not validate Eau, XLibre or a complete desktop session.
+
+### Source and asset provenance (2026-11-07)
+
+At the pinned revision, `WindowManager/LICENSE` supplies MIT terms for the
+WindowManager directory and contains Alessandro Sangiuliano's 2020 copyright
+notice. There is no separate LICENSE at the repository root. The candidate
+fix concerns `WindowManager/URSThemeIntegration.m`, which has no individual
+license notice; the directory license is evidence of the upstream project's
+terms and the absence of a file header alone does not negate it. Git history
+records contributions by several authors. An earlier version of this note
+incorrectly named `GSThemeTitleBar.m` as the patched file.
+
+The bundled `WindowManager/xcb` files came from the repository's former
+`XCBKit` directory, moved in `a7abc2a29e2e1365cabab58cd1c2d125572ef116`.
+Before that move, `XCBKit/LICENSE` contained MIT terms and a distinct 2019
+copyright notice for Alessandro Sangiuliano. The move deleted that license
+file. A distribution containing this code should retain the original 2019
+notice and MIT permission text as well as the WindowManager notice; the
+current 2020 notice alone is not the original XCBKit notice.
+
+`WindowManager/WindowManager.png` is the only image or font asset found by
+extension in the pinned tree and is included by the application build. Its
+history says it was replaced with an X11 icon in
+`d9c6fdeeddafeb01ec1792f42d1b508800b1c7ec` and resized in
+`3e183e318128637c548bedc20245700c7b46c90b`, but identifies neither the
+source nor its license. Trace it or replace it with a properly licensed
+asset before distributing it.
+
+The archive SHA-256 was checked against the hash above. A text search for
+license, copyright and attribution notices across the tracked tree found
+the notices described above and no separate license grant for the icon.
+This is not a complete file-by-file or binary-asset audit; ScanCode was not
+installed. The review used an AI assistant and has not had human legal review.

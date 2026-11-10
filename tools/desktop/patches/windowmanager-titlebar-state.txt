@@ -1,0 +1,18 @@
+diff --git i/WindowManager/URSThemeIntegration.m w/WindowManager/URSThemeIntegration.m
+index 083214b..8631305 100644
+--- i/WindowManager/URSThemeIntegration.m
++++ w/WindowManager/URSThemeIntegration.m
+@@ -1258,9 +1258,12 @@ typedef NS_ENUM(NSInteger, TitleBarButtonPosition) {
+             } else if ([theme respondsToSelector:baseSelector]) {
+                 // Base GSTheme - call drawTitleBarRect
+                 NSDebugLog(@"DEBUG: Theme responds to drawTitleBarRect (base-style)");
++                // GSTheme titlebar states are key, normal and main (0..2),
++                // rather than GSThemeControlState values such as selected (6).
++                int titlebarState = isActive ? 0 : 1;
+                 [theme drawTitleBarRect:titleBarRect
+                            forStyleMask:styleMask
+-                                  state:state
++                                  state:titlebarState
+                                andTitle:title ?: @""];
+                 NSDebugLog(@"DEBUG: Successfully called theme's drawTitleBarRect");
+             } else {

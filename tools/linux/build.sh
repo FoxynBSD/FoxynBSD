@@ -1452,6 +1452,11 @@ do_rootfs() {
 	install -m 555 "$SRCDIR/tools/linux/foxyn-install" "$root/usr/sbin/foxyn-install"
 	install -m 555 "$SRCDIR/tools/linux/foxyn-desktop" "$root/usr/sbin/foxyn-desktop"
 	install -m 755 "$SRCDIR/tools/linux/tests/desktop-session.sh" "$root/root/tests/desktop-session"
+	# What foxyn-desktop builds Gershwin's WindowManager with.
+	mkdir -p "$root/usr/share/foxynbsd/desktop/patches"
+	install -m 444 "$SRCDIR/tools/desktop/build-windowmanager.sh" "$root/usr/share/foxynbsd/desktop/"
+	install -m 444 "$SRCDIR/tools/desktop/patches/windowmanager-titlebar-state.txt" \
+	    "$SRCDIR/tools/desktop/patches/windowmanager-LICENSE" "$root/usr/share/foxynbsd/desktop/patches/"
 	# Copy the shared libraries, following NEEDED entries to a fixpoint
 	# (not for /boot: the kernel and its modules do not load them).
 	# They are looked up where rtld looks: the standard directories and
