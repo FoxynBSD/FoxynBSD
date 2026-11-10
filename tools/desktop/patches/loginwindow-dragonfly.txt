@@ -1,0 +1,113 @@
+FoxynBSD changes to Gershwin's LoginWindow (contrib/gershwin-components):
+- look for XLibre, which tools/desktop/build-xlibre.sh installs in
+  /System/Library/XLibre, first;
+- DragonFly's struct kinfo_proc uses kp_* field names;
+- the X server is started (by foxyn-loginwindow) with a cookie only
+  LoginWindow has: grant the user who logs in access to the display by
+  user id (localuser) for the session, and withdraw it when the session
+  ends.  Upstream's server ran without any working authorization file,
+  so every local user could connect to the login screen.
+
+--- a/LoginWindow.m
++++ b/LoginWindow.m
+@@ -24,6 +24,15 @@
+ #define GW_KP_COMM  p_comm
+ // OpenBSD has no login_getpwclass(); look the class up by name from pw_class.
+ #define GW_LOGIN_GETPWCLASS(p) login_getclass((p)->pw_class)
++#elif defined(__DragonFly__)
++// DragonFly's struct kinfo_proc (<sys/kinfo.h>) uses kp_* field names.
++#import <libutil.h>
++#define GW_KP_PID   kp_pid
++#define GW_KP_PPID  kp_ppid
++#define GW_KP_SID   kp_sid
++#define GW_KP_PGID  kp_pgid
++#define GW_KP_COMM  kp_comm
++#define GW_LOGIN_GETPWCLASS(p) login_getpwclass(p)
+ #else
+ #import <libutil.h>
+ #define GW_KP_PID   ki_pid
+@@ -110,6 +119,37 @@
+ 
+ // Global storage for the current X server cookie (shared between X server and user sessions)
+ static unsigned char g_xserver_cookie[16];
++
++// FoxynBSD: grant (or withdraw) access to display :0 for a local user
++// (server-interpreted "localuser:<name>"), so that the session's clients
++// can connect to a server that otherwise only accepts LoginWindow's
++// cookie.
++static char g_session_user[256];
++static void gw_x_localuser(const char *user, BOOL grant)
++{
++    Display *d;
++    XServerInterpretedAddress si;
++    XHostAddress host;
++
++    if (user == NULL || *user == '\0')
++        return;
++    d = XOpenDisplay(":0");
++    if (d == NULL)
++        return;
++    si.type = "localuser";
++    si.typelength = strlen(si.type);
++    si.value = (char *)user;
++    si.valuelength = strlen(user);
++    host.family = FamilyServerInterpreted;
++    host.address = (char *)&si;
++    host.length = sizeof(si);
++    if (grant)
++        XAddHost(d, &host);
++    else
++        XRemoveHost(d, &host);
++    XSync(d, False);
++    XCloseDisplay(d);
++}
+ static BOOL g_xserver_cookie_valid = NO;
+ 
+ // Check if /tmp is writable by actually creating, writing to, and removing a temporary file
+@@ -1523,6 +1563,8 @@
+     
+     // Start the user's session
+     NSDebugLLog(@"gwcomp", @"[DEBUG] About to fork for session");
++    strlcpy(g_session_user, [username UTF8String], sizeof(g_session_user));
++    gw_x_localuser(g_session_user, YES);
+     pid_t pid = fork();
+     if (pid == 0) {
+         // Child process - create new session to avoid X11 threading issues
+@@ -1969,6 +2011,8 @@
+     
+     // Start the user's session (reuse the existing session starting code)
+     NSDebugLLog(@"gwcomp", @"[DEBUG] About to fork for auto-login session");
++    strlcpy(g_session_user, [username UTF8String], sizeof(g_session_user));
++    gw_x_localuser(g_session_user, YES);
+     pid_t pid = fork();
+     if (pid == 0) {
+         // Child process - create new session to avoid X11 threading issues
+@@ -2234,6 +2278,8 @@
+     if (result == sessionPid) {
+         // Session has ended
+         NSDebugLLog(@"gwcomp", @"[DEBUG] Session PID %d has ended", sessionPid);
++        gw_x_localuser(g_session_user, NO);
++        g_session_user[0] = '\0';
+         
+         // Check if session ended very quickly (within 5 seconds), indicating a startup error
+         NSTimeInterval sessionDuration = -[sessionStartTime timeIntervalSinceNow];
+@@ -2889,7 +2935,7 @@
+     
+     // Find X server executable
+     NSString *xserverPath = nil;
+-    NSArray *possiblePaths = @[@"/usr/local/bin/X", @"/usr/local/bin/Xorg", @"/usr/bin/Xorg"];
++    NSArray *possiblePaths = @[@"/System/Library/XLibre/bin/X", @"/usr/local/bin/X", @"/usr/local/bin/Xorg", @"/usr/bin/Xorg"];
+     
+     for (NSString *path in possiblePaths) {
+         if ([[NSFileManager defaultManager] fileExistsAtPath:path]) {
+--- a/LoginWindow_main.m
++++ b/LoginWindow_main.m
+@@ -268,6 +268,8 @@
+     for (int i = 0; i < numProcs; i++) {
+ #if defined(__OpenBSD__)
+         const char *pcomm = procs[i].p_comm;
++#elif defined(__DragonFly__)
++        const char *pcomm = procs[i].kp_comm;
+ #else
+         const char *pcomm = procs[i].ki_comm;
+ #endif

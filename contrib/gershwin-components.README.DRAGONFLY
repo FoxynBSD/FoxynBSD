@@ -6,14 +6,15 @@ tag    = 26.09
 commit = 08ca92248d35115c15d7060567ae2000a9222e10
 date   = 2026-09-17
 
-Only Menu, the SoundBackend and NetworkBackend libraries it links with
-and the session supervisor gershwin-session are built, by tools/desktop/build-menu.sh, which foxyn-desktop(8)
-runs on the desktop image (tools/linux/build.sh desktop). It downloads
-this revision's archive, checks its SHA-256 and applies three DragonFly
-patches to Menu (docs/desktop-menu.md). The other components are not
-built yet, and none is part of buildworld. Keep build output outside the
-submodule. When upgrading, update the revision and checksum in
-build-menu.sh too.
+Only Menu, the SoundBackend and NetworkBackend libraries it links with,
+the session supervisor gershwin-session and LoginWindow are built, by
+tools/desktop/build-menu.sh, which foxyn-desktop(8) runs on the desktop
+image (tools/linux/build.sh desktop). It downloads this revision's
+archive, checks its SHA-256 and applies three DragonFly patches to Menu
+(docs/desktop-menu.md) and one to LoginWindow
+(docs/desktop-loginwindow.md). The other components are not built yet, and
+none is part of buildworld. Keep build output outside the submodule. When
+upgrading, update the revision and checksum in build-menu.sh too.
 License: BSD 2-Clause text in LICENSE and additional notices in subprojects. Complete provenance review and preserve applicable notices
 and source obligations before distributing selected components.
 On upgrade, review dependencies, ABI, installation paths and desktop tests.

@@ -3,9 +3,12 @@
 # foxyn-desktop: install the interim FoxynBSD graphical desktop from DPorts
 # on a writable root, and start it at boot (issue #13).
 #
-# Usage: foxyn-desktop [-y] [-g source|dports] [-m mirror] [-u user]
+# Usage: foxyn-desktop [-ly] [-g source|dports] [-m mirror] [-u user]
 #		[-w gershwin|twm]
 #
+#	-l	start Gershwin's LoginWindow at boot (foxyn_loginwindow,
+#		needs -g source) instead of the desktop user's session
+#		(foxyn_desktop); the user then logs in with their password
 #	-y	do not ask for confirmation
 #	-g	where GNUstep comes from: source (default) builds Make,
 #		libobjc2, Base, GUI and Back from the revisions pinned by
@@ -43,9 +46,11 @@ mirror=
 yes=0
 wm=gershwin
 gnustep=source
-usage="usage: foxyn-desktop [-y] [-g source|dports] [-m mirror] [-u user] [-w gershwin|twm]"
-while getopts g:m:u:w:y opt; do
+login=0
+usage="usage: foxyn-desktop [-ly] [-g source|dports] [-m mirror] [-u user] [-w gershwin|twm]"
+while getopts g:lm:u:w:y opt; do
 	case $opt in
+	l)	login=1 ;;
 	g)	gnustep=$OPTARG ;;
 	m)	mirror=$OPTARG ;;
 	u)	user=$OPTARG ;;
@@ -58,6 +63,7 @@ shift $((OPTIND - 1))
 [ $# -eq 0 ] || { echo "$usage" >&2; exit 2; }
 case $wm in gershwin|twm) ;; *) echo "$usage" >&2; exit 2 ;; esac
 case $gnustep in source|dports) ;; *) echo "$usage" >&2; exit 2 ;; esac
+[ "$login" = 0 ] || [ "$gnustep" = source ] || { echo "$usage" >&2; exit 2; }
 # The build-*.sh helpers and their patches, installed by
 # tools/linux/build.sh.
 share=/usr/share/foxynbsd/desktop
@@ -189,7 +195,8 @@ if [ "$gnustep" = source ]; then
 		say "installed GNUstep in /System"
 	fi
 	if [ ! -x /System/Library/CoreServices/Applications/Menu.app/Menu ] ||
-	    [ ! -x /System/Library/Tools/gershwin-session ]; then
+	    [ ! -x /System/Library/Tools/gershwin-session ] ||
+	    [ ! -x /System/Library/CoreServices/Applications/LoginWindow.app/LoginWindow ]; then
 		build_system "Gershwin Menu" build-menu.sh
 		say "installed /System/Library/CoreServices/Applications/Menu.app"
 	fi
@@ -216,7 +223,8 @@ if [ "$gnustep" = source ]; then
 		build_system "Gershwin Eau theme" build-eau.sh
 		say "installed /System/Library/Themes/Eau.theme"
 	fi
-	if [ ! -d /System/Library/Preferences/GlobalDefaults ]; then
+	if [ ! -d /System/Library/Preferences/GlobalDefaults ] ||
+	    [ ! -x /System/Library/Scripts/Gershwin.sh ]; then
 		build_system "Gershwin's defaults and fonts" install-gershwin-system.sh
 		say "installed /System/Library/Preferences and Fonts"
 	fi
@@ -226,17 +234,20 @@ if [ "$gnustep" = source ]; then
 	printf '<?xml version="1.0"?>\n<!DOCTYPE fontconfig SYSTEM "fonts.dtd">\n<fontconfig>\n  <include ignore_missing="yes">/System/Library/Preferences/fonts.conf</include>\n</fontconfig>\n' \
 	    > /usr/local/etc/fonts/conf.d/60-gershwin.conf
 	system_root
-	# gershwin-session finds the apps it supervises on $PATH; the session
-	# puts these first (WindowManager without compositing: no GL here).
-	gwbin=/System/Library/Tools/Gershwin
-	mkdir -p "$gwbin"
+	# gershwin-session finds the apps it supervises on $PATH, which
+	# Gershwin.sh and the session start with /System/Library/Tools
+	# (WindowManager without compositing: no GL here).
+	# GNUstep Make already links Workspace and Menu there (to the
+	# applications' executables: never write through those links).
+	gwbin=/System/Library/Tools
+	rm -rf "$gwbin/Gershwin" "$gwbin/WindowManager"
 	printf '#!/bin/sh\nexec /System/Applications/WindowManager.app/WindowManager -dc "$@"\n' \
 	    > "$gwbin/WindowManager"
-	printf '#!/bin/sh\nexec /System/Applications/Workspace.app/Workspace "$@"\n' \
-	    > "$gwbin/Workspace"
-	printf '#!/bin/sh\nexec /System/Library/CoreServices/Applications/Menu.app/Menu "$@"\n' \
-	    > "$gwbin/Menu"
-	chmod 555 "$gwbin"/*
+	chmod 555 "$gwbin/WindowManager"
+	[ -e "$gwbin/Workspace" ] ||
+	    ln -s ../../Applications/Workspace.app/Workspace "$gwbin/Workspace"
+	[ -e "$gwbin/Menu" ] ||
+	    ln -s ../CoreServices/Applications/Menu.app/Menu "$gwbin/Menu"
 fi
 
 # Gershwin's WindowManager, and (with GNUstep from source, which has no
@@ -295,8 +306,8 @@ TWM
 # runs Workspace, Menu and WindowManager, restarts them when they exit,
 # and ends the session when Menu's Log Out signals it.
 if [ -x /System/Library/Tools/gershwin-session ] &&
-    [ -x /System/Library/Tools/Gershwin/Workspace ]; then
-	PATH=/System/Library/Tools/Gershwin:/System/Library/Tools:$PATH
+    [ -x /System/Library/Tools/Workspace ]; then
+	PATH=/System/Library/Tools:$PATH
 	export PATH
 	[ -n "${DBUS_SESSION_BUS_ADDRESS:-}" ] || eval "$(dbus-launch --sh-syntax --exit-with-x11)"
 	(sleep 6; exec "$app") &
@@ -328,6 +339,38 @@ EOF
 fi
 
 mkdir -p /usr/local/libexec /usr/local/etc/rc.d
+cat > /usr/local/libexec/foxyn-xinput <<'EOF'
+#!/bin/sh
+# Input for XLibre, which has no devd hotplug backend: an xorg.conf.d
+# file with the keyboard multiplexer (every keyboard, hotplugged ones
+# too) and the mice found now.  Opening a keyboard's own node would take
+# it away from kbdmux; with rcpt_mask 6 the keyboards report through
+# kbdmux and the mice through their own nodes.  Run as root before X.
+xl=/System/Library/XLibre
+sysctl -q kern.evdev.rcpt_mask=6
+{
+printf 'Section "ServerFlags"\n\tOption "AutoAddDevices" "false"\nEndSection\n'
+layout=
+n=0
+while [ "$n" -lt 64 ]; do
+	phys=$(sysctl -n kern.evdev.input.$n.phys 2>/dev/null) ||
+	    { n=$((n + 1)); continue; }
+	case $phys in
+	kbdmux0) ;;
+	sysmouse|*kbd[0-9]*) n=$((n + 1)); continue ;;
+	esac
+	if [ -c /dev/input/event$n ]; then
+		printf 'Section "InputDevice"\n\tIdentifier "event%s"\n\tDriver "libinput"\n\tOption "Device" "/dev/input/event%s"\nEndSection\n' $n $n
+		layout="$layout	InputDevice \"event$n\"
+"
+	fi
+	n=$((n + 1))
+done
+printf 'Section "Screen"\n\tIdentifier "screen"\n\tDevice "fb"\nEndSection\n'
+printf 'Section "ServerLayout"\n\tIdentifier "layout"\n\tScreen "screen"\n%sEndSection\n' "$layout"
+} > $xl/etc/X11/xorg.conf.d/20-input.conf
+EOF
+chmod 555 /usr/local/libexec/foxyn-xinput
 cat > /usr/local/libexec/foxyn-session <<'EOF'
 #!/bin/sh
 # Run X as root on vt9 with a fresh cookie and the desktop user's
@@ -350,36 +393,10 @@ xauth -q -f "$auth/user" add :0 MIT-MAGIC-COOKIE-1 "$cookie" || exit 1
 unset cookie
 chown "$user" "$auth/user" || exit 1
 echo "$auth/user" > /var/run/foxyn-session.xauthority
-# XLibre, when foxyn-desktop built it, else DPorts' Xorg.  XLibre has
-# no devd hotplug backend: give it the keyboard multiplexer (every
-# keyboard, hotplugged ones too) and the mice found now.  Opening a
-# keyboard's own node would take it away from kbdmux; with
-# rcpt_mask 6 the keyboards report through kbdmux and the mice through
-# their own nodes.
+# XLibre, when foxyn-desktop built it, else DPorts' Xorg.
 xl=/System/Library/XLibre
 if [ -x $xl/bin/X ]; then
-	sysctl -q kern.evdev.rcpt_mask=6
-	{
-	printf 'Section "ServerFlags"\n\tOption "AutoAddDevices" "false"\nEndSection\n'
-	layout=
-	n=0
-	while [ "$n" -lt 64 ]; do
-		phys=$(sysctl -n kern.evdev.input.$n.phys 2>/dev/null) ||
-		    { n=$((n + 1)); continue; }
-		case $phys in
-		kbdmux0) ;;
-		sysmouse|*kbd[0-9]*) n=$((n + 1)); continue ;;
-		esac
-		if [ -c /dev/input/event$n ]; then
-			printf 'Section "InputDevice"\n\tIdentifier "event%s"\n\tDriver "libinput"\n\tOption "Device" "/dev/input/event%s"\nEndSection\n' $n $n
-			layout="$layout	InputDevice \"event$n\"
-"
-		fi
-		n=$((n + 1))
-	done
-	printf 'Section "Screen"\n\tIdentifier "screen"\n\tDevice "fb"\nEndSection\n'
-	printf 'Section "ServerLayout"\n\tIdentifier "layout"\n\tScreen "screen"\n%sEndSection\n' "$layout"
-	} > $xl/etc/X11/xorg.conf.d/20-input.conf
+	/usr/local/libexec/foxyn-xinput
 	# XLibre removed -noreset (it does not reset when clients leave).
 	$xl/bin/X :0 -nolisten tcp -auth "$auth/server" vt9 > /var/log/foxyn-session.X.log 2>&1 &
 else
@@ -483,7 +500,71 @@ foxyn_desktop_status()
 run_rc_command "$1"
 EOF
 chmod 555 /usr/local/etc/rc.d/foxyn_desktop
-sed -i.bak -e '/^foxyn_desktop_enable=/d' -e '/^foxyn_desktop_user=/d' /etc/rc.conf
+# Gershwin's LoginWindow as the display manager: it starts X (XLibre,
+# which its patched search path finds first), authenticates through
+# PAM's "login" service and runs /System/Library/Scripts/Gershwin.sh as
+# the user; after Log Out it shows the login window again.
+cat > /usr/local/libexec/foxyn-loginwindow <<'EOF'
+#!/bin/sh
+# Start X (XLibre, else DPorts' Xorg) with a fresh cookie that only root
+# has, unless it already runs, then LoginWindow with that cookie; the
+# patched LoginWindow gives the user who logs in access to the display
+# for the session.  LoginWindow uses the running server (it looks for an
+# "Xorg" process) instead of starting its own.
+PATH=/sbin:/bin:/usr/sbin:/usr/bin:/usr/local/sbin:/usr/local/bin
+export PATH
+auth=/var/run/xauth
+if ! pgrep -x Xorg >/dev/null; then
+	rm -f "$auth"
+	umask 077
+	xauth -q -f "$auth" add :0 MIT-MAGIC-COOKIE-1 "$(openssl rand -hex 16)" ||
+	    exit 1
+	if [ -x /System/Library/XLibre/bin/Xorg ]; then
+		/usr/local/libexec/foxyn-xinput
+		/System/Library/XLibre/bin/Xorg :0 -nolisten tcp -auth "$auth" vt9 \
+		    > /var/log/foxyn-loginwindow.X.log 2>&1 &
+	else
+		Xorg :0 -nolisten tcp -auth "$auth" vt9 \
+		    > /var/log/foxyn-loginwindow.X.log 2>&1 &
+	fi
+	i=0
+	while [ ! -S /tmp/.X11-unix/X0 ] && [ "$i" -lt 30 ]; do sleep 1; i=$((i + 1)); done
+fi
+DISPLAY=:0 XAUTHORITY=$auth
+export DISPLAY XAUTHORITY
+. /System/Library/Makefiles/GNUstep.sh
+exec /System/Library/CoreServices/Applications/LoginWindow.app/LoginWindow
+EOF
+chmod 555 /usr/local/libexec/foxyn-loginwindow
+cat > /usr/local/etc/rc.d/foxyn_loginwindow <<'EOF'
+#!/bin/sh
+#
+# PROVIDE: foxyn_loginwindow
+# REQUIRE: LOGIN devd
+# KEYWORD: shutdown
+
+. /etc/rc.subr
+
+name=foxyn_loginwindow
+rcvar=foxyn_loginwindow_enable
+load_rc_config $name
+: ${foxyn_loginwindow_enable:=NO}
+pidfile=/var/run/foxyn_loginwindow.pid
+command=/usr/sbin/daemon
+procname=/usr/sbin/daemon
+command_args="-r -f -o /var/log/LoginWindow.log -P $pidfile /usr/local/libexec/foxyn-loginwindow"
+
+run_rc_command "$1"
+EOF
+chmod 555 /usr/local/etc/rc.d/foxyn_loginwindow
+
+sed -i.bak -e '/^foxyn_desktop_enable=/d' -e '/^foxyn_desktop_user=/d' \
+    -e '/^foxyn_loginwindow_enable=/d' /etc/rc.conf
 rm -f /etc/rc.conf.bak
-printf 'foxyn_desktop_enable="YES"\nfoxyn_desktop_user="%s"\n' "$user" >> /etc/rc.conf
-say "done: the desktop starts at the next boot (or: service foxyn_desktop start)"
+if [ "$login" = 1 ]; then
+	printf 'foxyn_loginwindow_enable="YES"\n' >> /etc/rc.conf
+	say "done: LoginWindow starts at the next boot (or: service foxyn_loginwindow start)"
+else
+	printf 'foxyn_desktop_enable="YES"\nfoxyn_desktop_user="%s"\n' "$user" >> /etc/rc.conf
+	say "done: the desktop starts at the next boot (or: service foxyn_desktop start)"
+fi

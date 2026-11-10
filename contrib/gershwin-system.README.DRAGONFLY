@@ -7,10 +7,11 @@ commit = bb8186cdb8ab5dcafc469228e6eb60b3c8f43a97
 date   = 2026-09-17
 
 Only Library/Preferences (GlobalDefaults, fonts.conf,
-GlobalShortcuts.plist) is installed, in /System/Library/Preferences, by
+GlobalShortcuts.plist) and Library/Scripts/Gershwin.sh are installed, in
+/System/Library, by
 tools/desktop/install-gershwin-system.sh, which foxyn-desktop(8) runs on
 the desktop image; it downloads this revision's archive and checks its
-SHA-256 (docs/desktop-eau.md). The scripts and services are not used.
+SHA-256 (docs/desktop-eau.md). The other scripts and the services are not used.
 When upgrading, update the revision and checksum in that script too.
 License: BSD 2-Clause text in LICENSE; individual source and asset terms require review. Complete provenance review and preserve applicable notices
 and source obligations before distributing selected components.

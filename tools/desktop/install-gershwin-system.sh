@@ -4,11 +4,12 @@
 # contrib/gershwin-assets:
 #	gershwin-system's Library/Preferences: GlobalDefaults (the GNUstep
 #	defaults for every user: GSTheme=Eau, fonts, ...), fonts.conf and
-#	GlobalShortcuts.plist
+#	GlobalShortcuts.plist; Library/Scripts/Gershwin.sh, the session that
+#	LoginWindow starts
 #	gershwin-assets' Library: Fonts (Inter, Luxi, Nimbus Sans, URW) and
 #	Desktop Pictures
-# The rest of gershwin-system (scripts for FreeBSD/Linux images, the
-# LoginWindow service) is not installed.
+# The rest of gershwin-system (other scripts for FreeBSD/Linux images,
+# the LoginWindow service) is not installed.
 #
 # Run as the unprivileged user who may write /System, like the other
 # helpers.
@@ -51,6 +52,9 @@ mkdir -p "$prefix/Library/Preferences"
 (cd "$work/gershwin-system/Library/Preferences" && tar cf - .) |
     (cd "$prefix/Library/Preferences" && tar xf -)
 say "installed $prefix/Library/Preferences (GlobalDefaults, fonts.conf, GlobalShortcuts.plist)"
+mkdir -p "$prefix/Library/Scripts"
+install -m 555 "$work/gershwin-system/Library/Scripts/Gershwin.sh" "$prefix/Library/Scripts/"
+say "installed $prefix/Library/Scripts/Gershwin.sh"
 (cd "$work/gershwin-assets/Library" && tar cf - Fonts "Desktop Pictures") |
     (cd "$prefix/Library" && tar xf -)
 say "installed $prefix/Library/Fonts and Desktop Pictures"

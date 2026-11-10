@@ -44,7 +44,7 @@ wait)
 	[ -x /System/Library/CoreServices/Applications/Menu.app/Menu ] &&
 	    procs="$procs Menu"
 	# Gershwin's session: its supervisor and Workspace.
-	[ -x /System/Library/Tools/Gershwin/Workspace ] &&
+	[ -x /System/Library/Tools/gershwin-session ] && [ -x /System/Library/Tools/Workspace ] &&
 	    procs="$procs gershwin-session Workspace"
 	for p in $procs; do
 		if pgrep -u "$uid" -x "$p" >/dev/null; then

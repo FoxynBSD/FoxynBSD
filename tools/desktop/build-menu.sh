@@ -1,9 +1,10 @@
 #!/bin/sh
 # Build Gershwin's Menu (the global menu bar), the SoundBackend and
-# NetworkBackend libraries it links with, and the session supervisor
-# gershwin-session, from the revision pinned by contrib/gershwin-components,
-# and install them in /System: the libraries in /System/Library/Libraries,
-# Menu in /System/Library/CoreServices/Applications, gershwin-session in
+# NetworkBackend libraries it links with, the session supervisor
+# gershwin-session and the LoginWindow display manager, from the revision
+# pinned by contrib/gershwin-components, and install them in /System: the
+# libraries in /System/Library/Libraries, Menu and LoginWindow in
+# /System/Library/CoreServices/Applications, gershwin-session in
 # /System/Library/Tools.
 #
 # Needs the GNUstep that build-gnustep.sh installs in /System (with
@@ -35,7 +36,7 @@ die() { echo "build-menu: $*" >&2; exit 1; }
 for tool in fetch sha256 tar patch gmake clang19 pkgconf; do
 	command -v "$tool" >/dev/null 2>&1 || die "missing command: $tool"
 done
-for p in $menu_patches; do
+for p in $menu_patches loginwindow-dragonfly.txt; do
 	[ -r "$patches/$p" ] || die "patch not found: $patches/$p"
 done
 
@@ -85,3 +86,14 @@ step "install gershwin-session" gmake -C "$src/gershwin-session" install
 [ -x "$prefix/Library/Tools/gershwin-session" ] ||
     die "gershwin-session is missing from $prefix/Library/Tools"
 say "installed $prefix/Library/Tools/gershwin-session"
+# LoginWindow: its install target also writes an rc.d script outside
+# /System; foxyn-desktop provides the service, so only the bundle is
+# copied.
+(cd "$src/LoginWindow" && patch -s -p1 < "$patches/loginwindow-dragonfly.txt") ||
+    die "loginwindow-dragonfly.txt does not apply"
+step "build LoginWindow" gmake -C "$src/LoginWindow"
+lw=$prefix/Library/CoreServices/Applications/LoginWindow.app
+rm -rf "$lw"
+cp -R "$src/LoginWindow/LoginWindow.app" "$lw"
+[ -x "$lw/LoginWindow" ] || die "LoginWindow is missing from $lw"
+say "installed $lw"

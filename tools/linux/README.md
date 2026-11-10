@@ -979,9 +979,12 @@ the mirror, and a failed run leaves an existing `desktop.img` in place.
 with its windows, a client without the cookie is rejected, ending the
 session (SIGTERM to the supervisor, as Log Out does) stops X, the service
 and the user's processes, and QEMU's screen is saved in
-`$OBJDIR/qemu/desktop.ppm`. This desktop has no display manager; it is not
-the issue #13 desktop yet. To run a second VM while another one runs, give
-it its own `QEMU_STATE` directory (see `qemu.sh`).
+`$OBJDIR/qemu/desktop.ppm`. `foxyn-desktop -l` instead starts Gershwin's
+LoginWindow at boot, a graphical login with the user's password
+([`docs/desktop-loginwindow.md`](../../docs/desktop-loginwindow.md)); the
+automated test uses the automatic session. it is not the issue #13 desktop
+yet. To run a second VM while another one runs, give it its own
+`QEMU_STATE` directory (see `qemu.sh`).
 
 Sound: `AUDIO_CHECK=1 boot-test.sh --disk` gives the machine an Intel HDA
 card whose output QEMU writes to `$OBJDIR/qemu/audio.wav`, and runs
