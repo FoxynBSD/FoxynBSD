@@ -1,0 +1,229 @@
+#!/bin/sh
+#
+# foxyn-desktop: install the interim FoxynBSD graphical desktop from DPorts
+# on a writable root, and start it at boot (issue #13).
+#
+# Usage: foxyn-desktop [-y] [-m mirror] [-u user]
+#
+#	-y	do not ask for confirmation
+#	-m	DPorts mirror URL instead of pkg's default, e.g.
+#		https://mirror.sjtu.edu.cn/dragonflybsd/dports
+#	-u	the desktop user (default: foxyn); created without a password
+#		when it does not exist, like root on the test images
+#
+# It installs X with the scfb driver (the EFI framebuffer through
+# syscons; no KMS), libinput, fonts, GNUstep, twm and xterm, and
+# enables the foxyn_desktop rc.d service: at boot, root starts X with a
+# fresh MIT-MAGIC-COOKIE and no TCP listener, and the desktop user's
+# ~/.xsession runs as that user.  When the session ends, X stops and the
+# console login remains.  `service foxyn_desktop stop` ends it too, and
+# foxyn_desktop_enable=NO in rc.conf turns it off (the recovery path).
+#
+# This is the stopgap until the Gershwin session (contrib/gershwin-*)
+# is built in base: it needs the internet, and the packages are DPorts'.
+
+set -eu
+
+user=foxyn
+mirror=
+yes=0
+while getopts m:u:y opt; do
+	case $opt in
+	m)	mirror=$OPTARG ;;
+	u)	user=$OPTARG ;;
+	y)	yes=1 ;;
+	*)	echo "usage: foxyn-desktop [-y] [-m mirror] [-u user]" >&2; exit 2 ;;
+	esac
+done
+shift $((OPTIND - 1))
+[ $# -eq 0 ] || { echo "usage: foxyn-desktop [-y] [-m mirror] [-u user]" >&2; exit 2; }
+
+say() { echo "foxyn-desktop: $*"; }
+die() { echo "foxyn-desktop: $*" >&2; exit 1; }
+
+[ "$(id -u)" = 0 ] || die "must run as root"
+case $user in
+''|root|*[!a-z0-9_-]*) die "bad user name: $user" ;;
+esac
+touch /.foxyn-desktop-rw 2>/dev/null && rm -f /.foxyn-desktop-rw ||
+    die "the root file system is read-only: install on a disk first"
+if [ "$yes" = 0 ]; then
+	printf 'Install X11, GNUstep and a graphical session for %s from DPorts? [y/N] ' "$user"
+	read -r answer
+	case $answer in [yY]*) ;; *) die "cancelled" ;; esac
+fi
+
+log=/var/log/foxyn-desktop.log
+: > "$log"
+if [ ! -x /usr/local/sbin/pkg ]; then
+	say "bootstrapping pkg(8)"
+	make -C /usr pkg-bootstrap >> "$log" 2>&1 || die "pkg bootstrap failed (see $log)"
+fi
+if [ -n "$mirror" ]; then
+	mkdir -p /usr/local/etc/pkg/repos
+	printf 'Avalon: { url: "%s/${ABI}/LATEST" }\n' "$mirror" \
+	    > /usr/local/etc/pkg/repos/df-latest.conf
+	pkg update -f >> "$log" 2>&1 || die "pkg update failed (see $log)"
+fi
+pkgs="xorg-minimal xf86-video-scfb xf86-input-libinput dejavu font-misc-misc
+    font-alias xauth xinput
+    xwininfo xsetroot xterm twm gnustep gnustep-sudoku"
+say "installing $(echo $pkgs)"
+pkg install -y $pkgs >> "$log" 2>&1 || {
+	tail -n 5 "$log" >&2; die "pkg install failed (see $log)"; }
+
+# Several drivers match the framebuffer, and Xorg then gives up
+# ("Cannot run in framebuffer mode"): name scfb.
+mkdir -p /usr/local/etc/X11/xorg.conf.d
+printf 'Section "Device"\n\tIdentifier "fb"\n\tDriver "scfb"\nEndSection\n' \
+    > /usr/local/etc/X11/xorg.conf.d/10-scfb.conf
+
+if ! id "$user" >/dev/null 2>&1; then
+	pw useradd -n "$user" -c "FoxynBSD desktop" -m -s /bin/sh -w none ||
+	    die "cannot create $user"
+	say "created user $user (no password)"
+fi
+home=$(pw usershow "$user" | cut -d: -f9)
+[ -d "$home" ] || die "$user has no home directory: $home"
+if [ ! -e "$home/.xsession" ]; then
+	cat > "$home/.xsession" <<'EOF'
+#!/bin/sh
+# The FoxynBSD interim desktop session (foxyn-desktop(8)); the session
+# ends when twm does (its menu: Exit).
+. /usr/local/GNUstep/System/Library/Makefiles/GNUstep.sh
+xsetroot -solid '#3a6ea5'
+cat > "$HOME/.twmrc" <<'TWM'
+BorderWidth 2
+TitleFont "-misc-fixed-bold-r-normal--13-*-*-*-*-*-iso8859-1"
+MenuFont "-misc-fixed-medium-r-normal--13-*-*-*-*-*-iso8859-1"
+IconFont "-misc-fixed-medium-r-normal--13-*-*-*-*-*-iso8859-1"
+RandomPlacement
+Button1 = : root : f.menu "FoxynBSD"
+menu "FoxynBSD" {
+	"FoxynBSD"	f.title
+	"Terminal"	f.exec "exec xterm -fa 'DejaVu Sans Mono' -fs 11 &"
+	"Sudoku"	f.exec "exec /usr/local/GNUstep/System/Applications/Sudoku.app/Sudoku &"
+	""		f.nop
+	"Log out"	f.quit
+}
+TWM
+# The window manager first: clients mapped before it starts are not
+# redrawn when twm reparents them.
+twm &
+wm=$!
+sleep 1
+/usr/local/GNUstep/System/Applications/Sudoku.app/Sudoku &
+# An xterm mapped while the GNUstep application starts stays blank (seen
+# under QEMU with scfb; cause not found): start it a little later.
+sleep 3
+xterm -fa 'DejaVu Sans Mono' -fs 11 -geometry 80x24+40+60 -title Terminal &
+wait "$wm"
+EOF
+	chown "$user" "$home/.xsession"
+	chmod 755 "$home/.xsession"
+fi
+
+mkdir -p /usr/local/libexec /usr/local/etc/rc.d
+cat > /usr/local/libexec/foxyn-session <<'EOF'
+#!/bin/sh
+# Run X as root on vt9 with a fresh cookie and the desktop user's
+# ~/.xsession as that user; stop X when the session ends.  -noreset:
+# otherwise X resets (and forgets the root window's colour) whenever its
+# last client disconnects, e.g. after xsetroot.  rc.d's PATH
+# has no /usr/local: X and xauth are there.
+PATH=/sbin:/bin:/usr/sbin:/usr/bin:/usr/local/sbin:/usr/local/bin
+export PATH
+user=$1
+exec >> /var/log/foxyn-session.log 2>&1
+# The cookie stays in this directory: the server's copy root's, the
+# user's copy theirs (the directory can be searched, not listed).
+auth=$(mktemp -d /tmp/foxyn-session.XXXXXXXX) || exit 1
+chmod 711 "$auth"
+umask 077
+cookie=$(openssl rand -hex 16) || exit 1
+xauth -q -f "$auth/server" add :0 MIT-MAGIC-COOKIE-1 "$cookie" || exit 1
+xauth -q -f "$auth/user" add :0 MIT-MAGIC-COOKIE-1 "$cookie" || exit 1
+unset cookie
+chown "$user" "$auth/user" || exit 1
+echo "$auth/user" > /var/run/foxyn-session.xauthority
+X :0 -nolisten tcp -noreset -auth "$auth/server" vt9 > /var/log/foxyn-session.X.log 2>&1 &
+xpid=$!
+echo "$xpid" > /var/run/foxyn-session.X.pid
+i=0
+while [ ! -S /tmp/.X11-unix/X0 ] && [ "$i" -lt 30 ]; do sleep 1; i=$((i + 1)); done
+echo "session for $user started"
+su -l "$user" -c "DISPLAY=:0 XAUTHORITY=$auth/user exec \$HOME/.xsession"
+echo "session for $user ended: $?"
+kill "$xpid" 2>/dev/null
+wait "$xpid"
+# GNUstep's per-user daemons outlive the session's clients.
+pkill -u "$user" -x gdnc
+pkill -u "$user" -x gpbs
+rm -rf "$auth" /var/run/foxyn-session.X.pid /var/run/foxyn-session.xauthority
+EOF
+chmod 555 /usr/local/libexec/foxyn-session
+cat > /usr/local/etc/rc.d/foxyn_desktop <<'EOF'
+#!/bin/sh
+#
+# PROVIDE: foxyn_desktop
+# REQUIRE: LOGIN devd
+# KEYWORD: shutdown
+
+. /etc/rc.subr
+
+name=foxyn_desktop
+rcvar=foxyn_desktop_enable
+load_rc_config $name
+: ${foxyn_desktop_enable:=NO}
+: ${foxyn_desktop_user:=foxyn}
+pidfile=/var/run/foxyn-session.pid
+extra_commands=status
+start_cmd=foxyn_desktop_start
+stop_cmd=foxyn_desktop_stop
+status_cmd=foxyn_desktop_status
+
+foxyn_desktop_running()
+{
+	[ -f "$pidfile" ] && kill -0 "$(cat "$pidfile")" 2>/dev/null
+}
+
+foxyn_desktop_start()
+{
+	foxyn_desktop_running && { echo "$name is already running."; return 0; }
+	echo "Starting $name."
+	/usr/sbin/daemon -f -p "$pidfile" \
+	    /usr/local/libexec/foxyn-session "$foxyn_desktop_user"
+}
+
+foxyn_desktop_stop()
+{
+	foxyn_desktop_running || { echo "$name is not running."; return 0; }
+	echo "Stopping $name."
+	# Ending X ends the session's clients, then foxyn-session cleans up
+	# and exits.
+	[ -f /var/run/foxyn-session.X.pid ] &&
+	    kill "$(cat /var/run/foxyn-session.X.pid)" 2>/dev/null
+	i=0
+	while foxyn_desktop_running && [ "$i" -lt 20 ]; do
+		sleep 1; i=$((i + 1))
+	done
+	foxyn_desktop_running && kill "$(cat "$pidfile")" 2>/dev/null
+	rm -f "$pidfile"
+}
+
+foxyn_desktop_status()
+{
+	if foxyn_desktop_running; then
+		echo "$name is running as pid $(cat "$pidfile")."
+	else
+		echo "$name is not running."; return 1
+	fi
+}
+
+run_rc_command "$1"
+EOF
+chmod 555 /usr/local/etc/rc.d/foxyn_desktop
+sed -i.bak -e '/^foxyn_desktop_enable=/d' -e '/^foxyn_desktop_user=/d' /etc/rc.conf
+rm -f /etc/rc.conf.bak
+printf 'foxyn_desktop_enable="YES"\nfoxyn_desktop_user="%s"\n' "$user" >> /etc/rc.conf
+say "done: the desktop starts at the next boot (or: service foxyn_desktop start)"

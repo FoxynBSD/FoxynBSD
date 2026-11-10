@@ -41,13 +41,13 @@ jobs:
 
       - name: Parse with dash and bash
         run: |
-          # foxyn-install runs in the image, under DragonFly's sh.
-          for f in tools/linux/*.sh tools/linux/foxyn-install; do
+          # foxyn-install and foxyn-desktop run in the image, under DragonFly's sh.
+          for f in tools/linux/*.sh tools/linux/foxyn-install tools/linux/foxyn-desktop; do
             dash -n "$f" && bash -n "$f" || { echo "::error file=$f::does not parse"; exit 1; }
           done
 
       - name: shellcheck (errors only)
-        run: shellcheck -S error tools/linux/*.sh tools/linux/foxyn-install
+        run: shellcheck -S error tools/linux/*.sh tools/linux/foxyn-install tools/linux/foxyn-desktop
 
       - name: Test hardware report redaction
         run: ruby tools/linux/tests/hardware-report-redact-test.rb

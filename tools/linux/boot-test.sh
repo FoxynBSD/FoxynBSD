@@ -14,9 +14,16 @@
 # disk alone (its own ESP and loader) and runs the --root tests.
 # --bsdinstaller logs in as "installer" instead and passes when the BSD
 # Installer shows its welcome screen (the image with the world has it).
+# --desktop-setup boots a disk ($DISK) with a VGA card, logs in, runs
+# foxyn-desktop(8) on it (X and GNUstep from DPorts: needs the internet)
+# and powers off; `build.sh desktop` uses it.  --desktop boots the result
+# ($OBJDIR/desktop.img by default), checks that the session started at
+# boot (X, twm, an xterm and a GNUstep window, as the desktop user),
+# saves a screenshot in $OBJDIR/qemu/desktop.ppm, stops the session with
+# `service foxyn_desktop stop` and checks that X is gone.
 #
 # Usage:
-#	tools/linux/boot-test.sh [--root|--disk|--install|--installed|--bsdinstaller] [KERNCONF]
+#	tools/linux/boot-test.sh [--root|--disk|--install|--installed|--bsdinstaller|--desktop-setup|--desktop] [KERNCONF]
 #
 # Environment:
 #	BOOT_TIMEOUT	seconds to wait (default 300)
@@ -37,7 +44,10 @@
 #			HDA card whose output QEMU writes to $OBJDIR/qemu/
 #			audio.wav, and the "audio-wav:" line in the log says
 #			how long and at what frequency it sounded
-#	DPORTS_MIRROR	DPorts mirror for audio-check (default: pkg's), e.g.
+#	DISK		disk for --disk and --desktop-setup (default
+#			$OBJDIR/disk.img; --desktop: $OBJDIR/desktop.img)
+#	DPORTS_MIRROR	DPorts mirror for audio-check and --desktop-setup
+#			(default: pkg's), e.g.
 #			https://mirror.sjtu.edu.cn/dragonflybsd/dports
 #
 # Exit status: 0 if the expected prompt appeared (and, with --root, the
@@ -56,6 +66,9 @@ case ${1:-} in
 --install) ROOTARG=--root SUFFIX=-install MODE=install; shift ;;
 --installed) ROOTARG=--installed SUFFIX=-installed MODE=installed; shift ;;
 --bsdinstaller) ROOTARG=--root SUFFIX=-bsdinstaller MODE=bsdinstaller; shift ;;
+--desktop-setup) ROOTARG=--disk SUFFIX=-desktop-setup MODE=desktopsetup; shift ;;
+--desktop) ROOTARG=--disk SUFFIX=-desktop MODE=desktop; shift
+	DISK=${DISK:-$OBJDIR/desktop.img}; export DISK ;;
 esac
 INSTALLED=${INSTALLED:-$OBJDIR/installed.img}
 if [ "$MODE" = install ]; then
@@ -123,7 +136,9 @@ fi
 DESKTOP_DEVS=
 DESKTOP_OPTION=
 USB_DEVS="-device qemu-xhci,id=xhci -device usb-kbd,bus=xhci.0"
-if [ "${DESKTOP_CHECK:-0}" = 1 ]; then
+MONITOR_ENV=
+if [ "${DESKTOP_CHECK:-0}" = 1 ] || [ "$MODE" = desktopsetup ] ||
+    [ "$MODE" = desktop ]; then
     DESKTOP_OPTION=--desktop-devices
     USB_DEVS=
 fi
@@ -134,8 +149,14 @@ if [ "${AUDIO_CHECK:-0}" = 1 ]; then
 	DESKTOP_DEVS="$DESKTOP_DEVS -device intel-hda
 	    -device hda-output,audiodev=snd0 -audiodev wav,id=snd0,path=$WAV"
 fi
+# --desktop takes its screenshot through the QEMU monitor.
+MONITOR=$OBJDIR/qemu/$CONF.monitor
+if [ "$MODE" = desktop ]; then
+	rm -f "$MONITOR"
+	MONITOR_ENV="MONITOR_SOCKET=$MONITOR"
+fi
 # shellcheck disable=SC2086
-env OBJDIR="$OBJDIR" "$CONSOLE_ENV" "$SRCDIR/tools/linux/qemu.sh" \
+env OBJDIR="$OBJDIR" "$CONSOLE_ENV" $MONITOR_ENV "$SRCDIR/tools/linux/qemu.sh" \
     --serial ${ROOTARG:---kernel-only} $DESKTOP_OPTION \
     "$CONF" -- $USB_DEVS $DESKTOP_DEVS </dev/null >/dev/null 2>"$LOG.stderr" &
 pid=$!
@@ -213,10 +234,57 @@ if [ "$result" -eq 0 ] && [ "$MODE" = install ]; then
 	    { echo ">>> foxyn-install FAILED" >&2; result=1; }
 fi
 
+# --desktop-setup: install the desktop (foxyn-desktop: lines, dsetup-42).
+if [ "$result" -eq 0 ] && [ "$MODE" = desktopsetup ]; then
+	printf "sh -c 'foxyn-desktop -y ${DPORTS_MIRROR:+-m $DPORTS_MIRROR}; echo dsetup-\$((6*7)): \$?'\r" >&3
+	tries=0
+	while [ "$tries" -lt 360 ] && ! grep -aq '^dsetup-42:' "$LOG"; do
+		sleep 5
+		tries=$((tries + 1))
+	done
+	grep -aq '^dsetup-42: 0' "$LOG" ||
+	    { echo ">>> foxyn-desktop FAILED" >&2; result=1; }
+fi
+# --desktop: the session rc.d started at boot (desktop-session: lines,
+# dsession-42), a screenshot of it, then stopping it.
+if [ "$result" -eq 0 ] && [ "$MODE" = desktop ]; then
+	printf "sh -c 'sh /root/tests/desktop-session wait; echo dsession-\$((6*7)): \$?'\r" >&3
+	tries=0
+	while [ "$tries" -lt 60 ] && ! grep -aq '^dsession-42:' "$LOG"; do
+		sleep 5
+		tries=$((tries + 1))
+	done
+	grep -aq '^dsession-42: 0' "$LOG" || result=1
+	# What the video console shows: the screen QEMU's VGA card scans out.
+	rm -f "$OBJDIR/qemu/desktop.ppm"
+	python3 -I - "$MONITOR" "$OBJDIR/qemu/desktop.ppm" <<'EOF' || :
+import socket, sys, time
+s = socket.socket(socket.AF_UNIX)
+s.connect(sys.argv[1])
+s.sendall(b"screendump " + sys.argv[2].encode() + b"\n")
+time.sleep(2)
+s.close()
+EOF
+	if [ -s "$OBJDIR/qemu/desktop.ppm" ]; then
+		echo "desktop-screenshot: $OBJDIR/qemu/desktop.ppm" >> "$LOG"
+	else
+		echo ">>> no screenshot from the QEMU monitor" >&2; result=1
+	fi
+	printf "sh -c 'sh /root/tests/desktop-session stop; echo dstop-\$((6*7)): \$?'\r" >&3
+	tries=0
+	while [ "$tries" -lt 12 ] && ! grep -aq '^dstop-42:' "$LOG"; do
+		sleep 5
+		tries=$((tries + 1))
+	done
+	grep -aq '^dstop-42: 0' "$LOG" || result=1
+	[ "$result" -eq 0 ] || echo ">>> the desktop session check FAILED" >&2
+fi
+
 # List the running programs once, for CI to check the daemons rc.d
 # started ("daemons-42: init syslogd cron ...").
 if [ "$result" -eq 0 ] && [ -n "$ROOTARG" ] && [ "$MODE" != install ] &&
-    [ "$MODE" != done ]; then
+    [ "$MODE" != done ] && [ "$MODE" != desktopsetup ] &&
+    [ "$MODE" != desktop ]; then
 	printf "sh -c 'echo daemons-\$((6*7)): \$(ps -axo comm= | tr \"\\\\n\" \" \")'\r" >&3
 	tries=0
 	while [ "$tries" -lt 6 ] && ! grep -aq '^daemons-42:' "$LOG"; do
@@ -345,6 +413,11 @@ if [ "$result" -eq 0 ]; then
 	if [ "$MODE" = disk ]; then
 		echo ">>> boot test passed: disk.img booted to a login prompt and powered off" >&2
 		tail -n 4 "$LOG" >&2
+	elif [ "$MODE" = desktopsetup ]; then
+		echo ">>> boot test passed: foxyn-desktop installed the desktop on $DISK" >&2
+	elif [ "$MODE" = desktop ]; then
+		echo ">>> boot test passed: the desktop session started at boot and stopped" >&2
+		grep -a '^desktop-s' "$LOG" >&2
 	elif [ "$MODE" = done ]; then
 		echo ">>> boot test passed: the BSD Installer started (welcome screen)" >&2
 	elif [ "$MODE" = install ]; then

@@ -930,6 +930,31 @@ described in [`docs/desktop-windowmanager.md`](../../docs/desktop-windowmanager.
 The tested X terminal and Gershwin Terminal build investigation are in
 [`docs/desktop-terminal.md`](../../docs/desktop-terminal.md).
 
+A desktop image to try, from the same packages:
+
+    tools/linux/build.sh desktop    # $OBJDIR/desktop.img (DESKTOP_SIZE=8G)
+    tools/linux/qemu.sh --desktop   # boots it; the session starts on vt9
+
+`build.sh desktop` makes a new disk like `build.sh disk`, boots it once
+in QEMU (`boot-test.sh --desktop-setup`) and runs `foxyn-desktop -y` on
+it, which is in the image as `/usr/sbin/foxyn-desktop`. That installs X
+(`scfb`), libinput, fonts, GNUstep, twm and xterm, creates the user
+`foxyn` without a password (like root on these images), and enables the
+`foxyn_desktop` rc.d service. At boot, the service starts X as root with
+a fresh cookie and no TCP listener, gives the cookie to `foxyn` only, and
+runs `~foxyn/.xsession` as that user: twm with an xterm and Sudoku. The
+twm menu (left button on the background) has "Log out", which ends the
+session and X; the console login remains (Ctrl-Alt-F1). To turn it off,
+set `foxyn_desktop_enable="NO"` in `/etc/rc.conf`; `service foxyn_desktop
+stop` ends a running session. It needs the internet; `DPORTS_MIRROR`
+picks the mirror, and a failed run leaves an existing `desktop.img` in
+place. `boot-test.sh --desktop` checks the result: the session started at
+boot with its windows, a client without the cookie is rejected, the
+service stops X and the user's processes, and QEMU's screen is saved in
+`$OBJDIR/qemu/desktop.ppm`. This twm session is an interim desktop until
+the Gershwin session from `contrib/` is built; it is not the issue #13
+desktop yet.
+
 Sound: `AUDIO_CHECK=1 boot-test.sh --disk` gives the machine an Intel HDA
 card whose output QEMU writes to `$OBJDIR/qemu/audio.wav`, and runs
 `/root/tests/audio-check`. It installs `pipewire wireplumber jackit

@@ -3,7 +3,7 @@
 # Boot a FoxynBSD kernel built by tools/linux/build.sh under QEMU + OVMF.
 #
 # Usage:
-#	tools/linux/qemu.sh [--serial] [--kernel-only|--disk|--installed] [KERNCONF] [-- qemu args]
+#	tools/linux/qemu.sh [--serial] [--kernel-only|--disk|--installed|--desktop] [KERNCONF] [-- qemu args]
 #
 # By default the whole system boots in a QEMU window: the root image
 # from `build.sh rootfs` ($OBJDIR/root.iso) is attached as a second
@@ -26,6 +26,11 @@
 #			loader on its own ESP, without the ESP from build.sh.
 #	--desktop-devices add a VGA framebuffer and xHCI USB keyboard and mouse
 #			for desktop tests; this does not install a desktop.
+#	--desktop	boot the desktop image from `build.sh desktop`
+#			($OBJDIR/desktop.img) like --disk, with
+#			--desktop-devices: the graphical session starts on
+#			the window after the boot (vt9; Ctrl-Alt-F1 for the
+#			console).
 #	--gui, --root	the defaults, spelled out.
 #	--firmware	print the OVMF images that would be used, and exit.
 #
@@ -39,7 +44,8 @@
 #			usual Arch, Debian/Ubuntu and Fedora paths)
 #	MEM (default 2G), SMP (default 2)
 #	ROOTISO		root image for --root (default $OBJDIR/root.iso)
-#	DISK		disk image for --disk (default $OBJDIR/disk.img)
+#	DISK		disk image for --disk (default $OBJDIR/disk.img) and
+#			--desktop (default $OBJDIR/desktop.img)
 #	INSTALLED	disk image for --installed (default $OBJDIR/installed.img)
 #	INSTALLED_BUS	virtio (default) or usb: --installed attaches the disk
 #			as a USB stick on its own xHCI controller, as when
@@ -73,7 +79,7 @@ DESKTOP_DEVICES=0
 
 die() { echo "qemu.sh: $*" >&2; exit 1; }
 usage() {
-	die "usage: qemu.sh [--serial|--gui] [--kernel-only|--root|--disk|--installed] [--firmware] [--desktop-devices] [KERNCONF] [-- qemu args]"
+	die "usage: qemu.sh [--serial|--gui] [--kernel-only|--root|--disk|--installed|--desktop] [--firmware] [--desktop-devices] [KERNCONF] [-- qemu args]"
 }
 
 while :; do
@@ -86,6 +92,8 @@ while :; do
 	--installed) ROOT=installed; shift ;;
 	--firmware) FWONLY=1; shift ;;
 	--desktop-devices) DESKTOP_DEVICES=1; shift ;;
+	--desktop) ROOT=disk DESKTOP_DEVICES=1
+		DISK=${DISK:-$OBJDIR/desktop.img}; shift ;;
 	--)	break ;;
 	-h|--help) usage ;;
 	-*)	echo "qemu.sh: unknown option: $1" >&2; usage ;;

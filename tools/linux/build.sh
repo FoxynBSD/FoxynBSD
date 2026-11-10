@@ -21,6 +21,11 @@
 #	tools/linux/build.sh disk		(disk.img: the root tree on a
 #					 writable UFS disk; DISK_SIZE=4G;
 #					 DISK_ROOTFS selects an existing root tree)
+#	tools/linux/build.sh desktop		(desktop.img: a disk on which
+#					 foxyn-desktop installed X and GNUstep
+#					 from DPorts; needs the internet and
+#					 QEMU; DESKTOP_SIZE=8G; boot it with
+#					 qemu.sh --desktop)
 #	tools/linux/build.sh world		(the whole userland, buildworld
 #					 order; KEEP_GOING=1 lists failures)
 #	tools/linux/build.sh subdir DIR...	(build and install world dirs)
@@ -1445,6 +1450,8 @@ do_rootfs() {
 		msg "no ESP from build.sh esp: the image cannot install itself"
 	fi
 	install -m 555 "$SRCDIR/tools/linux/foxyn-install" "$root/usr/sbin/foxyn-install"
+	install -m 555 "$SRCDIR/tools/linux/foxyn-desktop" "$root/usr/sbin/foxyn-desktop"
+	install -m 755 "$SRCDIR/tools/linux/tests/desktop-session.sh" "$root/root/tests/desktop-session"
 	# Copy the shared libraries, following NEEDED entries to a fixpoint
 	# (not for /boot: the kernel and its modules do not load them).
 	# They are looked up where rtld looks: the standard directories and
@@ -1647,6 +1654,24 @@ EOF
 	    "$sectors" | sfdisk --quiet --wipe never --wipe-partitions never "$img.tmp" >&2
 	mv "$img.tmp" "$img"
 	msg "disk image: $img (boot it with tools/linux/qemu.sh --disk)"
+}
+
+# The interim graphical desktop (issue #13): a new disk image, booted
+# once in QEMU to run foxyn-desktop(8) on it, which installs X, GNUstep
+# and a session from DPorts and enables the foxyn_desktop rc.d service.
+# DESKTOP_IMG names the image (default $OBJDIR/desktop.img); a failed
+# run leaves the previous image alone.  DPORTS_MIRROR picks the mirror.
+do_desktop() {
+	local img=${DESKTOP_IMG:-$OBJDIR/desktop.img}
+	[ -f "$OBJDIR/esp/X86_64_GENERIC/boot/kernel/kernel" ] || ( do_esp )
+	[ -f "$OBJDIR/rootfs/usr/sbin/foxyn-desktop" ] || ( do_rootfs )
+	( DISK=$img.new DISK_SIZE=${DESKTOP_SIZE:-8G}; do_disk )
+	msg "desktop image: installing the desktop in QEMU (log: $OBJDIR/qemu/X86_64_GENERIC.boot-desktop-setup.log)"
+	DISK=$img.new BOOT_TIMEOUT=${BOOT_TIMEOUT:-1500} OBJDIR=$OBJDIR \
+	    "$SRCDIR/tools/linux/boot-test.sh" --desktop-setup ||
+	    die "foxyn-desktop failed; $img is unchanged"
+	mv "$img.new" "$img"
+	msg "desktop image: $img (boot it with tools/linux/qemu.sh --desktop)"
 }
 
 # cron(8), Cronie: /root/tests/cron-check start installs a root crontab
@@ -3143,6 +3168,7 @@ main() {
 	world)		do_world ;;
 	rootfs)		do_rootfs ;;
 	disk)		do_disk ;;
+	desktop)	do_desktop ;;
 	subdir)		headers_current
 			[ -f "$SYSROOT/usr/lib/libc.so" ] || do_libc
 			wenv; for d; do world_dir "$d"; done ;;
