@@ -103,8 +103,9 @@ if [ "$gnustep" = dports ]; then
 	apps=$gsroot/Local/Applications
 else
 	# What GNUstep Make, Base, GUI and Back build and link with (DPorts'
-	# GNUstep's dependencies), dbus and gettext for Menu, and the
-	# compiler.
+	# GNUstep's dependencies), dbus and gettext for Menu, the compiler,
+	# what XLibre builds with, and xdotool for the login window test
+	# (boot-test.sh --desktop).
 	pkgs="$pkgs gmake llvm19 pkgconf cmake-core ninja libxml2 libxslt
 	    libffi gnutls icu curl avahi-app gmp libgcrypt cups giflib
 	    jpeg-turbo png tiff libsndfile libao flite cairo fontconfig
@@ -113,7 +114,7 @@ else
 	    meson autoconf automake libtool xorg-macros pixman libxkbfile
 	    libXfont2 libxcvt libxshmfence libdrm libpciaccess xorgproto xtrans
 	    libXau libXdmcp font-util libinput libepoll-shim libXrandr
-	    libXinerama xkbcomp xkeyboard-config evdev-proto"
+	    libXinerama xkbcomp xkeyboard-config evdev-proto xdotool"
 	gsroot=
 	apps=/System/Applications
 	# Its libraries have DPorts' names (libobjc.so.4.6): not both.
@@ -527,6 +528,7 @@ if ! pgrep -x Xorg >/dev/null; then
 		Xorg :0 -nolisten tcp -auth "$auth" vt9 \
 		    > /var/log/foxyn-loginwindow.X.log 2>&1 &
 	fi
+	echo $! > /var/run/foxyn-loginwindow.X.pid
 	i=0
 	while [ ! -S /tmp/.X11-unix/X0 ] && [ "$i" -lt 30 ]; do sleep 1; i=$((i + 1)); done
 fi
@@ -553,6 +555,15 @@ pidfile=/var/run/foxyn_loginwindow.pid
 command=/usr/sbin/daemon
 procname=/usr/sbin/daemon
 command_args="-r -f -o /var/log/LoginWindow.log -P $pidfile /usr/local/libexec/foxyn-loginwindow"
+stop_postcmd=foxyn_loginwindow_poststop
+
+# The X server foxyn-loginwindow started outlives LoginWindow.
+foxyn_loginwindow_poststop()
+{
+	[ -f /var/run/foxyn-loginwindow.X.pid ] &&
+	    kill "$(cat /var/run/foxyn-loginwindow.X.pid)" 2>/dev/null
+	rm -f /var/run/foxyn-loginwindow.X.pid /var/run/xauth
+}
 
 run_rc_command "$1"
 EOF

@@ -61,8 +61,44 @@ the pointer into the password field and clicked Menu's items.
   without a cookie could no longer connect to the display.
 - Logging in again started the session again.
 
+## Automated test and fixes, 2026-11-10 (later)
+
+`desktop-session login` (run by `LOGIN_CHECK=1 boot-test.sh --desktop`)
+drives the login window with `xdotool`, which `foxyn-desktop` now
+installs: it starts `foxyn_loginwindow` with a temporary password,
+checks that `nobody` cannot use the display, logs in, logs out, logs in
+again, tries a wrong password, then stops the service (which now also
+stops the X server it started) and removes the password. Writing it
+found:
+
+- Eau crashed LoginWindow (SIGSEGV, stack overflow) on Return:
+  `-[NSSearchField(EauTheme) eau:keyDown:]` and `-[NSButton keyDown:]`
+  called each other until the stack ran out. Eau exchanged the
+  implementation of `keyDown:` that NSSearchField inherits, which swapped
+  the superclass's for every view. `eau-searchfield-keydown.txt` adds the
+  method to NSSearchField first, as Eau's own NSButton swizzle does;
+  `build-eau.sh` applies it. No crash was seen after it.
+- The login window has no window manager and gets no keyboard focus by
+  itself: until it is given focus, text typed into a field is not drawn
+  and a triple click does not select the old text, so new text is added
+  to it (a failed password stayed in the field). The test focuses the
+  window first.
+- `loginwindow-dragonfly.txt` adds Workspace's `ddbd` and `fswatcher`
+  to the daemons LoginWindow ends at logout, like `gpbs` and `gdnc`.
+  Not verified yet: the test VM still had these daemons, and D-Bus
+  daemons, left from the sessions that ended abnormally.
+
+Not resolved: in the automated runs, the first login of a freshly
+started LoginWindow did not reliably start a session. In some runs the
+session started and its supervisor received a shutdown signal about a
+second later; in another, the click on Log In did not start an
+authentication at all (no `fork` in a ktrace of LoginWindow). Logging
+out and in again in the same run worked every time, and logging in by
+hand through QEMU's keyboard worked. The step is therefore opt-in
+(`LOGIN_CHECK=1`).
+
 Limits: the Tab key did not move from the user name to the password
-field; Workspace's `ddbd` was still running after Log Out; the session
+field; the session
 took over 45 seconds to appear after the password was accepted; a
 failing session, other users, the Shut Down and Restart buttons and
 physical hardware were not tested. The automated boot test still uses

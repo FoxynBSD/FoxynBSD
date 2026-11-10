@@ -47,6 +47,8 @@
 #			how long and at what frequency it sounded
 #	DISK		disk for --disk and --desktop-setup (default
 #			$OBJDIR/disk.img; --desktop: $OBJDIR/desktop.img)
+#	LOGIN_CHECK	1: --desktop also drives Gershwin's LoginWindow
+#			(desktop-session login); not reliable yet
 #	DESKTOP_GNUSTEP	source (default) or dports: foxyn-desktop -g, where
 #			--desktop-setup's GNUstep comes from
 #	DPORTS_MIRROR	DPorts mirror for audio-check and --desktop-setup
@@ -250,7 +252,8 @@ if [ "$result" -eq 0 ] && [ "$MODE" = desktopsetup ]; then
 	    { echo ">>> foxyn-desktop FAILED" >&2; result=1; }
 fi
 # --desktop: the session rc.d started at boot (desktop-session: lines,
-# dsession-42), a screenshot of it, then stopping it.
+# dsession-42), a screenshot of it, then stopping it, and with
+# LOGIN_CHECK=1 the login window (dlogin-42).
 if [ "$result" -eq 0 ] && [ "$MODE" = desktop ]; then
 	printf "sh -c 'sh /root/tests/desktop-session wait; echo dsession-\$((6*7)): \$?'\r" >&3
 	tries=0
@@ -281,6 +284,18 @@ EOF
 		tries=$((tries + 1))
 	done
 	grep -aq '^dstop-42: 0' "$LOG" || result=1
+	# LOGIN_CHECK=1: then Gershwin's LoginWindow (dlogin-42): login,
+	# logout, a second login, a wrong password.  Opt-in: the first login
+	# of a freshly started LoginWindow driven by xdotool is unreliable.
+	if [ "${LOGIN_CHECK:-0}" = 1 ]; then
+		printf "sh -c 'sh /root/tests/desktop-session login; echo dlogin-\$((6*7)): \$?'\r" >&3
+		tries=0
+		while [ "$tries" -lt 120 ] && ! grep -aq '^dlogin-42:' "$LOG"; do
+			sleep 5
+			tries=$((tries + 1))
+		done
+		grep -aq '^dlogin-42: 0' "$LOG" || result=1
+	fi
 	[ "$result" -eq 0 ] || echo ">>> the desktop session check FAILED" >&2
 fi
 
