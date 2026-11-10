@@ -272,11 +272,11 @@ if [ "$gnustep" = source ]; then
 	pwconf=/System/Library/PipeWire/etc/pipewire/pipewire.conf.d
 	mkdir -p "$pwconf"
 	cat > "$pwconf/10-foxyn.conf" <<'EOF'
-# FoxynBSD (foxyn-desktop): sound through jackd on OSS, and the session
-# manager.
+# FoxynBSD (foxyn-desktop): sound through jackd on OSS (a JACK sink, and
+# a JACK source when the card records), and the session manager.
 context.modules = [
   { name = libpipewire-module-jack-tunnel
-    args = { tunnel.mode = sink } }
+    args = { tunnel.mode = duplex } }
 ]
 context.exec = [
   { path = "/System/Library/PipeWire/bin/wireplumber" args = "" }
@@ -410,7 +410,8 @@ chmod 555 /usr/local/libexec/foxyn-xinput
 cat > /usr/local/libexec/foxyn-audio <<'EOF'
 #!/bin/sh
 # The desktop session's sound, as its user: jackd on the first OSS device
-# (/dev/dsp, playback only), then PipeWire, which plays through its JACK
+# (/dev/dsp: playback and recording, or playback only when the card does
+# not record), then PipeWire, which plays and records through its JACK
 # tunnel and starts WirePlumber.  Nothing without PipeWire or a sound
 # card.  Logs in $XDG_RUNTIME_DIR.
 pw=/System/Library/PipeWire
@@ -418,11 +419,32 @@ pw=/System/Library/PipeWire
 [ -n "${XDG_RUNTIME_DIR:-}" ] && [ -d "$XDG_RUNTIME_DIR" ] || exit 1
 PATH=$pw/bin:/usr/local/bin:/usr/bin:/bin
 export PATH
-jackd -d oss -r 48000 -p 1024 -n 2 -i 0 -o 2 -P /dev/dsp \
-    > "$XDG_RUNTIME_DIR/jackd.log" 2>&1 &
-jack=$!
-sleep 3
-kill -0 "$jack" 2>/dev/null || exit 1
+for inputs in 2 0; do
+	if [ "$inputs" = 2 ]; then
+		set -- -C /dev/dsp -P /dev/dsp
+	else
+		set -- -P /dev/dsp
+	fi
+	jackd -d oss -r 48000 -p 1024 -n 2 -i "$inputs" -o 2 "$@" \
+	    > "$XDG_RUNTIME_DIR/jackd.log" 2>&1 &
+	jack=$!
+	# Up: still running after 10 s without a driver error.  (Opening
+	# a card that cannot record can take a few seconds to fail.)
+	i=0
+	while [ "$i" -lt 10 ]; do
+		if ! kill -0 "$jack" 2>/dev/null ||
+		    grep -q 'Cannot initialize driver\|Failed to open server' \
+		    "$XDG_RUNTIME_DIR/jackd.log"; then
+			kill "$jack" 2>/dev/null
+			wait "$jack" 2>/dev/null
+			jack=
+			break
+		fi
+		sleep 1; i=$((i + 1))
+	done
+	[ -n "$jack" ] && break
+done
+[ -n "$jack" ] || exit 1
 pipewire > "$XDG_RUNTIME_DIR/pipewire.log" 2>&1
 kill "$jack" 2>/dev/null
 EOF

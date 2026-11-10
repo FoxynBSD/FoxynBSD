@@ -25,13 +25,17 @@ OSS's `/dev/dsp`, which JACK's `jackd` uses. So:
 
 ```
 application -> PipeWire (JACK Sink: module-jack-tunnel) -> jackd -d oss -> /dev/dsp -> snd_hda
+application <- PipeWire (JACK Source)                   <- jackd -d oss <- /dev/dsp <- snd_hda
 ```
 
 `/System/Library/PipeWire/etc/pipewire/pipewire.conf.d/10-foxyn.conf`
-loads the JACK tunnel as a sink and starts WirePlumber.
-`/usr/local/libexec/foxyn-audio`, started by the session's `.xsession`
-as the desktop user, starts `jackd` on `/dev/dsp` (48 kHz, playback
-only), then `pipewire`; it does nothing without a sound card. Logs go to
+loads the JACK tunnel in duplex mode (a sink, and a source when `jackd`
+records) and starts WirePlumber. `/usr/local/libexec/foxyn-audio`,
+started by the session's `.xsession` as the desktop user, starts `jackd`
+on `/dev/dsp` at 48 kHz with two capture and two playback channels, and
+when that fails (a card that does not record) with playback only; it
+waits up to 10 seconds for `jackd`'s driver to open or fail, then starts
+`pipewire`. It does nothing without a sound card. Logs go to
 the user's `XDG_RUNTIME_DIR`, `/var/run/user/<uid>`, which
 `foxyn-session` now creates (mode 0700) for the session and removes
 after it, when it also ends `jackd`, `pipewire` and `wireplumber`.
@@ -118,11 +122,42 @@ it (`audio-wav:`).
   the second boot of the same image passed it (`dstop-42: 0`). Not
   resolved.
 
+## Recording and volume, 2026-11-10 (later)
+
+Test VM, after these changes (`foxyn-desktop` rerun, the session
+restarted):
+
+- Volume (`AUDIO=<file>.wav`): a 2 s 440 Hz tone played as `foxyn` after
+  `wpctl set-volume @DEFAULT_AUDIO_SINK@` 1.00, 0.50 and 0.25, then with
+  `wpctl set-mute ... 1`. At the card, the median RMS of the three tones
+  was 7318, 915 and 114: 0.125 and 0.0156 of the first, 0.5³ and 0.25³,
+  `wpctl`'s cubic scale; muted, nothing reached the card.
+- Recording (`AUDIO=silent`: QEMU's "none" backend, a duplex card with a
+  silent input): `/dev/sndstat` showed `pcm0 ... (play/rec)`; `jackd`
+  ran with `-i 2 -C /dev/dsp`; `wpctl status` showed `JACK Sink` and
+  `JACK Source` as the defaults; `pw-record` for 6 s wrote 5.99 s of
+  48 kHz frames (all zero, as QEMU's input is silent), and playback still
+  worked. `desktop-session audio` now records 3 s when there is a source
+  (2986 ms).
+- The fallback: on a duplex card whose input QEMU does not serve (the
+  WAV backend), `jackd` failed to read (`ProbeInBlockSize read failed`)
+  some seconds after starting; `foxyn-audio` then started it with
+  playback only, and the tone played. (Its first version checked only
+  that `jackd` still ran after 3 seconds, which it did before it failed;
+  PipeWire then failed to connect, and libjack autostarted `jackdbus`.)
+
+End to end again with these changes (`AUDIO_CHECK=1 build.sh desktop`,
+then `AUDIO_CHECK=1 boot-test.sh --desktop`): the session check passed,
+`desktop-session audio` played the tone through `JACK Sink` and recorded
+2986 ms through `JACK Source`, logging out passed, and the card received
+`4.1 s of sound, 440 Hz`. (`boot-test.sh`'s card is QEMU's `hda-output`
+on the WAV backend; which `jackd` mode it got was not logged.)
+
 ## Limits
 
-- Playback only: `jackd` runs without capture channels, so recording,
-  PipeWire sources and duplex use are not set up; volume control through
-  `wpctl` was not verified on the card.
+- Recording was tested with a silent input only: the path, the source
+  and the timing, not that a signal arrives. QEMU's WAV backend has no
+  input; `AUDIO=host` would use the host's microphone.
 - One sound card, the first OSS device, at 48 kHz; no hot plug, no
   Bluetooth, no ALSA or PulseAudio compatibility layers (`pipewire-pulse`
   is not configured), no realtime scheduling (no RTKit; `jackd` and

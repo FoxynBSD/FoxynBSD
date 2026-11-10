@@ -13,7 +13,9 @@
 #		foxyn_openrc stop`, which must stop the system bus too
 #	audio	(after wait, with a sound card) play a 4 s 440 Hz tone as
 #		the desktop user through the session's PipeWire (JACK sink);
-#		boot-test.sh checks what reached the card
+#		boot-test.sh checks what reached the card.  When the card
+#		records (a JACK source), also record 3 s and check their
+#		length
 #	login	(after stop) Gershwin's LoginWindow, when installed: start
 #		foxyn_loginwindow with a test password for the user; check
 #		that another account cannot use the display, that a wrong
@@ -234,6 +236,23 @@ audio)
 	else
 		sed 's/^/desktop-session: /' /tmp/pw-play.log
 		fail "pw-play"
+	fi
+	if su -m "$user" -c "env XDG_RUNTIME_DIR=$rt $pw/wpctl inspect @DEFAULT_AUDIO_SOURCE@" \
+	    > /tmp/pw-source.log 2>&1; then
+		rm -f /tmp/rec.wav
+		su -m "$user" -c "env XDG_RUNTIME_DIR=$rt timeout 3 $pw/pw-record --rate 48000 --channels 2 --format s16 /tmp/rec.wav" \
+		    > /tmp/pw-record.log 2>&1
+		# 4 bytes a frame after the 44-byte header: 2.5 to 3.5 s.
+		size=$(stat -f %z /tmp/rec.wav 2>/dev/null || echo 0)
+		ms=$(( (size - 44) / 192 ))
+		if [ "$ms" -ge 2500 ] && [ "$ms" -le 3500 ]; then
+			echo "desktop-session: $user recorded ${ms} ms through PipeWire (JACK Source)"
+		else
+			sed 's/^/desktop-session: /' /tmp/pw-record.log
+			fail "pw-record: ${ms} ms in 3 s"
+		fi
+	else
+		echo "desktop-session: no audio source (the card does not record)"
 	fi
 	[ "$ok" = 1 ]
 	;;
