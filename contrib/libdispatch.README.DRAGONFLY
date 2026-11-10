@@ -1,0 +1,19 @@
+Apple swift-corelibs-libdispatch
+================================
+
+url    = https://github.com/apple/swift-corelibs-libdispatch.git
+tag    = none: pinned to the revision listed by Gershwin Developer corelibs (2026-07-26 pins)
+commit = 95f592ab637c4d7916fa05d4d80cbc1ec7d0b2b8
+date   = 2026-07-08
+
+This submodule is currently source-only: it is not built, installed, or
+validated as part of FoxynBSD. Keep generated files and future build output
+outside the submodule. No bundled code is selected for the base yet.
+
+License: Apache-2.0; see LICENSE and per-file notices. These are source-tree notices, not a
+completed file-level distribution audit. Check third-party code and assets,
+preserve applicable notices and satisfy source obligations before shipping.
+
+When upgrading, review GNUstep ABI, build order, compatible Gershwin
+revisions, portability changes and license notices; run the desktop build
+and runtime tests against the complete selected set.

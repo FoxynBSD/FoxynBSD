@@ -1,0 +1,18 @@
+Gershwin WindowManager
+======================
+
+url    = https://github.com/gershwin-desktop/gershwin-windowmanager.git
+tag    = 26.09
+commit = 10b6797a3bfd391d559820232805f1a107fa9ec3
+date   = 2026-09-17
+
+This submodule is source-only: it is not built, installed, or validated as
+part of the FoxynBSD base. Keep build output outside the submodule.
+
+An external experimental patch was tested; the clean submodule is unmodified and does not include that fix.
+
+License: MIT in WindowManager/LICENSE; XCBKit and icon provenance require the review in docs/desktop-windowmanager.md. Complete file-level and asset provenance review and preserve
+applicable notices and source obligations before distribution.
+
+When upgrading, review dependencies, API and ABI compatibility, FoxynBSD
+portability, license notices and the full desktop build and runtime tests.

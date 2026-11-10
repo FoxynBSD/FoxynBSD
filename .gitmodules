@@ -22,3 +22,19 @@
 	path = contrib/gnustep-back
 	url = https://github.com/gnustep/libs-back.git
 	shallow = true
+[submodule "contrib/libdispatch"]
+	path = contrib/libdispatch
+	url = https://github.com/apple/swift-corelibs-libdispatch.git
+	shallow = true
+[submodule "contrib/gershwin-windowmanager"]
+	path = contrib/gershwin-windowmanager
+	url = https://github.com/gershwin-desktop/gershwin-windowmanager.git
+	shallow = true
+[submodule "contrib/gershwin-textedit"]
+	path = contrib/gershwin-textedit
+	url = https://github.com/gershwin-desktop/gershwin-textedit.git
+	shallow = true
+[submodule "contrib/gershwin-components"]
+	path = contrib/gershwin-components
+	url = https://github.com/gershwin-desktop/gershwin-components.git
+	shallow = true
