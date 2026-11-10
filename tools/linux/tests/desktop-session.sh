@@ -3,7 +3,8 @@
 #	wait	wait for the session that rc.d started at boot: X, a window
 #		manager (WindowManager or twm), an xterm and the GNUstep
 #		application's window (TextEdit's with GNUstep from source in
-#		/System, else Sudoku's), all clients as the desktop user
+#		/System, else Sudoku's) and Gershwin's Menu when installed,
+#		all clients as the desktop user
 #	stop	`service foxyn_desktop stop` ends the session and X
 ok=1
 fail() { echo "desktop-session: FAIL $*"; ok=0; }
@@ -34,7 +35,11 @@ wait)
 	else
 		fail "no window manager runs as $user"
 	fi
-	for p in xterm "$app"; do
+	procs="xterm $app"
+	# Gershwin's menu bar, which foxyn-desktop builds with GNUstep.
+	[ -x /System/Library/CoreServices/Applications/Menu.app/Menu ] &&
+	    procs="$procs Menu"
+	for p in $procs; do
 		if pgrep -u "$uid" -x "$p" >/dev/null; then
 			echo "desktop-session: $p runs as $user"
 		else
@@ -58,7 +63,9 @@ wait)
 stop)
 	service foxyn_desktop stop | sed 's/^/desktop-session: /'
 	i=0
-	while pgrep -x Xorg >/dev/null && [ "$i" -lt 20 ]; do sleep 1; i=$((i + 1)); done
+	while { pgrep -x Xorg || pgrep -u "$uid"; } >/dev/null && [ "$i" -lt 20 ]; do
+		sleep 1; i=$((i + 1))
+	done
 	pgrep -x Xorg >/dev/null && fail "Xorg still runs"
 	pgrep -u "$uid" >/dev/null && fail "processes of $user remain: $(pgrep -u "$uid" -l | tr '\n' ' ')"
 	[ "$ok" = 1 ] && echo "desktop-session: X and the session stopped"

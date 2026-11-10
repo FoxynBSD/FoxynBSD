@@ -1457,11 +1457,16 @@ do_rootfs() {
 	mkdir -p "$root/usr/share/foxynbsd/desktop/patches"
 	install -m 444 "$SRCDIR/tools/desktop/build-gnustep.sh" \
 	    "$SRCDIR/tools/desktop/build-windowmanager.sh" \
-	    "$SRCDIR/tools/desktop/build-textedit.sh" "$root/usr/share/foxynbsd/desktop/"
+	    "$SRCDIR/tools/desktop/build-textedit.sh" \
+	    "$SRCDIR/tools/desktop/build-menu.sh" "$root/usr/share/foxynbsd/desktop/"
 	install -m 444 "$SRCDIR/tools/desktop/patches/windowmanager-titlebar-state.txt" \
 	    "$SRCDIR/tools/desktop/patches/windowmanager-LICENSE" \
 	    "$SRCDIR/tools/desktop/patches/gnustep-base-dragonfly-uuid.txt" \
 	    "$SRCDIR/tools/desktop/patches/gnustep-base-kvm-configure.txt" \
+	    "$SRCDIR/tools/desktop/patches/libdispatch-dragonfly.txt" \
+	    "$SRCDIR/tools/desktop/patches/menu-dragonfly-gnumakefile.txt" \
+	    "$SRCDIR/tools/desktop/patches/menu-dragonfly-kinfo.txt" \
+	    "$SRCDIR/tools/desktop/patches/menu-dragonfly-extra-poll.txt" \
 	    "$root/usr/share/foxynbsd/desktop/patches/"
 	# Copy the shared libraries, following NEEDED entries to a fixpoint
 	# (not for /boot: the kernel and its modules do not load them).

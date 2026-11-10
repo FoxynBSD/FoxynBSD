@@ -2,6 +2,10 @@
 
 Gershwin's Menu and its Sound and Network backends include
 `<dispatch/dispatch.h>`; DPorts has no libdispatch package.
+The desktop image gets it from `tools/desktop/build-gnustep.sh`, which
+builds the same revision with the same patch into `/System` before GNUstep
+Base (see [desktop-gnustep.md](desktop-gnustep.md)). The standalone helper
+below stages it elsewhere, for tests.
 `tools/desktop/build-libdispatch.sh` builds the revision pinned in
 `contrib/libdispatch` (`95f592ab637c4d7916fa05d4d80cbc1ec7d0b2b8`) from
 the upstream archive, whose SHA-256

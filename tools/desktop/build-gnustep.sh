@@ -1,6 +1,7 @@
 #!/bin/sh
 # Build the GNUstep runtime from the revisions pinned by contrib/gnustep-*
-# (Make, libobjc2, Base, GUI, Back) and install it in the Gershwin
+# and contrib/libdispatch (Make, libobjc2, libdispatch, Base, GUI, Back)
+# and install it in the Gershwin
 # filesystem layout under /System, with its configuration in
 # /System/Library/Preferences/GNUstep.conf, so that it does not mix with
 # a GNUstep from DPorts under /usr/local/GNUstep.
@@ -20,6 +21,8 @@ make_rev=4e31a0310df5f0aa96ccd816d3b626e67c36f535
 make_sha=2969f0b7a295173f07a72733ba5d50867aff66265515f49ed5d0806f07c0eeff
 objc_rev=c9f4002ade04d755f2a0e6c83daf2738dca03759
 objc_sha=1a3c5289207003bf2ba5503f670caaae910fa0ea59e08c22851fa13378dd71a0
+dispatch_rev=95f592ab637c4d7916fa05d4d80cbc1ec7d0b2b8
+dispatch_sha=3c3d9496b9698ea5240f0139f59d604599e612972cec43196de932a2b3e69d79
 base_rev=5bda52220a6d67382c9851cdfd91d459bfd2b489
 base_sha=62cc24fc653ad29e9716a041fce342c880521aab852cc4ce89549cc5526f74c7
 gui_rev=8f804fd520c60800961e0bee072066f4bbadca94
@@ -50,7 +53,8 @@ done
 # headers in /usr/local/include/objc that would be used instead.
 [ ! -e /usr/local/include/objc/runtime.h ] ||
     die "remove DPorts' libobjc2 first (pkg delete libobjc2)"
-for p in gnustep-base-dragonfly-uuid.txt gnustep-base-kvm-configure.txt; do
+for p in gnustep-base-dragonfly-uuid.txt gnustep-base-kvm-configure.txt \
+    libdispatch-dragonfly.txt; do
 	[ -r "$patches/$p" ] || die "patch not found: $patches/$p"
 done
 
@@ -81,6 +85,7 @@ gh=https://codeload.github.com
 get make "$gh/gnustep/tools-make/tar.gz/$make_rev" "$make_sha"
 get objc "$gh/gnustep/libobjc2/tar.gz/$objc_rev" "$objc_sha"
 get robin-map "$gh/Tessil/robin-map/tar.gz/refs/tags/$robin_tag" "$robin_sha"
+get dispatch "$gh/apple/swift-corelibs-libdispatch/tar.gz/$dispatch_rev" "$dispatch_sha"
 get base "$gh/gnustep/libs-base/tar.gz/$base_rev" "$base_sha"
 get gui "$gh/gnustep/libs-gui/tar.gz/$gui_rev" "$gui_sha"
 get back "$gh/gnustep/libs-back/tar.gz/$back_rev" "$back_sha"
@@ -88,6 +93,8 @@ get back "$gh/gnustep/libs-back/tar.gz/$back_rev" "$back_sha"
     patch -s -p1 < "$patches/gnustep-base-dragonfly-uuid.txt" &&
     patch -s -p1 < "$patches/gnustep-base-kvm-configure.txt") ||
     die "GNUstep Base patches do not apply"
+(cd "$work/dispatch" && patch -s -p1 < "$patches/libdispatch-dragonfly.txt") ||
+    die "the libdispatch patch does not apply"
 
 export CC=clang19 CXX=clang++19 OBJC=clang19 OBJCXX=clang++19
 # The libraries from DPorts (libjpeg, libtiff, ...) are in /usr/local,
@@ -121,6 +128,24 @@ step "configure libobjc2" cmake -S "$work/objc" -B "$work/objc/build" -G Ninja \
     -DFETCHCONTENT_FULLY_DISCONNECTED=ON
 step "build libobjc2" ninja -C "$work/objc/build"
 step "install libobjc2" ninja -C "$work/objc/build" install
+# libdispatch before Base, which uses it (and Gershwin's Menu).  It
+# brings its own BlocksRuntime library; its Block.h would replace
+# libobjc2's, so its block headers are not installed.  The header
+# directories are absolute: CMake makes a relative PATH cache value
+# relative to the current directory, not to the prefix.
+step "configure libdispatch" cmake -S "$work/dispatch" -B "$work/dispatch/build" \
+    -G Ninja -DCMAKE_BUILD_TYPE=Release -DCMAKE_C_COMPILER=clang19 \
+    -DCMAKE_CXX_COMPILER=clang++19 \
+    -DCMAKE_EXE_LINKER_FLAGS="$LDFLAGS" \
+    -DCMAKE_SHARED_LINKER_FLAGS="$LDFLAGS" -DBUILD_TESTING=OFF \
+    -DCMAKE_INSTALL_PREFIX="$prefix/Library" \
+    -DCMAKE_INSTALL_LIBDIR=Libraries \
+    -DCMAKE_INSTALL_MANDIR=Documentation/man \
+    -DINSTALL_DISPATCH_HEADERS_DIR="$prefix/Library/Headers/dispatch" \
+    -DINSTALL_OS_HEADERS_DIR="$prefix/Library/Headers/os" \
+    -DINSTALL_BLOCK_HEADERS_DIR="$work/discard"
+step "build libdispatch" ninja -C "$work/dispatch/build"
+step "install libdispatch" ninja -C "$work/dispatch/build" install
 step "reconfigure GNUstep Make" make_configure
 step "reinstall GNUstep Make" gmake -C "$work/make" install
 

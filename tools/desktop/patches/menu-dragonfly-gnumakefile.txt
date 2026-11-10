@@ -1,0 +1,14 @@
+--- a/GNUmakefile
++++ b/GNUmakefile
+@@ -147,6 +147,11 @@ ifeq ($(UNAME_S),FreeBSD)
+ 	ADDITIONAL_CPPFLAGS = $(DBUS_CFLAGS)
+ 	Menu_TOOL_LIBS += -lexecinfo -lintl
+ endif
++ifeq ($(UNAME_S),DragonFly)
++	ADDITIONAL_OBJCFLAGS = -Wall -Wextra -O2 -fobjc-runtime=gnustep-2.0 -fobjc-arc -Wno-unused-parameter -D_BSD_SOURCE -I.
++	ADDITIONAL_CPPFLAGS = $(DBUS_CFLAGS)
++	Menu_TOOL_LIBS += -lexecinfo -lintl
++endif
+ ifeq ($(UNAME_S),NextBSD)
+ 	ADDITIONAL_OBJCFLAGS = -Wall -Wextra -O2 -fobjc-runtime=gnustep-2.0 -fobjc-arc -Wno-unused-parameter -D_BSD_SOURCE -I.
+ 	ADDITIONAL_CPPFLAGS = $(DBUS_CFLAGS)

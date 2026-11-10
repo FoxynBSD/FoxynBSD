@@ -1,0 +1,20 @@
+--- a/AppMenuWidget.m
++++ b/AppMenuWidget.m
+@@ -29,6 +29,8 @@
+ #import <sys/sysctl.h>
+ #ifdef __FreeBSD__
+ #import <sys/user.h>
++#elif defined(__DragonFly__)
++#import <sys/kinfo.h>
+ #endif
+ #endif
+ 
+@@ -946,6 +948,8 @@
+     if (sysctl(mib, 4, &kp, &len, NULL, 0) == 0 && len > 0) {
+ #ifdef __FreeBSD__
+         const char *name = kp.ki_comm;
++#elif defined(__DragonFly__)
++        const char *name = kp.kp_comm;
+ #else
+         const char *name = kp.p_comm;
+ #endif

@@ -1,0 +1,11 @@
+--- a/MenuExtraManager.m
++++ b/MenuExtraManager.m
+@@ -994,7 +994,7 @@
+ 
+ - (void)startFileSystemMonitoring
+ {
+-#if !defined(__linux__) && !defined(__FreeBSD__) && !defined(__OpenBSD__)
++#if !defined(__linux__) && !defined(__FreeBSD__) && !defined(__OpenBSD__) && !defined(__DragonFly__)
+     dispatch_queue_t queue = dispatch_get_global_queue(DISPATCH_QUEUE_PRIORITY_DEFAULT, 0);
+     int fd = open([[[[self class] searchPaths] firstObject] fileSystemRepresentation], O_EVTONLY);
+     if (fd < 0) return;

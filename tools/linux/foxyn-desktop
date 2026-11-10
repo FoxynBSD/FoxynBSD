@@ -10,7 +10,8 @@
 #	-g	where GNUstep comes from: source (default) builds Make,
 #		libobjc2, Base, GUI and Back from the revisions pinned by
 #		contrib/gnustep-* (build-gnustep.sh, as the desktop user)
-#		and installs them in /System, Gershwin's layout; dports
+#		and installs them in /System, Gershwin's layout, with
+#		Gershwin's Menu (build-menu.sh); dports
 #		installs DPorts' older GNUstep in /usr/local/GNUstep.
 #	-m	DPorts mirror URL instead of pkg's default, e.g.
 #		https://mirror.sjtu.edu.cn/dragonflybsd/dports
@@ -96,12 +97,13 @@ if [ "$gnustep" = dports ]; then
 	apps=$gsroot/Local/Applications
 else
 	# What GNUstep Make, Base, GUI and Back build and link with (DPorts'
-	# GNUstep's dependencies), and the compiler.
+	# GNUstep's dependencies), dbus and gettext for Menu, and the
+	# compiler.
 	pkgs="$pkgs gmake llvm19 pkgconf cmake-core ninja libxml2 libxslt
 	    libffi gnutls icu curl avahi-app gmp libgcrypt cups giflib
 	    jpeg-turbo png tiff libsndfile libao flite cairo fontconfig
 	    freetype2 libXcursor libXext libXfixes libXft libXmu libXrender
-	    libXt libglvnd"
+	    libXt libglvnd dbus gettext-runtime"
 	gsroot=
 	apps=/System/Applications
 	# Its libraries have DPorts' names (libobjc.so.4.6): not both.
@@ -151,21 +153,40 @@ install_app()
 	say "installed $apps/$1"
 }
 
-# GNUstep from the pinned sources, built in /System as the desktop user,
-# which then becomes root's.
-if [ "$gnustep" = source ] && [ ! -e /System/Library/Libraries/libgnustep-gui.so ]; then
-	[ -r "$share/build-gnustep.sh" ] || die "$share/build-gnustep.sh is missing"
-	mkdir -p /System
-	chown "$user" /System
-	work=$(mktemp -d /tmp/foxyn-gnustep.XXXXXXXX) || die "mktemp failed"
-	chown "$user" "$work"
-	su -m "$user" -c "cd '$work' && env HOME='$home' TMPDIR='$work' sh '$share/build-gnustep.sh'" \
-	    >> "$log" 2>&1 || { tail -n 5 "$log" >&2; chown root:wheel /System
-		rm -rf "$work"; die "GNUstep build failed (see $log)"; }
+# GNUstep and Gershwin's Menu from the pinned sources, built and
+# installed in /System by the desktop user; /System is root's again
+# when they are done (or failed).
+system_root()
+{
 	chown -R root:wheel /System
 	chmod -R go-w /System
+}
+# build_system WHAT SCRIPT: run a helper that installs in /System.
+build_system()
+{
+	say "building $1 as $user"
+	work=$(mktemp -d /tmp/foxyn-system.XXXXXXXX) || die "mktemp failed"
+	chown "$user" "$work"
+	su -m "$user" -c "cd '$work' && env HOME='$home' TMPDIR='$work' sh '$share/$2'" \
+	    >> "$log" 2>&1 || { tail -n 5 "$log" >&2; system_root
+		rm -rf "$work"; die "$1 build failed (see $log)"; }
 	rm -rf "$work"
-	say "installed GNUstep in /System"
+}
+if [ "$gnustep" = source ]; then
+	for f in build-gnustep.sh build-menu.sh; do
+		[ -r "$share/$f" ] || die "$share/$f is missing"
+	done
+	mkdir -p /System
+	chown -R "$user" /System
+	if [ ! -e /System/Library/Libraries/libgnustep-gui.so ]; then
+		build_system GNUstep build-gnustep.sh
+		say "installed GNUstep in /System"
+	fi
+	if [ ! -x /System/Library/CoreServices/Applications/Menu.app/Menu ]; then
+		build_system "Gershwin Menu" build-menu.sh
+		say "installed /System/Library/CoreServices/Applications/Menu.app"
+	fi
+	system_root
 fi
 
 # Gershwin's WindowManager, and (with GNUstep from source, which has no
@@ -230,6 +251,9 @@ else
 fi
 wm=$!
 sleep 1
+# Gershwin's global menu bar, when GNUstep was built from source.
+menu=/System/Library/CoreServices/Applications/Menu.app/Menu
+[ -x "$menu" ] && "$menu" &
 "$app" &
 # An xterm mapped while the GNUstep application starts stays blank (seen
 # under QEMU with scfb; cause not found): start it a little later.
@@ -274,9 +298,14 @@ su -l "$user" -c "DISPLAY=:0 XAUTHORITY=$auth/user exec \$HOME/.xsession"
 echo "session for $user ended: $?"
 kill "$xpid" 2>/dev/null
 wait "$xpid"
-# GNUstep's per-user daemons outlive the session's clients.
+# GNUstep's per-user daemons outlive the session's clients; wait (up
+# to 10 s) for them to exit.
 pkill -u "$user" -x gdnc
 pkill -u "$user" -x gpbs
+i=0
+while pgrep -u "$user" -x 'gdnc|gpbs' >/dev/null && [ "$i" -lt 10 ]; do
+	sleep 1; i=$((i + 1))
+done
 rm -rf "$auth" /var/run/foxyn-session.X.pid /var/run/foxyn-session.xauthority
 EOF
 chmod 555 /usr/local/libexec/foxyn-session

@@ -6,9 +6,13 @@ tag    = none: pinned to the revision listed by Gershwin Developer corelibs (202
 commit = 95f592ab637c4d7916fa05d4d80cbc1ec7d0b2b8
 date   = 2026-07-08
 
-This submodule is currently source-only: it is not built, installed, or
-validated as part of FoxynBSD. Keep generated files and future build output
-outside the submodule. No bundled code is selected for the base yet.
+This revision is built by tools/desktop/build-gnustep.sh, which
+foxyn-desktop(8) runs on the desktop image (tools/linux/build.sh desktop):
+it downloads the revision's archive and checks its SHA-256, applies
+tools/desktop/patches/libdispatch-dragonfly.txt and installs in /System
+with GNUstep (docs/desktop-libdispatch.md). It is
+not part of buildworld. Keep build output outside the submodule. When
+upgrading, update the revision and checksum in build-gnustep.sh too.
 
 License: Apache-2.0; see LICENSE and per-file notices. These are source-tree notices, not a
 completed file-level distribution audit. Check third-party code and assets,

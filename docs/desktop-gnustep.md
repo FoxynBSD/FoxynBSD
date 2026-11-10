@@ -2,7 +2,7 @@
 
 `tools/desktop/build-gnustep.sh` builds the GNUstep runtime that the
 Gershwin desktop uses from the revisions pinned by the `contrib/gnustep-*`
-submodules, instead of DPorts' older packages (Base 1.29, GUI 0.31).
+and `contrib/libdispatch` submodules, instead of DPorts' older packages (Base 1.29, GUI 0.31).
 `foxyn-desktop(8)` runs it by default (`-g source`); `build.sh desktop`
 puts the helper and its patches in the image's
 `/usr/share/foxynbsd/desktop`.
@@ -11,6 +11,7 @@ puts the helper and its patches in the image's
 | --- | --- | --- | --- |
 | GNUstep Make | `contrib/gnustep-make` | `4e31a0310df5f0aa96ccd816d3b626e67c36f535` | 2.9.3 + 59 |
 | libobjc2 | `contrib/gnustep-objc2` | `c9f4002ade04d755f2a0e6c83daf2738dca03759` | 2.2 + 82 (`libobjc.so.4.6`) |
+| libdispatch | `contrib/libdispatch` | `95f592ab637c4d7916fa05d4d80cbc1ec7d0b2b8` | swift-DEVELOPMENT-SNAPSHOT-2026-07-11-a |
 | GNUstep Base | `contrib/gnustep-base` | `5bda52220a6d67382c9851cdfd91d459bfd2b489` | 1.31.1 + 652 |
 | GNUstep GUI | `contrib/gnustep-gui` | `8f804fd520c60800961e0bee072066f4bbadca94` | 0.32.0 + 1294 |
 | GNUstep Back | `contrib/gnustep-back` | `bbcc3de7cab63b6e65944edf02f2bbef9d8a7bbd` | 0.32.0 + 114 (Cairo) |
@@ -32,6 +33,18 @@ libraries install in the System domain. Make is configured twice, before
 and after libobjc2, so that it records libobjc2's runtime: the library
 combo is `ng-gnu-gnu`, with the `gnustep-2.2` ABI, native exceptions and
 ARC.
+
+libdispatch is built after libobjc2 and before Base, which then uses it,
+with the DragonFly patch described in
+[desktop-libdispatch.md](desktop-libdispatch.md). It installs
+`libdispatch.so` and its own `libBlocksRuntime.so` in
+`/System/Library/Libraries` and its headers in
+`/System/Library/Headers/dispatch` and `os`. Its `Block.h` is not
+installed: libobjc2's, with its embedded blocks runtime, stays. The
+header directories are given as absolute paths: they are CMake `PATH`
+cache variables, and a relative value on the command line is made
+relative to the current directory, which first put them in the build
+user's working directory and left Base without libdispatch.
 
 Everything is compiled with DPorts' `clang19` and linked with its lld.
 With GNU gold, libobjc2 got two `DT_INIT_ARRAY` entries and programs

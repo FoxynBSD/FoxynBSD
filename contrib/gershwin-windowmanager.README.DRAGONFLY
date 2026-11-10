@@ -6,8 +6,12 @@ tag    = 26.09
 commit = 10b6797a3bfd391d559820232805f1a107fa9ec3
 date   = 2026-09-17
 
-This submodule is source-only: it is not built, installed, or validated as
-part of the FoxynBSD base. Keep build output outside the submodule.
+This revision is built by tools/desktop/build-windowmanager.sh, which
+foxyn-desktop(8) runs on the desktop image (tools/linux/build.sh desktop):
+it downloads the revision's archive and checks its SHA-256, with
+tools/desktop/patches/windowmanager-titlebar-state.txt. It is
+not part of buildworld. Keep build output outside the submodule. When
+upgrading, update the revision and checksum in build-windowmanager.sh too.
 
 An external experimental patch was tested; the clean submodule is unmodified and does not include that fix.
 

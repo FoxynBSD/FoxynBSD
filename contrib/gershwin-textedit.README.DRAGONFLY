@@ -6,8 +6,11 @@ tag    = 26.09
 commit = f7dc768641c1a23609cfb53e6cf17c2ea7f0c898
 date   = 2026-09-17
 
-This submodule is source-only: it is not built, installed, or validated as
-part of the FoxynBSD base. Keep build output outside the submodule.
+This revision is built by tools/desktop/build-textedit.sh, which
+foxyn-desktop(8) runs on the desktop image (tools/linux/build.sh desktop):
+it downloads the revision's archive and checks its SHA-256. It is
+not part of buildworld. Keep build output outside the submodule. When
+upgrading, update the revision and checksum in build-textedit.sh too.
 
 A source bundle was tested separately; packaging and file-level provenance remain incomplete.
 
