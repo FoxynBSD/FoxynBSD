@@ -6,9 +6,12 @@ tag    = 26.09
 commit = 3d741fbc61b62acb3dc1f3213ebe50a8a81c579c
 date   = 2026-09-17
 
-This submodule is currently source-only: it is not built, installed, or
-validated as part of FoxynBSD. Keep generated files and future build output
-outside the submodule. No bundled code is selected for the base yet.
+Built by tools/desktop/build-eau.sh, which foxyn-desktop(8) runs on the
+desktop image (tools/linux/build.sh desktop): it downloads this revision's
+archive, checks its SHA-256 and installs Eau.theme in
+/System/Library/Themes (docs/desktop-eau.md). It is not part of
+buildworld. Keep build output outside the submodule. When upgrading,
+update the revision and checksum in build-eau.sh too.
 
 License: LGPL 2.1 with other file-level terms; see LICENSE and source notices. These are source-tree notices, not a
 completed file-level distribution audit. Check third-party code and assets,

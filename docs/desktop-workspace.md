@@ -30,6 +30,21 @@ started next to it. When the supervisor exits, the session ends: X stops,
 `gdnc`, `gpbs`, `ddbd` and `fswatcher` are stopped, and the console login
 remains.
 
+`gershwin-session` does not notice when X goes away: it keeps restarting
+Workspace and WindowManager, which abort without a display, every second
+and with a core dump. `service foxyn_desktop stop` killed only X and so
+left that loop running (the earlier stop tests passed because they ended
+the session first). The rc script now ends the session as Log Out does,
+with SIGTERM to the user's `gershwin-session`, before stopping X, and
+`foxyn-session` sends it the same signal if X exits while the session
+still runs. Tested in QEMU: after `service foxyn_desktop stop`, X and
+every process of `foxyn` were gone within 20 seconds, with no new
+crashes, and the supervisor logged `Shutdown signal received`.
+
+The look comes from the Eau theme and Gershwin's system-wide defaults,
+which `build-eau.sh` and `install-gershwin-system.sh` install; see
+[desktop-eau.md](desktop-eau.md).
+
 ## FoxynBSD changes
 
 - `workspace-dragonfly.txt` (Workspace): extended attributes through

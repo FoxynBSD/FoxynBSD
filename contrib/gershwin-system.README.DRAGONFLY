@@ -6,8 +6,12 @@ tag    = 26.09
 commit = bb8186cdb8ab5dcafc469228e6eb60b3c8f43a97
 date   = 2026-09-17
 
-Source only: not yet built or installed by FoxynBSD. Build outside the
-submodule and validate compatibility with the selected GNUstep stack.
+Only Library/Preferences (GlobalDefaults, fonts.conf,
+GlobalShortcuts.plist) is installed, in /System/Library/Preferences, by
+tools/desktop/install-gershwin-system.sh, which foxyn-desktop(8) runs on
+the desktop image; it downloads this revision's archive and checks its
+SHA-256 (docs/desktop-eau.md). The scripts and services are not used.
+When upgrading, update the revision and checksum in that script too.
 License: BSD 2-Clause text in LICENSE; individual source and asset terms require review. Complete provenance review and preserve applicable notices
 and source obligations before distributing selected components.
 On upgrade, review dependencies, ABI, installation paths and desktop tests.

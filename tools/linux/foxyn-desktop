@@ -174,7 +174,7 @@ build_system()
 }
 if [ "$gnustep" = source ]; then
 	for f in build-gnustep.sh build-menu.sh build-systempreferences.sh \
-	    build-workspace.sh; do
+	    build-workspace.sh build-eau.sh install-gershwin-system.sh; do
 		[ -r "$share/$f" ] || die "$share/$f is missing"
 	done
 	mkdir -p /System
@@ -197,6 +197,21 @@ if [ "$gnustep" = source ]; then
 		build_system "Gershwin Workspace" build-workspace.sh
 		say "installed /System/Applications/Workspace.app"
 	fi
+	# Gershwin's look: the Eau theme, and its system-wide GNUstep
+	# defaults (GSTheme=Eau, fonts), fonts and desktop pictures.
+	if [ ! -d /System/Library/Themes/Eau.theme ]; then
+		build_system "Gershwin Eau theme" build-eau.sh
+		say "installed /System/Library/Themes/Eau.theme"
+	fi
+	if [ ! -d /System/Library/Preferences/GlobalDefaults ]; then
+		build_system "Gershwin's defaults and fonts" install-gershwin-system.sh
+		say "installed /System/Library/Preferences and Fonts"
+	fi
+	# Gershwin's fonts.conf (/System/Library/Fonts) next to the
+	# system's fonts, not instead of them.
+	mkdir -p /usr/local/etc/fonts/conf.d
+	printf '<?xml version="1.0"?>\n<!DOCTYPE fontconfig SYSTEM "fonts.dtd">\n<fontconfig>\n  <include ignore_missing="yes">/System/Library/Preferences/fonts.conf</include>\n</fontconfig>\n' \
+	    > /usr/local/etc/fonts/conf.d/60-gershwin.conf
 	system_root
 	# gershwin-session finds the apps it supervises on $PATH; the session
 	# puts these first (WindowManager without compositing: no GL here).
