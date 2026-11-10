@@ -60,7 +60,11 @@ export GNUSTEP_INSTALLATION_DOMAIN=SYSTEM
 # dbus and the other DPorts libraries are in /usr/local.
 export CPPFLAGS="-I/usr/local/include ${CPPFLAGS:-}"
 export LDFLAGS="-L/usr/local/lib ${LDFLAGS:-}"
-step "configure Workspace" sh -c "cd '$src' && ./configure"
+# The file system watcher: kqueue, the native one.  With DPorts'
+# libinotify installed (PipeWire uses it) configure also builds the
+# inotify one, which then fails to link (inotify_rm_watch), and its
+# --without-inotify is overridden by its header check: hide the header.
+step "configure Workspace" sh -c "cd '$src' && ./configure ac_cv_header_sys_inotify_h=no"
 step "build Workspace" gmake -C "$src"
 step "install Workspace" gmake -C "$src" install
 app=$prefix/Applications/Workspace.app
