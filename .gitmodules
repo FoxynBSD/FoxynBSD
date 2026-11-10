@@ -46,3 +46,15 @@
 	path = contrib/gershwin-systempreferences
 	url = https://github.com/gershwin-desktop/gershwin-systempreferences.git
 	shallow = true
+[submodule "contrib/gershwin-eau-theme"]
+	path = contrib/gershwin-eau-theme
+	url = https://github.com/gershwin-desktop/gershwin-eau-theme.git
+	shallow = true
+[submodule "contrib/gershwin-system"]
+	path = contrib/gershwin-system
+	url = https://github.com/gershwin-desktop/gershwin-system.git
+	shallow = true
+[submodule "contrib/gershwin-assets"]
+	path = contrib/gershwin-assets
+	url = https://github.com/gershwin-desktop/gershwin-assets.git
+	shallow = true

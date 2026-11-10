@@ -1,0 +1,19 @@
+Gershwin Eau theme
+==================
+
+url    = https://github.com/gershwin-desktop/gershwin-eau-theme.git
+tag    = 26.09
+commit = 3d741fbc61b62acb3dc1f3213ebe50a8a81c579c
+date   = 2026-09-17
+
+This submodule is currently source-only: it is not built, installed, or
+validated as part of FoxynBSD. Keep generated files and future build output
+outside the submodule. No bundled code is selected for the base yet.
+
+License: LGPL 2.1 with other file-level terms; see LICENSE and source notices. These are source-tree notices, not a
+completed file-level distribution audit. Check third-party code and assets,
+preserve applicable notices and satisfy source obligations before shipping.
+
+When upgrading, review GNUstep ABI, build order, compatible Gershwin
+revisions, portability changes and license notices; run the desktop build
+and runtime tests against the complete selected set.
