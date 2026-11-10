@@ -1,0 +1,12 @@
+XLibre libinput driver
+======================
+
+url    = https://github.com/X11Libre/xf86-input-libinput.git
+tag    = xlibre-xf86-input-libinput-25.0.1
+commit = 4eb6691efeef4969a05b1d6b77d980943fb9760e
+date   = 2026-02-02
+
+Source only: not yet built or installed by FoxynBSD. Build outside the
+submodule and validate driver ABI, device access, input and console recovery.
+License: MIT in COPYING; review individual files and preserve notices before release.
+On upgrade, check compatibility with the pinned XLibre server and retest.

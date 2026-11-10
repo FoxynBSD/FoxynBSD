@@ -58,3 +58,15 @@
 	path = contrib/gershwin-assets
 	url = https://github.com/gershwin-desktop/gershwin-assets.git
 	shallow = true
+[submodule "contrib/xlibre"]
+	path = contrib/xlibre
+	url = https://github.com/X11Libre/xserver.git
+	shallow = true
+[submodule "contrib/xlibre-video-scfb"]
+	path = contrib/xlibre-video-scfb
+	url = https://github.com/X11Libre/xf86-video-scfb.git
+	shallow = true
+[submodule "contrib/xlibre-input-libinput"]
+	path = contrib/xlibre-input-libinput
+	url = https://github.com/X11Libre/xf86-input-libinput.git
+	shallow = true

@@ -1,0 +1,18 @@
+XLibre X server
+===============
+
+url    = https://github.com/X11Libre/xserver.git
+tag    = xlibre-xserver-25.1.11
+commit = ec1f2d37daa1450d8452abb547de4546321d7bb9
+date   = 2026-10-31
+
+This submodule is source-only: it is not built, installed, or validated as
+part of the FoxynBSD base. Keep build output outside the submodule.
+
+The source has compiled and Xvfb has run in a disposable guest; installed Xorg, drivers and sessions are not validated.
+
+License: mixed source notices; see COPYING and individual files. Complete file-level and asset provenance review and preserve
+applicable notices and source obligations before distribution.
+
+When upgrading, review dependencies, API and ABI compatibility, FoxynBSD
+portability, license notices and the full desktop build and runtime tests.
