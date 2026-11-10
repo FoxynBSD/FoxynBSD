@@ -68,10 +68,13 @@
 #	DISPLAY_BACKEND	QEMU -display backend for the window (default: gtk,
 #			else sdl, whichever this QEMU has)
 #	AUDIO		an Intel HDA sound card (snd_hda in the guest): "host"
-#			plays it through QEMU's default audio backend (the
-#			host's speakers), a path ending in .wav records what
-#			the guest plays to that file (16-bit stereo, 44.1 kHz;
-#			complete when QEMU exits)
+#			plays and records through QEMU's default audio backend
+#			(the host's speakers and microphone); "silent" has a
+#			silent input and discards the output (QEMU's "none"
+#			backend, with real timing: for recording tests); a
+#			path ending in .wav records what the guest plays to
+#			that file (16-bit stereo, 44.1 kHz; complete when QEMU
+#			exits), with no input
 #
 # Host packages: qemu-desktop (window) or qemu-base (serial only),
 # edk2-ovmf; Debian/Ubuntu: qemu-system-x86 qemu-system-gui ovmf
@@ -333,9 +336,11 @@ case ${AUDIO:-} in
 '') ;;
 host)	set -- "$@" -device intel-hda -device hda-duplex ;;
 *,*)	die "AUDIO must not contain a comma" ;;
+silent)	set -- "$@" -device intel-hda -device hda-duplex,audiodev=snd0 \
+	    -audiodev none,id=snd0 ;;
 *.wav)	set -- "$@" -device intel-hda -device hda-output,audiodev=snd0 \
 	    -audiodev "wav,id=snd0,path=$AUDIO" ;;
-*)	die "AUDIO must be host or a .wav path" ;;
+*)	die "AUDIO must be host, silent or a .wav path" ;;
 esac
 
 # An explicit monitor remains available in headless runs for screendump.
