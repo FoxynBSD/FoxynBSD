@@ -6,13 +6,13 @@ tag    = 0.62.6
 commit = c3689317b5b028f96c1e4912ab5281f2719665e5
 date   = 2025-07-23
 
-This submodule is source-only. OpenRC is not built, installed, integrated
-with boot, or used as PID 1 by FoxynBSD. Keep build output outside it.
-The pinned tag points at a commit whose subject says version 0.62.5.
-
-An isolated DragonFly QEMU build failed during Meson configuration; a
-separate diagnostic forcing FreeBSD mode failed on MNT_UNION. See
-../docs/desktop-integration-investigation.md for the tested scope.
+tools/desktop/build-openrc.sh builds this revision with
+tools/desktop/patches/openrc-dragonfly.txt (DragonFly's uname, no
+MNT_UNION) and stages it for installation next to rc.d; it is not used as
+PID 1 or integrated with boot yet (docs/desktop-openrc.md). The pinned tag
+points at a commit whose subject says version 0.62.5. Keep build output
+outside the submodule; when upgrading, update the revision and checksum in
+build-openrc.sh too.
 
 License: see LICENSE and per-file notices. Complete the file-level license
 and provenance review before distribution. When upgrading, review OS

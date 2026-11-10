@@ -1,0 +1,36 @@
+OpenRC on DragonFly: uname -s says DragonFly (meson.build compared with
+"Dragonfly", so cc_os_flags stayed undefined), and DragonFly has no
+MNT_UNION mount flag.
+
+--- a/meson.build
++++ b/meson.build
+@@ -70,7 +70,7 @@
+ 
+ option_pkg_prefix = get_option('pkg_prefix')
+ if option_pkg_prefix == ''
+-  if os == 'Dragonfly' or os == 'FreeBSD'
++  if os == 'DragonFly' or os == 'Dragonfly' or os == 'FreeBSD'
+     pkg_prefix = '/usr/local'
+   elif os == 'GNU' or os == 'GNU-kFreeBSD' or os == 'Linux'
+     pkg_prefix = '/usr'
+@@ -129,7 +129,7 @@
+ 
+ if os == 'Linux' or os == 'GNU-kFreeBSD'
+   cc_os_flags = ['-D_DEFAULT_SOURCE']
+-elif os == 'FreeBSD'
++elif os == 'FreeBSD' or os == 'DragonFly'
+   cc_os_flags = ['-D_BSD_SOURCE']
+ elif os == 'GNU'
+   cc_os_flags = ['-D_DEFAULT_SOURCE', '-DPATH_MAX=4096']
+--- a/src/mountinfo/mountinfo.c
++++ b/src/mountinfo/mountinfo.c
+@@ -214,7 +214,9 @@
+ 	{ MNT_QUOTA,        "with quotas" },
+ 	{ MNT_RDONLY,       "read-only" },
+ 	{ MNT_SYNCHRONOUS,  "synchronous" },
++#ifdef MNT_UNION
+ 	{ MNT_UNION,        "union" },
++#endif
+ #ifdef MNT_NOCLUSTERR
+ 	{ MNT_NOCLUSTERR,   "noclusterr" },
+ #endif
