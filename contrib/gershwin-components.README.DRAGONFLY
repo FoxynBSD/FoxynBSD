@@ -6,8 +6,8 @@ tag    = 26.09
 commit = 08ca92248d35115c15d7060567ae2000a9222e10
 date   = 2026-09-17
 
-Only Menu and the SoundBackend and NetworkBackend libraries it links
-with are built, by tools/desktop/build-menu.sh, which foxyn-desktop(8)
+Only Menu, the SoundBackend and NetworkBackend libraries it links with
+and the session supervisor gershwin-session are built, by tools/desktop/build-menu.sh, which foxyn-desktop(8)
 runs on the desktop image (tools/linux/build.sh desktop). It downloads
 this revision's archive, checks its SHA-256 and applies three DragonFly
 patches to Menu (docs/desktop-menu.md). The other components are not

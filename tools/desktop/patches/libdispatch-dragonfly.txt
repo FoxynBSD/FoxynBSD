@@ -2,8 +2,24 @@ DragonFly/FoxynBSD port of swift-corelibs-libdispatch at contrib/libdispatch
 (95f592ab637c4d7916fa05d4d80cbc1ec7d0b2b8); apply with patch -p1 to an
 extracted copy, never to the submodule.  Waits use umtx_sleep(2) and
 umtx_wakeup(2), EVFILT_TIMER takes milliseconds, thread ids come from
-lwp_gettid(2).  Changes to Apache-2.0 upstream files; see contrib/libdispatch/LICENSE.
+lwp_gettid(2).  The CoreFoundation SPI (DISPATCH_COCOA_COMPAT), which
+GNUstep's run loop uses to drain the main queue, uses the generic Unix
+pipe handle as on FreeBSD.  Changes to Apache-2.0 upstream files; see
+contrib/libdispatch/LICENSE.
 
+diff -ruN a/private/private.h b/private/private.h
+--- a/private/private.h
++++ b/private/private.h
+@@ -177,7 +177,8 @@
+ 
+ #if TARGET_OS_MAC
+ #define DISPATCH_COCOA_COMPAT 1
+-#elif defined(__linux__) || defined(__FreeBSD__) || defined(__OpenBSD__) || defined(_WIN32)
++#elif defined(__linux__) || defined(__FreeBSD__) || defined(__OpenBSD__) || \
++    defined(__DragonFly__) || defined(_WIN32)
+ #define DISPATCH_COCOA_COMPAT 1
+ #else
+ #define DISPATCH_COCOA_COMPAT 0
 diff -ruN a/src/event/event_kevent.c b/src/event/event_kevent.c
 --- a/src/event/event_kevent.c
 +++ b/src/event/event_kevent.c

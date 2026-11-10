@@ -5,7 +5,10 @@
 #		application's window (TextEdit's with GNUstep from source in
 #		/System, else Sudoku's) and Gershwin's Menu when installed,
 #		all clients as the desktop user
-#	stop	`service foxyn_desktop stop` ends the session and X
+#	stop	end the session: as Menu's Log Out does, SIGTERM to the
+#		user's gershwin-session when it runs, else `service
+#		foxyn_desktop stop`; X, the service and the user's
+#		processes must be gone
 ok=1
 fail() { echo "desktop-session: FAIL $*"; ok=0; }
 user=$(sed -n 's/^foxyn_desktop_user="\(.*\)"$/\1/p' /etc/rc.conf | tail -n 1)
@@ -39,6 +42,9 @@ wait)
 	# Gershwin's menu bar, which foxyn-desktop builds with GNUstep.
 	[ -x /System/Library/CoreServices/Applications/Menu.app/Menu ] &&
 	    procs="$procs Menu"
+	# Gershwin's session: its supervisor and Workspace.
+	[ -x /System/Library/Tools/Gershwin/Workspace ] &&
+	    procs="$procs gershwin-session Workspace"
 	for p in $procs; do
 		if pgrep -u "$uid" -x "$p" >/dev/null; then
 			echo "desktop-session: $p runs as $user"
@@ -61,13 +67,21 @@ wait)
 	tail -n 10 /var/log/foxyn-session.log | sed 's/^/desktop-session: log: /'
 	;;
 stop)
-	service foxyn_desktop stop | sed 's/^/desktop-session: /'
+	sup=$(pgrep -u "$uid" -x gershwin-session)
+	if [ -n "$sup" ]; then
+		echo "desktop-session: logging out (SIGTERM to gershwin-session $sup)"
+		kill -TERM $sup
+	else
+		service foxyn_desktop stop | sed 's/^/desktop-session: /'
+	fi
 	i=0
-	while { pgrep -x Xorg || pgrep -u "$uid"; } >/dev/null && [ "$i" -lt 20 ]; do
+	while { pgrep -x Xorg || pgrep -u "$uid" ||
+	    service foxyn_desktop status; } >/dev/null && [ "$i" -lt 30 ]; do
 		sleep 1; i=$((i + 1))
 	done
 	pgrep -x Xorg >/dev/null && fail "Xorg still runs"
 	pgrep -u "$uid" >/dev/null && fail "processes of $user remain: $(pgrep -u "$uid" -l | tr '\n' ' ')"
+	service foxyn_desktop status >/dev/null && fail "foxyn_desktop still runs"
 	[ "$ok" = 1 ] && echo "desktop-session: X and the session stopped"
 	;;
 *)	echo "usage: desktop-session wait|stop" >&2; exit 2 ;;

@@ -44,7 +44,10 @@ installed: libobjc2's, with its embedded blocks runtime, stays. The
 header directories are given as absolute paths: they are CMake `PATH`
 cache variables, and a relative value on the command line is made
 relative to the current directory, which first put them in the build
-user's working directory and left Base without libdispatch.
+user's working directory and left Base without libdispatch. The
+libdispatch patch also enables its CoreFoundation interface
+(`_dispatch_get_main_queue_handle_4CF`) on DragonFly, which Base's run
+loop uses to run blocks sent to the main queue.
 
 Everything is compiled with DPorts' `clang19` and linked with its lld.
 With GNU gold, libobjc2 got two `DT_INIT_ARRAY` entries and programs
@@ -62,7 +65,7 @@ installed.
 
 ## FoxynBSD changes
 
-Two patches are applied to GNUstep Base, from `tools/desktop/patches`:
+Three patches are applied to GNUstep Base, from `tools/desktop/patches`:
 
 - `gnustep-base-dragonfly-uuid.txt`: on DragonFly, `<sys/statvfs.h>`,
   `<sys/mount.h>` and `<sys/user.h>` include `<sys/uuid.h>`, whose
@@ -73,8 +76,11 @@ Two patches are applied to GNUstep Base, from `tools/desktop/patches`:
   falls back to `GS_FAKE_MAIN`; then a `+load` method that reaches
   `NSProcessInfo` before `main()` aborts (Gershwin Workspace). With the
   test fixed, DragonFly's libkvm provides the arguments.
+- `gnustep-base-connection-null.patch`: `+connectionWithRegisteredName:...`
+  wrote the remote name into a nil connection; Workspace crashed there at
+  every start (see [desktop-workspace.md](desktop-workspace.md)).
 
-Both are small changes to the upstream sources that should go upstream.
+These are small changes to the upstream sources that should go upstream.
 Make, libobjc2, GUI and Back build unmodified.
 
 ## Licenses

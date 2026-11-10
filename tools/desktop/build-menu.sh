@@ -1,9 +1,10 @@
 #!/bin/sh
-# Build Gershwin's Menu (the global menu bar) and the SoundBackend and
-# NetworkBackend libraries it links with, from the revision pinned by
-# contrib/gershwin-components, and install them in /System: the
-# libraries in /System/Library/Libraries, Menu in
-# /System/Library/CoreServices/Applications.
+# Build Gershwin's Menu (the global menu bar), the SoundBackend and
+# NetworkBackend libraries it links with, and the session supervisor
+# gershwin-session, from the revision pinned by contrib/gershwin-components,
+# and install them in /System: the libraries in /System/Library/Libraries,
+# Menu in /System/Library/CoreServices/Applications, gershwin-session in
+# /System/Library/Tools.
 #
 # Needs the GNUstep that build-gnustep.sh installs in /System (with
 # libdispatch), run as the same unprivileged user while /System is
@@ -79,3 +80,8 @@ step "install Menu" gmake -C "$src/Menu" install
 app=$prefix/Library/CoreServices/Applications/Menu.app
 [ -x "$app/Menu" ] || die "Menu is missing from $app"
 say "installed $app"
+step "build gershwin-session" gmake -C "$src/gershwin-session"
+step "install gershwin-session" gmake -C "$src/gershwin-session" install
+[ -x "$prefix/Library/Tools/gershwin-session" ] ||
+    die "gershwin-session is missing from $prefix/Library/Tools"
+say "installed $prefix/Library/Tools/gershwin-session"

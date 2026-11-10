@@ -945,32 +945,37 @@ Make, libobjc2, libdispatch, Base, GUI and Back from the revisions pinned
 by `contrib/gnustep-*` and `contrib/libdispatch` with
 `tools/desktop/build-gnustep.sh` (see
 [`docs/desktop-gnustep.md`](../../docs/desktop-gnustep.md)), in Gershwin's
-layout under `/System`, Gershwin's Menu with `build-menu.sh`
-([`docs/desktop-menu.md`](../../docs/desktop-menu.md)), then WindowManager
-(`build-windowmanager.sh`: pinned source, checksum, the titlebar patch)
-and TextEdit (`build-textedit.sh`) against it; the helpers are in the
-image's `/usr/share/foxynbsd/desktop`. `/System` and the applications in
-`/System/Applications` end up root's. Last, it enables the `foxyn_desktop`
-rc.d service. `DESKTOP_GNUSTEP=dports` (`foxyn-desktop -g dports`)
-installs DPorts' older GNUstep in `/usr/local/GNUstep` instead, with
-Sudoku as the application; `foxyn-desktop -w twm` skips WindowManager. At
-boot, the service starts X as root with a fresh cookie and no TCP
-listener, gives the cookie to `foxyn` only, and runs `~foxyn/.xsession` as
-that user: WindowManager (twm when it is missing), Menu's menu bar, an
-xterm and TextEdit. The session ends when the window manager exits, and X
-stops; the console login remains (Ctrl-Alt-F1). There is no graphical
-logout without Gershwin's session supervisor yet; twm's menu (left button
-on the background) has "Log out". To turn it off, set
-`foxyn_desktop_enable="NO"` in `/etc/rc.conf`; `service foxyn_desktop
-stop` ends a running session. It needs the internet; `DPORTS_MIRROR` picks
-the mirror, and a failed run leaves an existing `desktop.img` in place.
-`boot-test.sh --desktop` checks the result: the session started at boot
-with its windows, a client without the cookie is rejected, the service
-stops X and the user's processes, and QEMU's screen is saved in
-`$OBJDIR/qemu/desktop.ppm`. This desktop runs on DPorts' Xorg, without
-Gershwin's Workspace or session supervisor; it is not the issue #13
-desktop yet. To run a second VM while another one runs, give it its own
-`QEMU_STATE` directory (see `qemu.sh`).
+layout under `/System`, Gershwin's Menu and session supervisor with
+`build-menu.sh` ([`docs/desktop-menu.md`](../../docs/desktop-menu.md)),
+System Preferences and Workspace with `build-systempreferences.sh` and
+`build-workspace.sh`
+([`docs/desktop-workspace.md`](../../docs/desktop-workspace.md)), then
+WindowManager (`build-windowmanager.sh`: pinned source, checksum, the
+titlebar patch) and TextEdit (`build-textedit.sh`) against it; the helpers
+are in the image's `/usr/share/foxynbsd/desktop`. `/System` and the
+applications in `/System/Applications` end up root's. Last, it enables the
+`foxyn_desktop` rc.d service. `DESKTOP_GNUSTEP=dports` (`foxyn-desktop -g
+dports`) installs DPorts' older GNUstep in `/usr/local/GNUstep` instead,
+with Sudoku as the application; `foxyn-desktop -w twm` skips
+WindowManager. At boot, the service starts X as root with a fresh cookie
+and no TCP listener, gives the cookie to `foxyn` only, and runs
+`~foxyn/.xsession` as that user: Gershwin's session, where
+`gershwin-session` supervises Workspace, Menu and WindowManager, with
+TextEdit and an xterm. Menu's System > Log Out ends the session; X stops
+and the console login remains (Ctrl-Alt-F1). With `-g dports` the session
+is WindowManager (twm when it is missing), Sudoku and an xterm, and ends
+when the window manager exits; twm's menu (left button on the background)
+has "Log out". To turn it off, set `foxyn_desktop_enable="NO"` in
+`/etc/rc.conf`; `service foxyn_desktop stop` ends a running session. It
+needs the internet; `DPORTS_MIRROR` picks the mirror, and a failed run
+leaves an existing `desktop.img` in place. `boot-test.sh --desktop` checks
+the result: the session started at boot with its windows, a client without
+the cookie is rejected, ending the session (SIGTERM to the supervisor, as
+Log Out does) stops X, the service and the user's processes, and QEMU's
+screen is saved in `$OBJDIR/qemu/desktop.ppm`. This desktop runs on
+DPorts' Xorg, not XLibre, and has no display manager; it is not the issue
+#13 desktop yet. To run a second VM while another one runs, give it its
+own `QEMU_STATE` directory (see `qemu.sh`).
 
 Sound: `AUDIO_CHECK=1 boot-test.sh --disk` gives the machine an Intel HDA
 card whose output QEMU writes to `$OBJDIR/qemu/audio.wav`, and runs

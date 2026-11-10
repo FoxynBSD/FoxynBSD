@@ -1,0 +1,196 @@
+diff -ruN a/GWMetadata/GWMetaXattr.m b/GWMetadata/GWMetaXattr.m
+--- a/GWMetadata/GWMetaXattr.m
++++ b/GWMetadata/GWMetaXattr.m
+@@ -60,7 +60,7 @@
+   return removexattr(path, name);
+ }
+ 
+-#elif defined(__FreeBSD__)
++#elif defined(__FreeBSD__) || defined(__DragonFly__)
+ # include <sys/extattr.h>
+ 
+ /*
+@@ -121,6 +121,15 @@
+ static ssize_t
+ _gs_list(const char *path, char *list, size_t size)
+ {
++#if defined(__DragonFly__)
++  /* DragonFly implements only the get, set and delete extattr system calls;
++   * its header declares extattr_list_file, but libc has no such function. */
++  (void)path;
++  (void)list;
++  (void)size;
++  errno = ENOTSUP;
++  return -1;
++#else
+   /*
+    * FreeBSD extattr_list_file returns entries in a packed format:
+    *   [1-byte name-length][name bytes...]
+@@ -193,6 +202,7 @@
+ 
+   free(raw);
+   return out_offset;
++#endif
+ }
+ 
+ static int
+@@ -268,7 +278,7 @@
+       return -1;
+     }
+ 
+-#if defined(__FreeBSD__)
++#if defined(__FreeBSD__) || defined(__DragonFly__)
+   const char *bare_name = STRIP_USER_PREFIX(name);
+   return _gs_set(path, bare_name, value, size, flags);
+ #else
+@@ -285,7 +295,7 @@
+       return -1;
+     }
+ 
+-#if defined(__FreeBSD__)
++#if defined(__FreeBSD__) || defined(__DragonFly__)
+   const char *bare_name = STRIP_USER_PREFIX(name);
+   return _gs_get(path, bare_name, value, size);
+ #else
+@@ -314,7 +324,7 @@
+       return -1;
+     }
+ 
+-#if defined(__FreeBSD__)
++#if defined(__FreeBSD__) || defined(__DragonFly__)
+   const char *bare_name = STRIP_USER_PREFIX(name);
+   return _gs_remove(path, bare_name);
+ #else
+diff -ruN a/Workspace/GWProcessMonitor.m b/Workspace/GWProcessMonitor.m
+--- a/Workspace/GWProcessMonitor.m
++++ b/Workspace/GWProcessMonitor.m
+@@ -22,7 +22,12 @@
+ #else
+ #import <sys/types.h>
+ #import <sys/sysctl.h>
++#if defined(__DragonFly__)
++/* sys/proc.h is kernel-only on DragonFly; sys/user.h has kinfo_proc. */
++#import <sys/user.h>
++#else
+ #import <sys/proc.h>
++#endif
+ #if defined(__FreeBSD__)
+ #import <sys/user.h>
+ #endif
+@@ -43,7 +48,8 @@
+ #define HAVE_PIDFD 0
+ #endif
+ 
+-#if defined(__FreeBSD__) || defined(__OpenBSD__) || defined(__NetBSD__) || defined(__APPLE__)
++#if defined(__FreeBSD__) || defined(__OpenBSD__) || defined(__NetBSD__) || defined(__APPLE__) \
++    || defined(__DragonFly__)
+ #define HAVE_KQUEUE 1
+ #include <sys/event.h>
+ #include <sys/time.h>
+@@ -166,6 +172,17 @@
+           break;
+         }
+     }
++#elif defined(__DragonFly__)
++  count = len / sizeof(struct kinfo_proc);
++  const struct kinfo_proc *kp = buf;
++  for (size_t i = 0; i < count; i++)
++    {
++      if (kp[i].kp_ppid == pid && kp[i].kp_stat != SZOMB)
++        {
++          found = YES;
++          break;
++        }
++    }
+ #elif defined(__OpenBSD__)
+   count = len / sizeof(struct kinfo_proc);
+   const struct kinfo_proc *kp = buf;
+@@ -738,7 +755,7 @@
+ #else
+   /* Only this user's processes can belong to this session, so let the kernel
+    * filter by uid; the process name must match exactly, case-insensitively. */
+-#if defined(__FreeBSD__)
++#if defined(__FreeBSD__) || defined(__DragonFly__)
+   int mib[4] = {CTL_KERN, KERN_PROC, KERN_PROC_UID, (int)getuid()};
+   typedef struct kinfo_proc GWKProc;
+ #elif defined(__OpenBSD__)
+@@ -760,7 +777,7 @@
+   GWKProc *kp = malloc(len);
+   if (kp == NULL)
+     return NO;
+-#if !defined(__FreeBSD__)
++#if !defined(__FreeBSD__) && !defined(__DragonFly__)
+   mib[5] = (int)(len / sizeof(GWKProc));
+ #endif
+   if (sysctl(mib, miblen, kp, &len, NULL, 0) != 0)
+@@ -777,6 +794,10 @@
+       const char *comm = kp[i].ki_comm;
+       pid_t pid = kp[i].ki_pid;
+       BOOL zombie = (kp[i].ki_stat == SZOMB);
++#elif defined(__DragonFly__)
++      const char *comm = kp[i].kp_comm;
++      pid_t pid = kp[i].kp_pid;
++      BOOL zombie = (kp[i].kp_stat == SZOMB);
+ #else
+       const char *comm = kp[i].p_comm;
+       pid_t pid = kp[i].p_pid;
+diff -ruN a/Workspace/GWProcessOwnership.m b/Workspace/GWProcessOwnership.m
+--- a/Workspace/GWProcessOwnership.m
++++ b/Workspace/GWProcessOwnership.m
+@@ -18,6 +18,8 @@
+ #include <sys/sysctl.h>
+ #if defined(__FreeBSD__)
+ #include <sys/user.h>
++#elif defined(__DragonFly__)
++#include <sys/kinfo.h>
+ #endif
+ #endif
+ 
+@@ -200,6 +202,29 @@
+   return display;
+ }
+ 
++#elif defined(__DragonFly__)
++
++static BOOL GWProcessEffectiveUID(pid_t pid, uid_t *uid)
++{
++  int mib[4] = {CTL_KERN, KERN_PROC, KERN_PROC_PID, pid};
++  struct kinfo_proc kp;
++  size_t len = sizeof(kp);
++
++  /* A pid that does not exist yields success with no record. */
++  if (sysctl(mib, 4, &kp, &len, NULL, 0) != 0 || len != sizeof(kp))
++    return NO;
++  *uid = kp.kp_uid;
++  return YES;
++}
++
++/* DragonFly has no KERN_PROC_ENV: another process's environment cannot
++ * be read, so its display is unknown. */
++static NSString *GWProcessDisplay(pid_t pid)
++{
++  (void)pid;
++  return nil;
++}
++
+ #else
+ #error "GWProcessOwnership: no process owner/environment lookup for this OS"
+ #endif
+diff -ruN a/Workspace/ISOWrite/BlockDeviceInfo.m b/Workspace/ISOWrite/BlockDeviceInfo.m
+--- a/Workspace/ISOWrite/BlockDeviceInfo.m
++++ b/Workspace/ISOWrite/BlockDeviceInfo.m
+@@ -25,9 +25,13 @@
+ #ifdef __linux__
+ #import <linux/fs.h>
+ #endif
+-#if defined(__FreeBSD__) || defined(__DragonFly__)
++#if defined(__FreeBSD__)
+ #import <sys/disk.h>
+ #import <sys/sysctl.h>
++#elif defined(__DragonFly__)
++/* sys/disk.h is kernel-only on DragonFly; DIOCGMEDIASIZE is here. */
++#import <sys/diskslice.h>
++#import <sys/sysctl.h>
+ #endif
+ #import <fcntl.h>
+ #import <unistd.h>

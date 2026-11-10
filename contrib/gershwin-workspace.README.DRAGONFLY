@@ -6,8 +6,13 @@ tag    = 26.09
 commit = 817491d7dc7de207c3e71938b69f0f6d56000a81
 date   = 2026-09-17
 
-Source only: not yet built or installed by FoxynBSD. Build outside the
-submodule and validate compatibility with the selected GNUstep stack.
+Built by tools/desktop/build-workspace.sh, which foxyn-desktop(8) runs
+on the desktop image (tools/linux/build.sh desktop): it downloads this
+revision's archive, checks its SHA-256, applies
+tools/desktop/patches/workspace-dragonfly.txt and installs in /System
+(docs/desktop-workspace.md). It is not part of buildworld. Keep build
+output outside the submodule. When upgrading, update the revision and
+checksum in build-workspace.sh too.
 License: GPL text in COPYING; individual source and asset terms require review. Complete provenance review and preserve applicable notices
 and source obligations before distributing selected components.
 On upgrade, review dependencies, ABI, installation paths and desktop tests.

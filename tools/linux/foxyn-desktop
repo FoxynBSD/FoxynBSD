@@ -103,7 +103,7 @@ else
 	    libffi gnutls icu curl avahi-app gmp libgcrypt cups giflib
 	    jpeg-turbo png tiff libsndfile libao flite cairo fontconfig
 	    freetype2 libXcursor libXext libXfixes libXft libXmu libXrender
-	    libXt libglvnd dbus gettext-runtime"
+	    libXt libglvnd dbus gettext-runtime sqlite3"
 	gsroot=
 	apps=/System/Applications
 	# Its libraries have DPorts' names (libobjc.so.4.6): not both.
@@ -173,7 +173,8 @@ build_system()
 	rm -rf "$work"
 }
 if [ "$gnustep" = source ]; then
-	for f in build-gnustep.sh build-menu.sh; do
+	for f in build-gnustep.sh build-menu.sh build-systempreferences.sh \
+	    build-workspace.sh; do
 		[ -r "$share/$f" ] || die "$share/$f is missing"
 	done
 	mkdir -p /System
@@ -182,11 +183,32 @@ if [ "$gnustep" = source ]; then
 		build_system GNUstep build-gnustep.sh
 		say "installed GNUstep in /System"
 	fi
-	if [ ! -x /System/Library/CoreServices/Applications/Menu.app/Menu ]; then
+	if [ ! -x /System/Library/CoreServices/Applications/Menu.app/Menu ] ||
+	    [ ! -x /System/Library/Tools/gershwin-session ]; then
 		build_system "Gershwin Menu" build-menu.sh
 		say "installed /System/Library/CoreServices/Applications/Menu.app"
 	fi
+	# Before Workspace, which needs its PreferencePanes framework.
+	if [ ! -x /System/Applications/SystemPreferences.app/SystemPreferences ]; then
+		build_system "Gershwin System Preferences" build-systempreferences.sh
+		say "installed /System/Applications/SystemPreferences.app"
+	fi
+	if [ ! -x /System/Applications/Workspace.app/Workspace ]; then
+		build_system "Gershwin Workspace" build-workspace.sh
+		say "installed /System/Applications/Workspace.app"
+	fi
 	system_root
+	# gershwin-session finds the apps it supervises on $PATH; the session
+	# puts these first (WindowManager without compositing: no GL here).
+	gwbin=/System/Library/Tools/Gershwin
+	mkdir -p "$gwbin"
+	printf '#!/bin/sh\nexec /System/Applications/WindowManager.app/WindowManager -dc "$@"\n' \
+	    > "$gwbin/WindowManager"
+	printf '#!/bin/sh\nexec /System/Applications/Workspace.app/Workspace "$@"\n' \
+	    > "$gwbin/Workspace"
+	printf '#!/bin/sh\nexec /System/Library/CoreServices/Applications/Menu.app/Menu "$@"\n' \
+	    > "$gwbin/Menu"
+	chmod 555 "$gwbin"/*
 fi
 
 # Gershwin's WindowManager, and (with GNUstep from source, which has no
@@ -241,6 +263,18 @@ menu "FoxynBSD" {
 	"Log out"	f.quit
 }
 TWM
+# Gershwin's session (as its Library/Scripts/Gershwin.sh): the supervisor
+# runs Workspace, Menu and WindowManager, restarts them when they exit,
+# and ends the session when Menu's Log Out signals it.
+if [ -x /System/Library/Tools/gershwin-session ] &&
+    [ -x /System/Library/Tools/Gershwin/Workspace ]; then
+	PATH=/System/Library/Tools/Gershwin:/System/Library/Tools:$PATH
+	export PATH
+	[ -n "${DBUS_SESSION_BUS_ADDRESS:-}" ] || eval "$(dbus-launch --sh-syntax --exit-with-x11)"
+	(sleep 6; exec "$app") &
+	(sleep 9; exec xterm -fa 'DejaVu Sans Mono' -fs 11 -geometry 80x24+40+60 -title Terminal) &
+	exec gershwin-session Workspace Menu WindowManager
+fi
 # The window manager first: clients mapped before it starts are not
 # redrawn when twm reparents them.  -dc: no compositing (no GL here).
 wmapp=$apps/WindowManager.app
@@ -298,12 +332,11 @@ su -l "$user" -c "DISPLAY=:0 XAUTHORITY=$auth/user exec \$HOME/.xsession"
 echo "session for $user ended: $?"
 kill "$xpid" 2>/dev/null
 wait "$xpid"
-# GNUstep's per-user daemons outlive the session's clients; wait (up
-# to 10 s) for them to exit.
-pkill -u "$user" -x gdnc
-pkill -u "$user" -x gpbs
+# GNUstep's per-user daemons and Workspace's helpers outlive the
+# session's clients; wait (up to 10 s) for them to exit.
+pkill -u "$user" -x 'gdnc|gpbs|ddbd|fswatcher'
 i=0
-while pgrep -u "$user" -x 'gdnc|gpbs' >/dev/null && [ "$i" -lt 10 ]; do
+while pgrep -u "$user" -x 'gdnc|gpbs|ddbd|fswatcher' >/dev/null && [ "$i" -lt 10 ]; do
 	sleep 1; i=$((i + 1))
 done
 rm -rf "$auth" /var/run/foxyn-session.X.pid /var/run/foxyn-session.xauthority
