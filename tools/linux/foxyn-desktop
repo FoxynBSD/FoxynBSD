@@ -414,9 +414,13 @@ cat > /usr/local/libexec/foxyn-audio <<'EOF'
 # not record), then PipeWire, which plays and records through its JACK
 # tunnel and starts WirePlumber.  Nothing without PipeWire or a sound
 # card.  Logs in $XDG_RUNTIME_DIR.
+# Why there is no sound goes to the session's log (stderr): the logs in
+# $XDG_RUNTIME_DIR go away with the session.
 pw=/System/Library/PipeWire
-[ -x $pw/bin/pipewire ] && [ -c /dev/dsp ] || exit 0
-[ -n "${XDG_RUNTIME_DIR:-}" ] && [ -d "$XDG_RUNTIME_DIR" ] || exit 1
+[ -x $pw/bin/pipewire ] || exit 0
+[ -c /dev/dsp ] || { echo "foxyn-audio: no sound card (/dev/dsp)" >&2; exit 0; }
+[ -n "${XDG_RUNTIME_DIR:-}" ] && [ -d "$XDG_RUNTIME_DIR" ] ||
+    { echo "foxyn-audio: no XDG_RUNTIME_DIR" >&2; exit 1; }
 PATH=$pw/bin:/usr/local/bin:/usr/bin:/bin
 export PATH
 for inputs in 2 0; do
@@ -444,8 +448,14 @@ for inputs in 2 0; do
 	done
 	[ -n "$jack" ] && break
 done
-[ -n "$jack" ] || exit 1
-pipewire > "$XDG_RUNTIME_DIR/pipewire.log" 2>&1
+if [ -z "$jack" ]; then
+	echo "foxyn-audio: jackd did not start:" >&2
+	tail -n 5 "$XDG_RUNTIME_DIR/jackd.log" >&2
+	exit 1
+fi
+echo "foxyn-audio: jackd runs with $inputs inputs; starting PipeWire" >&2
+pipewire > "$XDG_RUNTIME_DIR/pipewire.log" 2>&1 ||
+    { echo "foxyn-audio: pipewire exited with $?:" >&2; tail -n 5 "$XDG_RUNTIME_DIR/pipewire.log" >&2; }
 kill "$jack" 2>/dev/null
 EOF
 chmod 555 /usr/local/libexec/foxyn-audio
