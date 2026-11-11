@@ -18,6 +18,10 @@ FoxynBSD changes to Gershwin's LoginWindow (contrib/gershwin-components):
   reaped (waitpid(-1)): monitorSession then got ECHILD and showed the
   login window without ending the user's processes, closing the PAM
   session or withdrawing the user's access to the display.
+- never start an X server: when none runs, exit (the rc.d service
+  restarts foxyn-loginwindow, which starts it with a cookie).  The
+  server LoginWindow started had no working authorization, and it did
+  start one when foxyn-loginwindow found a server that was still exiting;
 - a wrong password (or an unknown user) only shakes the window, as
   intended: LoginWindow recognised Linux-PAM's text for it, and showed
   OpenPAM's ("authentication error") in a modal alert.
@@ -162,6 +166,23 @@ FoxynBSD changes to Gershwin's LoginWindow (contrib/gershwin-components):
  #else
          const char *pcomm = procs[i].ki_comm;
  #endif
+@@ -477,7 +479,15 @@
+         global_we_started_xorg = NO;
+         return YES;
+     }
+-    
++
++    // FoxynBSD: foxyn-loginwindow starts the X server, with the cookie
++    // in /var/run/xauth.  The server started below would have no working
++    // authorization (nothing writes /var/run/xauth), so every local user
++    // could use the login screen: exit instead, and let the service start
++    // foxyn-loginwindow, and the X server, again.
++    fprintf(stderr, "LoginWindow: no X server is running; exiting\n");
++    exit(1);
++
+     NSDebugLLog(@"gwcomp", @"[DEBUG] Starting Xorg server...");
+     
+     // Prepare log file
 --- a/LoginWindowPAM.m
 +++ b/LoginWindowPAM.m
 @@ -193,7 +193,15 @@

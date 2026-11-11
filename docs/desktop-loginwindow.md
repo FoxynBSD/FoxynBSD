@@ -175,3 +175,40 @@ desktop` image, with the old LoginWindow both checks failed; with the
 patched one built in the VM both passed. The unknown user `nosuchuser`
 gave the same window as a wrong password.
 
+
+## An unauthenticated X server, and the stuck Log In button, 2026-11-11
+
+**X server without authorization.** Restarting the service quickly
+(`service foxyn_loginwindow onestop; ... onestart`, as the test and the
+experiments here did) could leave the login screen on an X server that
+any local user could use: `nobody` connected to it. `foxyn-loginwindow`
+reused any running `Xorg` (`pgrep -x Xorg`); it found the server of the
+stopped service still exiting and started none. LoginWindow then found
+no X server and started its own, DPorts' `/usr/local/bin/Xorg` with
+`-auth /var/run/xauth`, a file nothing writes, so the server had no
+working authorization; and `foxyn_loginwindow stop` did not know that
+server and left it running.
+
+- `foxyn-loginwindow` reuses only the server it started (its pid file);
+  it waits up to 15 s for any other `Xorg` to exit, and exits when one
+  still runs (the service restarts it).
+- `loginwindow-dragonfly.txt` makes LoginWindow exit instead of starting
+  an X server; the service restarts `foxyn-loginwindow`, which starts the
+  server with a cookie.
+
+In QEMU, five quick stop/start cycles in a row each ended with only
+XLibre's server (`-auth /var/run/xauth`) running and `nobody` refused, and
+no X server left after the last stop. Before the change, the same VM had
+the unauthenticated DPorts server running after such a restart.
+
+**Stuck Log In button.** About one first login in ten (one of three traced
+trials, one end-to-end run; 0 of 12 untraced trials), the click on Log In
+does nothing: the button stays drawn pressed, as if it were still tracking
+the mouse after missing the release, and LoginWindow keeps running (no
+system call gap longer than 2 s in a `ktrace` of it). The next click
+completes the login: in an end-to-end run the test's next login, four
+minutes later, started the session. A 150 ms press, as a person makes,
+worked 6 of 6 times, and xdotool's instant click 6 of 6 too, so the press
+length is not shown to matter. Not resolved. The test now presses for
+150 ms, and when no session appears within 30 s it prints
+`desktop-session: WARN ...` and clicks once more.
