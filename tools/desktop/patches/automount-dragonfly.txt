@@ -1,0 +1,178 @@
+FoxynBSD changes to automount (contrib/automount) for DragonFly, which
+foxyn-desktop installs for the desktop's removable media:
+- the file system type from fstyp(8): file(1) -s blocks reading a disk
+  device on DragonFly
+- DragonFly's commands: mount_msdos(8), and fsck(8) for UFS
+- "automount umassN reap", which devd runs when a USB mass storage
+  device detaches: a disk that went away keeps its device nodes while it
+  is mounted, so no DEVFS DESTROY event comes; this detaches every
+  mounted device that no longer reads
+- MOUNT_AS_USER: give the device node and the mount directory to USER
+  and mount as USER (vfs.usermount=1; the kernel forces nosuid and
+  nodev), so the desktop's file manager can unmount (eject) it without
+  privileges; for FAT, a read-only mount by root first loads the kernel's
+  character set tables (-D, -L), which only root may load
+
+--- a/automount
++++ b/automount
+@@ -157,6 +157,14 @@
+ 
+   example: IGNORE_SYS_PARTS=YES
+ 
++MOUNT_AS_USER (set to NO by default)
++  If set to YES and USER is not root, the device node and the mount
++  directory are given to USER and the file system is mounted as USER
++  (vfs.usermount=1, which this sets; the kernel then forces nosuid and
++  nodev), so USER's file manager can unmount it without privileges.
++
++  example: MOUNT_AS_USER=YES
++
+ EOF
+   exit 0
+ }
+@@ -216,6 +224,7 @@
+ : ${REMOVEDIRS='YES'}                   # remove /media dir after unmount
+ : ${NICENAMES='NO'}                     # use device label for /media dir name
+ : ${IGNORE_SYS_PARTS='NO'}              # ignore system partitions like EFI or MSR
++: ${MOUNT_AS_USER='NO'}                 # mount as USER (vfs.usermount)
+ 
+ # init of main variables
+ DEV="/dev/${1}"
+@@ -227,6 +236,50 @@
+   exit 1
+ fi
+ 
++# process ${MOUNT_AS_USER} option
++case ${MOUNT_AS_USER} in
++  ([Yy][Ee][Ss])
++    if [ "${USER}" != root ]
++    then
++      MOUNT_AS_USER=YES
++      sysctl -q vfs.usermount=1 1> /dev/null 2>&1 # allow user to mount
++    else
++      MOUNT_AS_USER=NO
++    fi
++    ;;
++  (*)
++    MOUNT_AS_USER=NO
++    ;;
++esac
++
++# FUNCTION: run the mount command, as ${USER} with MOUNT_AS_USER
++__mount() {
++  if [ "${MOUNT_AS_USER}" = YES ]
++  then
++    chown "${USER}:${MNT_GROUP}" "${DEV}" "${MNT}"
++    # FAT's character sets (-D, -L): only root may load the kernel's
++    # conversion tables, which a mount by root loads and keeps; once a
++    # boot, a read-only mount by root on a scratch directory does.
++    case ${FS_MOUNT_CMD} in
++      (mount_msdos*)
++        if [ ! -f /var/run/automount.iconv ]
++        then
++          ICONV_MNT=$( mktemp -d /tmp/automount.XXXXXX )
++          if mount_msdos -o ro -D ${FAT_CODEPAGE} -L ${FAT_ENCODING} ${DEV} ${ICONV_MNT} 1> /dev/null 2>&1
++          then
++            umount ${ICONV_MNT}
++            touch /var/run/automount.iconv
++          fi
++          rmdir ${ICONV_MNT}
++        fi
++        ;;
++    esac
++    su -m "${USER}" -c "${FS_MOUNT_CMD} ${FS_MOUNT_ARGS}"
++  else
++    ${FS_MOUNT_CMD} ${FS_MOUNT_ARGS}
++  fi
++}
++
+ # process ${USERUMOUNT} option
+ case ${USERUMOUNT} in
+   ([Yy][Ee][Ss])
+@@ -252,6 +305,20 @@
+ 
+ # FUNCTION: guess filesystem type from device
+ __guess_fs_type() { # 1=DEV
++  # DragonFly: file(1) -s blocks reading a disk device; fstyp(8) knows
++  # the file systems DragonFly mounts.
++  if [ "$( uname -s )" = DragonFly ]
++  then
++    case $( fstyp ${1} 2> /dev/null ) in
++      (cd9660)  return ${FS_TYPE_ISO9660} ;;
++      (ufs)     return ${FS_TYPE_UFS}     ;;
++      (ext2fs)  return ${FS_TYPE_EXT2}    ;;
++      (msdosfs) return ${FS_TYPE_FAT}     ;;
++      (exfat)   return ${FS_TYPE_EXFAT}   ;;
++      (ntfs)    return ${FS_TYPE_NTFS}    ;;
++    esac
++    return ${FS_TYPE_UNKNOWN}
++  fi
+   # first time guess with file(1) tool
+   unset FS_TYPE
+   local FS_TYPE=$( file -r -b -L -s ${1} 2> /dev/null | sed -E 's/label:\ \".*\"//g' )
+@@ -542,6 +609,12 @@
+       (${FS_TYPE_UFS})
+         FS_CHECK_CMD='fsck_ufs'
+         FS_CHECK_ARGS="-C -y"
++        # DragonFly: fsck(8) is UFS's
++        if [ "$( uname -s )" = DragonFly ]
++        then
++          FS_CHECK_CMD='fsck'
++          FS_CHECK_ARGS="-p"
++        fi
+         FS_MOUNT_CMD='mount'
+         FS_MOUNT_ARGS="-t ufs ${OPTS} ${DEV} ${MNT}"
+         ;;
+@@ -595,6 +668,11 @@
+         FS_CHECK_ARGS="-C -y"
+         FS_MOUNT_CMD='mount_msdosfs'
+         FS_MOUNT_ARGS="-o longnames -m ${MNT_MODE} -M ${MNT_MODE} -D ${FAT_CODEPAGE} -L ${FAT_ENCODING} -u ${UID} -g ${GID} ${OPTS} ${LARGE} ${DEV} ${MNT}"
++        # DragonFly: mount_msdos(8)
++        if [ "$( uname -s )" = DragonFly ]
++        then
++          FS_MOUNT_CMD='mount_msdos'
++        fi
+         ;;
+       (${FS_TYPE_EXFAT})
+         FS_CHECK_PORT='sysutils/exfat-utils'
+@@ -682,7 +760,7 @@
+ 
+     # execute appropriate mount(8) command
+     COUNT=0
+-    while ! ${FS_MOUNT_CMD} ${FS_MOUNT_ARGS} 2> /dev/null
++    while ! __mount 2> /dev/null
+     do
+       if [ ! -e "${DEV}" ]
+       then
+@@ -695,7 +773,7 @@
+ 
+         # BEGIN | try to mount read only
+         FS_MOUNT_ARGS="-o ro ${FS_MOUNT_ARGS}"
+-        ${FS_MOUNT_CMD} ${FS_MOUNT_ARGS}
++        __mount
+ 
+         if [ ${?} -eq 0 ]
+         then
+@@ -776,4 +854,22 @@
+     fi
+     ;;
+ 
++  (reap)
++    # DragonFly: a disk that went away keeps its device nodes while it
++    # is mounted, so no DEVFS DESTROY event comes for it.  devd runs
++    # "automount umassN reap" when a USB mass storage device detaches:
++    # detach every mounted device that no longer reads.
++    __log "${1}: reap"
++    if [ -f ${STATE} ]
++    then
++      for I in $( awk '{ print $1 }' ${STATE} )
++      do
++        if [ "$( dd if="${I}" bs=512 count=1 2> /dev/null | wc -c )" -lt 512 ]
++        then
++          "${0}" "${I#/dev/}" detach
++        fi
++      done
++    fi
++    ;;
++
+ esac

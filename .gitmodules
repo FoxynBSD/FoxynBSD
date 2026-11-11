@@ -86,3 +86,7 @@
 	path = contrib/pulseaudio
 	url = https://gitlab.freedesktop.org/pulseaudio/pulseaudio.git
 	shallow = true
+[submodule "contrib/automount"]
+	path = contrib/automount
+	url = https://github.com/vermaden/automount.git
+	shallow = true

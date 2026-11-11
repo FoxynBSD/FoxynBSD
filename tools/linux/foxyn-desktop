@@ -320,6 +320,19 @@ if [ "$gnustep" = source ] && [ ! -x "$apps/TextEdit.app/TextEdit" ]; then
 	install_app TextEdit.app
 	rm -rf "$work"
 fi
+
+# Removable media: automount (contrib/automount) mounts a USB stick or SD
+# card under /media/<label> as the desktop user (Workspace shows it and
+# can eject it) and unmounts it when it is pulled out.
+if [ ! -x /usr/local/sbin/automount ]; then
+	[ -r "$share/install-automount.sh" ] || die "$share/install-automount.sh is missing"
+	sh "$share/install-automount.sh" "$user" >> "$log" 2>&1 ||
+	    { tail -n 5 "$log" >&2; die "automount failed (see $log)"; }
+	say "installed automount (/media, as $user)"
+	if service devd status >/dev/null 2>&1; then
+		service devd restart >/dev/null 2>&1 || :
+	fi
+fi
 if [ ! -e "$home/.xsession" ]; then
 	cat > "$home/.xsession" <<'EOF'
 #!/bin/sh

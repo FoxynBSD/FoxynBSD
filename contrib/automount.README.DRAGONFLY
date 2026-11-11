@@ -1,0 +1,24 @@
+automount
+=========
+
+url    = https://github.com/vermaden/automount.git
+tag    = none: master, 38 commits after 1.6.1 (1.6.1-38-gb7a85de; the script says 1.8.0)
+commit = b7a85de2c5491e6de7407a0dfdb4565af6658915
+date   = 2026-02-16
+
+vermaden's devd(8)-based automounter, which Gershwin's FreeBSD images
+use.  tools/desktop/install-automount.sh, which foxyn-desktop runs,
+installs this revision (GitHub's archive of the commit, identical to the
+submodule, checked by SHA-256) with
+tools/desktop/patches/automount-dragonfly.txt as /usr/local/sbin/automount
+(DragonFly's autofs has its own /usr/sbin/automount), with
+tools/desktop/automount-devd.conf for devd (docs/desktop-media.md).
+When upgrading, update the commit and checksum in install-automount.sh
+too.
+
+License: BSD-2-Clause (the notice at the top of the automount script).
+Preserve it and complete the provenance review before distribution.
+
+When upgrading, review the script's FreeBSD-specific changes against
+the patch (fstyp, mount commands, devd events), and run the desktop's
+removable media test (boot-test.sh --desktop, dmedia-42).
