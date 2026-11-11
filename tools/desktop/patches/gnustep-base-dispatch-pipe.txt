@@ -1,0 +1,59 @@
+GNUstep Base: drain libdispatch's main queue from the run loop on Unix
+systems other than Linux (Source/NSRunLoop.m).  There libdispatch's main
+queue handle (_dispatch_get_main_queue_handle_4CF) is a non-blocking
+pipe, packed in a 64-bit value: the read end in the high 32 bits, the
+write end in the low 32 bits.  NSRunLoop called the function without a
+declaration, so the value was truncated to an int, the write end, which
+the run loop waited on to become readable: blocks dispatched to the main
+queue, and NSOperationQueue's main queue, never ran (Tests/base/NSRunLoop/
+dispatch.m, Tests/base/NSOperation/threads.m).  Declare it, watch the read
+end and empty the pipe before draining the queue, as the Linux code does
+with its eventfd.
+
+--- a/Source/NSRunLoop.m
++++ b/Source/NSRunLoop.m
+@@ -399,13 +399,31 @@
+ + (void*) mainQueueFileDescriptor;
+ @end
+ 
++#if !HAVE_DISPATCH_GET_MAIN_QUEUE_HANDLE_NP \
++  && HAVE__DISPATCH_GET_MAIN_QUEUE_HANDLE_4CF \
++  && defined(__unix__) && !defined(__linux__)
++/* On Unix systems other than Linux, libdispatch's main queue handle is
++ * a non-blocking pipe, its read end in the high 32 bits of a 64-bit value
++ * and its write end in the low 32 bits.  Without this declaration the
++ * value was truncated to an int: the write end, which never becomes
++ * readable, and the main queue was never drained.
++ */
++#include <unistd.h>
++extern uint64_t _dispatch_get_main_queue_handle_4CF(void);
++#define GS_DISPATCH_HANDLE_PIPE 1
++#endif
++
+ @implementation GSMainQueueDrainer
+ + (void*) mainQueueFileDescriptor
+ {
+ #if HAVE_DISPATCH_GET_MAIN_QUEUE_HANDLE_NP
+   return (void*)(uintptr_t)dispatch_get_main_queue_handle_np();
+ #elif HAVE__DISPATCH_GET_MAIN_QUEUE_HANDLE_4CF
++#if GS_DISPATCH_HANDLE_PIPE
++  return (void*)(uintptr_t)(int)(_dispatch_get_main_queue_handle_4CF() >> 32);
++#else
+   return (void*)(uintptr_t)_dispatch_get_main_queue_handle_4CF();
++#endif
+ #else
+ #error libdispatch missing main queue handle function
+ #endif
+@@ -424,6 +442,12 @@
+   int fd = (int)(intptr_t)data;
+   int n = eventfd_read(fd, &value);
+   (void) n;
++#elif GS_DISPATCH_HANDLE_PIPE
++  /* Empty the pipe libdispatch writes a byte to for each wakeup. */
++  char buf[64];
++  int fd = (int)(intptr_t)data;
++  while (read(fd, buf, sizeof(buf)) > 0)
++    ;
+ #endif
+   _dispatch_main_queue_callback_4CF(NULL);
+ #else

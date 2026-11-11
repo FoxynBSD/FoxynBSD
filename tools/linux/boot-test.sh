@@ -275,6 +275,16 @@ if [ "$result" -eq 0 ] && [ "$MODE" = desktop ]; then
 		tries=$((tries + 1))
 	done
 	grep -aq '^dsession-42: 0' "$LOG" || result=1
+	# GNUstep's main queue from the run loop (dgnustep-42).
+	if [ "$result" -eq 0 ]; then
+		printf "sh -c 'sh /root/tests/desktop-session gnustep; echo dgnustep-\$((6*7)): \$?'\r" >&3
+		tries=0
+		while [ "$tries" -lt 24 ] && ! grep -aq '^dgnustep-42:' "$LOG"; do
+			sleep 5
+			tries=$((tries + 1))
+		done
+		grep -aq '^dgnustep-42: 0' "$LOG" || result=1
+	fi
 	# AUDIO_CHECK=1: a tone through the session's PipeWire (daudio-42);
 	# what reached the card is in the WAV file ("audio-wav:" line).
 	if [ "$result" -eq 0 ] && [ "${AUDIO_CHECK:-0}" = 1 ]; then

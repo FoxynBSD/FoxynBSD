@@ -1452,6 +1452,7 @@ do_rootfs() {
 	install -m 555 "$SRCDIR/tools/linux/foxyn-install" "$root/usr/sbin/foxyn-install"
 	install -m 555 "$SRCDIR/tools/linux/foxyn-desktop" "$root/usr/sbin/foxyn-desktop"
 	install -m 755 "$SRCDIR/tools/linux/tests/desktop-session.sh" "$root/root/tests/desktop-session"
+	install -m 644 "$SRCDIR/tools/linux/tests/gnustep-mainqueue.m" "$root/root/tests/"
 	# What foxyn-desktop builds GNUstep (contrib/gnustep-*'s revisions)
 	# and Gershwin's session and applications with.
 	mkdir -p "$root/usr/share/foxynbsd/desktop/patches"
@@ -1471,6 +1472,7 @@ do_rootfs() {
 	    "$SRCDIR/tools/desktop/patches/gnustep-base-dragonfly-uuid.txt" \
 	    "$SRCDIR/tools/desktop/patches/gnustep-base-kvm-configure.txt" \
 	    "$SRCDIR/tools/desktop/patches/gnustep-base-connection-null.patch" \
+	    "$SRCDIR/tools/desktop/patches/gnustep-base-dispatch-pipe.txt" \
 	    "$SRCDIR/tools/desktop/patches/libdispatch-dragonfly.txt" \
 	    "$SRCDIR/tools/desktop/patches/menu-dragonfly-gnumakefile.txt" \
 	    "$SRCDIR/tools/desktop/patches/menu-dragonfly-kinfo.txt" \

@@ -23,6 +23,9 @@
 #		that logging out returns to the login window and takes the
 #		user's access away, and a second login; then stop the
 #		service and remove the password
+#	gnustep	(with GNUstep in /System) build and run, as the desktop
+#		user, gnustep-mainqueue.m: blocks dispatched to the main
+#		queue and NSOperationQueue's main queue run from the run loop
 #	openrc	(after stop, with foxyn_openrc) OpenRC's order and recovery:
 #		starting the desktop runlevel starts dbus before
 #		foxyn-desktop and stopping it stops them the other way; with
@@ -369,6 +372,31 @@ login)
 	while pgrep -x Xorg >/dev/null && [ "$i" -lt 20 ]; do sleep 1; i=$((i + 1)); done
 	pgrep -x Xorg >/dev/null && fail "Xorg still runs after stopping LoginWindow"
 	[ "$ok" = 1 ] && echo "desktop-session: LoginWindow stopped"
+	;;
+gnustep)
+	if [ ! -r /System/Library/Makefiles/GNUstep.sh ]; then
+		echo "desktop-session: no GNUstep in /System"
+		exit 0
+	fi
+	d=$(mktemp -d /tmp/gnustep-test.XXXXXX) || exit 1
+	cp "$(dirname "$0")/gnustep-mainqueue.m" "$d/"
+	chown -R "$user" "$d"
+	cat > "$d/run.sh" <<'RUN'
+set +u
+. /System/Library/Makefiles/GNUstep.sh
+cd "$1" || exit 1
+libs=/System/Library/Libraries
+clang19 $(gnustep-config --objc-flags) -fblocks -o mainqueue gnustep-mainqueue.m \
+    $(gnustep-config --base-libs) -ldispatch -L$libs -Wl,-rpath,$libs || exit 2
+./mainqueue
+RUN
+	out=$(su -m "$user" -c "sh $d/run.sh $d" 2>&1)
+	rc=$?
+	echo "$out" | sed 's/^/desktop-session: /'
+	[ "$rc" = 0 ] && echo "desktop-session: GNUstep runs main-queue blocks from the run loop" ||
+	    fail "GNUstep's main queue (exit $rc)"
+	rm -rf "$d"
+	[ "$ok" = 1 ]
 	;;
 openrc)
 	if ! grep -q '^foxyn_openrc_enable="YES"' /etc/rc.conf; then
