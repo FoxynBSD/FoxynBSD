@@ -8,8 +8,11 @@
 # uudecode) with the Linux compiler, then drives sys/ directly.
 #
 # Usage:
-#	tools/linux/build.sh [all]		(the whole system, ready for qemu.sh;
-#					 run again, it rebuilds what changed)
+#	tools/linux/build.sh [all]		(the whole system, ready for qemu.sh:
+#					 the base images, then desktop.img
+#					 when it is missing; run again, it
+#					 rebuilds what changed; DESKTOP=0
+#					 skips the desktop, DESKTOP=1 remakes it)
 #	tools/linux/build.sh tools
 #	tools/linux/build.sh kernel [KERNCONF]	(default X86_64_GENERIC)
 #	tools/linux/build.sh modules [KERNCONF]
@@ -3187,7 +3190,11 @@ EOF
 # EFI loader and boot tree, the world (ROOTFS=base: the base programs)
 # and a root image with all of it.  Every step is incremental: after an
 # edit in the tree, running it again compiles what the edit affects,
-# relinks what links against that, and packs the images again.
+# relinks what links against that, and packs the images again.  Then the
+# graphical desktop (desktop.img, which qemu.sh boots by default), when
+# it is missing: installing it takes about 20 minutes in QEMU and needs
+# the internet, so it is not redone each time.  DESKTOP=0 skips it,
+# DESKTOP=1 remakes it (as `build.sh desktop` does).
 do_all() {
 	kenv
 	( do_kernel )
@@ -3198,6 +3205,17 @@ do_all() {
 	*)	( do_world ) ;;
 	esac
 	( do_rootfs )
+	local img=${DESKTOP_IMG:-$OBJDIR/desktop.img}
+	case ${DESKTOP:-} in
+	0)	msg "desktop: skipped (DESKTOP=0)" ;;
+	1)	( do_desktop ) ;;
+	*)	if [ -f "$img" ]; then
+			msg "desktop: $img is there (DESKTOP=1 or build.sh desktop remakes it)"
+		else
+			( do_desktop ) ||
+			    die "the desktop failed (it needs the internet); DESKTOP=0 builds without it"
+		fi ;;
+	esac
 	msg "done: boot it with tools/linux/qemu.sh (a window; --serial for the terminal)"
 }
 

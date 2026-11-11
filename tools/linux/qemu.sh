@@ -5,12 +5,15 @@
 # Usage:
 #	tools/linux/qemu.sh [--serial] [--kernel-only|--disk|--installed|--desktop] [KERNCONF] [-- qemu args]
 #
-# By default the whole system boots in a QEMU window: the root image
-# from `build.sh rootfs` ($OBJDIR/root.iso) is attached as a second
-# virtio disk and mounted as the root filesystem (cd9660), and the
-# console is the video console (EFI framebuffer, then the kernel's
+# By default the graphical desktop boots in a QEMU window: the desktop
+# image from `build.sh` / `build.sh desktop` ($OBJDIR/desktop.img), as
+# --desktop, with a sound card on the host's audio.  Without that image,
+# the root image from `build.sh rootfs` ($OBJDIR/root.iso) is attached as
+# a second virtio disk and mounted as the root filesystem (cd9660), and
+# the console is the video console (EFI framebuffer, then the kernel's
 # syscons), with the serial console copied to the terminal.  It ends at
-# a login prompt (root, no password).
+# a login prompt (root, no password).  An option below, ROOT, ROOTISO or
+# DISK chooses what boots instead.
 #
 #	--serial	no window: the serial console on this terminal (quit
 #			with Ctrl-A X).  Also the default when there is no
@@ -31,7 +34,8 @@
 #			--desktop-devices: the graphical session starts on
 #			the window after the boot (vt9; Ctrl-Alt-F1 for the
 #			console).
-#	--gui, --root	the defaults, spelled out.
+#	--gui		the default, spelled out.
+#	--root		boot root.iso (the default without desktop.img).
 #	--firmware	print the OVMF images that would be used, and exit.
 #
 # The ESP tree from `build.sh esp` is handed to QEMU as a virtual FAT disk,
@@ -68,8 +72,10 @@
 #	DISPLAY_BACKEND	QEMU -display backend for the window (default: gtk,
 #			else sdl, whichever this QEMU has)
 #	AUDIO		an Intel HDA sound card (snd_hda in the guest): "host"
-#			plays and records through QEMU's default audio backend
-#			(the host's speakers and microphone); "silent" has a
+#			(the default in a window) plays and records through
+#			QEMU's default audio backend (the host's speakers and
+#			microphone); "none" (the default without a window, or
+#			empty) adds no card; "silent" has a
 #			silent input and discards the output (QEMU's "none"
 #			backend, with real timing: for recording tests); a
 #			path ending in .wav records what the guest plays to
@@ -93,6 +99,8 @@ SRCDIR=$(cd "$(dirname "$0")/../.." && pwd)
 OBJDIR=${OBJDIR:-${XDG_CACHE_HOME:-$HOME/.cache}/foxynbsd}
 GUI=${GUI:-}
 QEMU_STATE=${QEMU_STATE:-$OBJDIR/qemu}
+# Whether the command line or the environment chose what boots.
+ROOT_CHOSEN=${ROOT:+1}${ROOTISO:+1}${DISK:+1}
 ROOT=${ROOT:-1}
 FWONLY=0
 DESKTOP_DEVICES=0
@@ -106,13 +114,13 @@ while :; do
 	case ${1:-} in
 	--gui)	GUI=1; shift ;;
 	--serial|--no-gui) GUI=0; shift ;;
-	--root)	ROOT=1; shift ;;
-	--kernel-only|--no-root) ROOT=0; shift ;;
-	--disk)	ROOT=disk; shift ;;
-	--installed) ROOT=installed; shift ;;
+	--root)	ROOT=1; ROOT_CHOSEN=1; shift ;;
+	--kernel-only|--no-root) ROOT=0; ROOT_CHOSEN=1; shift ;;
+	--disk)	ROOT=disk; ROOT_CHOSEN=1; shift ;;
+	--installed) ROOT=installed; ROOT_CHOSEN=1; shift ;;
 	--firmware) FWONLY=1; shift ;;
 	--desktop-devices) DESKTOP_DEVICES=1; shift ;;
-	--desktop) ROOT=disk DESKTOP_DEVICES=1
+	--desktop) ROOT=disk DESKTOP_DEVICES=1 ROOT_CHOSEN=1
 		DISK=${DISK:-$OBJDIR/desktop.img}; shift ;;
 	--)	break ;;
 	-h|--help) usage ;;
@@ -121,6 +129,11 @@ while :; do
 	esac
 done
 [ -n "${ROOTISO:-}" ] && [ "$ROOT" = 0 ] && ROOT=1
+# Nothing chosen: the desktop when `build.sh` made it.
+if [ -z "$ROOT_CHOSEN" ] && [ -f "$OBJDIR/desktop.img" ]; then
+	ROOT=disk DESKTOP_DEVICES=1 DISK=$OBJDIR/desktop.img
+	echo "qemu.sh: booting the desktop ($DISK; --root for root.iso)" >&2
+fi
 ROOTISO=${ROOTISO:-$OBJDIR/root.iso}
 DISK=${DISK:-$OBJDIR/disk.img}
 INSTALLED=${INSTALLED:-$OBJDIR/installed.img}
@@ -339,9 +352,13 @@ if [ "$DESKTOP_DEVICES" = 1 ]; then
 	    -device usb-kbd,bus=xhci.0 -device usb-mouse,bus=xhci.0
 fi
 
-# A sound card: to the host's audio, or recorded to a WAV file.
+# A sound card: to the host's audio, or recorded to a WAV file.  In a
+# window, the host's audio unless AUDIO says otherwise.
+if [ -z "${AUDIO+set}" ] && [ "$GUI" = 1 ]; then
+	AUDIO=host
+fi
 case ${AUDIO:-} in
-'') ;;
+''|none) ;;
 host)	set -- "$@" -device intel-hda -device hda-duplex ;;
 *,*)	die "AUDIO must not contain a comma" ;;
 silent)	set -- "$@" -device intel-hda -device hda-duplex,audiodev=snd0 \
@@ -354,7 +371,7 @@ pipewire)
 	esac
 	set -- "$@" -device intel-hda -device hda-duplex,audiodev=snd0 \
 	    -audiodev "pipewire,id=snd0,in.latency=100000,out.latency=100000${AUDIO_IN:+,in.name=$AUDIO_IN}${AUDIO_OUT:+,out.name=$AUDIO_OUT}" ;;
-*)	die "AUDIO must be host, silent, pipewire or a .wav path" ;;
+*)	die "AUDIO must be host, none, silent, pipewire or a .wav path" ;;
 esac
 
 # An explicit monitor remains available in headless runs for screendump.

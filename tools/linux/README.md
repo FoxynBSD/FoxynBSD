@@ -48,17 +48,25 @@ anything missing. It exits with status 1 if something is missing.
 ## Quick start
 
     tools/linux/build.sh doctor     # check the host, list missing packages
-    tools/linux/build.sh            # the whole system: kernel, loader, world, root image
-    tools/linux/qemu.sh             # boot it in a QEMU window; log in as root (no password)
+    tools/linux/build.sh            # the whole system: kernel, loader, world, root image, desktop
+    tools/linux/qemu.sh             # boot the desktop in a QEMU window, with sound
 
 `build.sh` with no arguments (`build.sh all`) builds the host tools,
 `X86_64_GENERIC`, the EFI loader and boot tree, the whole world and a
-root image with all of it. Run it again after changing the tree: it is
-incremental (see [Incremental builds](#incremental-builds)). `qemu.sh`
-with no options boots that image in a window to a `login:` prompt.
-Root's shell is `csh` with DragonFly's dot files (`root@foxynbsd:~ #`).
-`qemu.sh --serial` uses the terminal instead (Ctrl-A X quits), and
-`qemu.sh --kernel-only` boots the kernel alone, to `mountroot>`.
+root image with all of it. When `$OBJDIR/desktop.img` is missing, it
+then makes the graphical desktop (`build.sh desktop`, see [Packages
+(DPorts)](#packages-dports)): about 20 minutes in QEMU, and it needs
+the internet. `DESKTOP=0` skips it, `DESKTOP=1` remakes it. Run
+`build.sh` again after changing the tree: it is incremental (see
+[Incremental builds](#incremental-builds)); the desktop image is kept.
+
+`qemu.sh` with no options boots the desktop in a window, with a sound
+card on the host's audio (`AUDIO=none` for none); without
+`desktop.img`, or with `--root`, it boots the root image to a `login:`
+prompt (root, no password). Root's shell is `csh` with DragonFly's dot
+files (`root@foxynbsd:~ #`). `qemu.sh --serial` uses the terminal
+instead (Ctrl-A X quits), and `qemu.sh --kernel-only` boots the kernel
+alone, to `mountroot>`.
 
 The image is a read-only live system: what you change is gone at the
 next boot. For a system that keeps its changes, put the same tree on a
@@ -108,8 +116,9 @@ or by hand: `ROOTDISK=<empty image> tools/linux/qemu.sh`, log in, and
     tools/linux/build.sh subdir bin/date    # build and install any world directory
     tools/linux/build.sh loader             # stand/ -> loader.efi
     WITH_MODULES=1 tools/linux/build.sh esp # EFI boot tree: loader + kernel (+ stripped .ko)
-    tools/linux/qemu.sh                     # boot kernel + root.iso in a QEMU window: login:
-    tools/linux/qemu.sh --serial            # same, on the serial console in this terminal
+    tools/linux/qemu.sh                     # the desktop (desktop.img) in a QEMU window, with sound
+    tools/linux/qemu.sh --root              # boot kernel + root.iso in a QEMU window: login:
+    tools/linux/qemu.sh --root --serial     # same, on the serial console in this terminal
     tools/linux/qemu.sh --kernel-only       # the kernel alone: ends at mountroot>
     tools/linux/qemu.sh --disk              # boot disk.img instead of root.iso (read-write)
     tools/linux/qemu.sh --installed         # boot installed.img alone (from its own ESP)
@@ -131,7 +140,7 @@ A quicker first boot, with the minimal image instead of the world:
 
     tools/linux/build.sh kernel && tools/linux/build.sh loader &&
       tools/linux/build.sh esp && ROOTFS=base tools/linux/build.sh rootfs
-    tools/linux/qemu.sh
+    tools/linux/qemu.sh --root
 
 Output goes to `$OBJDIR`, which defaults to `~/.cache/foxynbsd`:
 
