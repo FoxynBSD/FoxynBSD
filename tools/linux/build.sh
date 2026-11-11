@@ -1074,7 +1074,7 @@ BOOT_MODULES="bus/u4b/controller/ehci bus/u4b/controller/xhci"
 # PAM modules that /etc/pam.d/login, system and crond load.  login(1) and
 # cron(8) open them with dlopen(3), so they are not in any NEEDED list.
 PAM_MODULES="pam_lastlog pam_login_access pam_nologin pam_permit pam_securetty
-	pam_self pam_unix"
+	pam_self pam_unix pam_xdg"
 
 do_base() {
 	local d

@@ -16,6 +16,7 @@ account		include		system
 
 # session
 session		include		system
+session		optional	pam_xdg.so
 
 # password
 password	include		system

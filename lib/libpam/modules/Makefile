@@ -14,7 +14,8 @@ SUBDIR=	pam_chroot \
 	pam_rootok \
 	pam_securetty \
 	pam_self \
-	pam_unix
+	pam_unix \
+	pam_xdg
 
 # maximum parallelism
 #

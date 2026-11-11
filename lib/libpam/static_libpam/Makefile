@@ -34,7 +34,8 @@ MODULES=	pam_chroot \
 		pam_rootok \
 		pam_securetty \
 		pam_self \
-		pam_unix
+		pam_unix \
+		pam_xdg
 
 STATIC_MODULES=	${MODULES:C/.*/${MODULESDIR}\/&\/lib&.a/}
 STATICOBJS+=	openpam_static_modules.o

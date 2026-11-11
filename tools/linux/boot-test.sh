@@ -223,10 +223,17 @@ if [ "$result" -eq 0 ] && [ -n "$ROOTARG" ] && [ "$MODE" != done ]; then
 			break
 		fi
 		grep -Eq "$FAIL|Login incorrect" "$LOG" && break
-		printf "sh -c 'echo login-ok-\$((6*7)) \$(id -un)'\r" >&3
+		printf "sh -c 'echo login-ok-\$((6*7)) \$(id -un) xdg=\$XDG_RUNTIME_DIR'\r" >&3
 		tries=$((tries + 1))
 	done
 	[ "$result" -eq 0 ] || echo ">>> logging in as root FAILED" >&2
+	# pam_xdg(8) in /etc/pam.d/login gave the session its runtime
+	# directory.
+	if [ "$result" -eq 0 ] &&
+	    ! grep -aFq "$LOGIN_OK xdg=/var/run/xdg/root" "$LOG"; then
+		echo ">>> the login session has no XDG_RUNTIME_DIR (pam_xdg)" >&2
+		result=1
+	fi
 fi
 
 # --install: install on the empty disk, which this boot sees as vbd2,
