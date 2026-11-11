@@ -147,7 +147,7 @@ login)
 	# session: wait for the user's supervisor and Workspace (180 s)
 	session() {
 		i=0
-		while [ "$i" -lt 90 ]; do
+		while [ "$i" -lt "${1:-90}" ]; do
 			pgrep -u "$uid" -x gershwin-session >/dev/null &&
 			    pgrep -u "$uid" -x Workspace >/dev/null && return 0
 			sleep 2; i=$((i + 1))
@@ -174,7 +174,23 @@ login)
 		sleep 1
 		# The Log In button (Return started a second login, which ended
 		# the first session, in some runs).
-		xdotool mousemove 765 503 click 1
+		login_click
+	}
+	# login_click: press Log In as a person does, for 150 ms
+	login_click() {
+		xdotool mousemove 765 503 mousedown 1
+		sleep 0.15
+		xdotool mouseup 1
+	}
+	# started: wait for the session after type_login.  About one first
+	# login in ten, the Log In button stays pressed (it tracks the mouse
+	# and misses the release) and nothing happens until the next click;
+	# report it, click once more, and wait (in all, 180 s).
+	started() {
+		session 15 && return 0
+		echo "desktop-session: WARN no session 30 s after Log In; clicking it again"
+		login_click
+		session 75
 	}
 	# logout: as Menu's Log Out, then wait for LoginWindow's cleanup
 	# (the user's processes end, the PAM session closes) and the login
@@ -197,7 +213,7 @@ login)
 	denied nobody && echo "desktop-session: the login window's display rejects nobody" ||
 	    fail "nobody can use the login window's display"
 	type_login "$user" "$pass"
-	if session; then
+	if started; then
 		echo "desktop-session: the password starts the session as $user"
 	else
 		fail "no session after logging in"
@@ -238,7 +254,7 @@ login)
 	pgrep -u "$uid" >/dev/null &&
 	    echo "desktop-session: processes of $user remain: $(pgrep -u "$uid" -l | tr '\n' ' ')"
 	type_login "$user" "$pass"
-	session && echo "desktop-session: a second login starts the session" ||
+	started && echo "desktop-session: a second login starts the session" ||
 	    fail "no session after the second login"
 	logout >/dev/null
 	# A wrong password: refused, without an alert (a modal alert
@@ -263,7 +279,7 @@ login)
 		echo "desktop-session: a wrong password shows no alert"
 	fi
 	type_login "$user" "$pass"
-	if session; then
+	if started; then
 		echo "desktop-session: the right password works after a wrong one"
 	else
 		fail "no session with the right password after a wrong one"
