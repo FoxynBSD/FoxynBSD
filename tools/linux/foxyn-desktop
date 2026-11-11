@@ -333,6 +333,9 @@ else
 	app=/usr/local/GNUstep/System/Applications/Sudoku.app/Sudoku
 fi
 . "$gs"
+# UTF-8 unless the login class or the user chose a locale: without it,
+# xterm and command-line tools show UTF-8 text (wpctl's tree) as Latin-1.
+[ -n "${LC_ALL:-}${LC_CTYPE:-}${LANG:-}" ] || export LANG=en_US.UTF-8
 xsetroot -solid '#3a6ea5'
 cat > "$HOME/.twmrc" <<TWM
 BorderWidth 2

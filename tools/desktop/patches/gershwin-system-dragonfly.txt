@@ -2,10 +2,23 @@ FoxynBSD changes to Gershwin's session script (contrib/gershwin-system,
 Library/Scripts/Gershwin.sh), which LoginWindow runs as the user:
 - start the session's sound with /usr/local/libexec/foxyn-audio, which
   foxyn-desktop installs (jackd on OSS, then PipeWire and WirePlumber).
+- UTF-8 (LANG=en_US.UTF-8) unless the login class or the user chose a
+  locale, as the automatic session's ~/.xsession.
 
 --- a/Library/Scripts/Gershwin.sh
 +++ b/Library/Scripts/Gershwin.sh
-@@ -45,6 +45,13 @@
+@@ -20,6 +20,10 @@
+ # Indicate Gershwin Desktop to tools like Fastfetch
+ export XDG_CURRENT_DESKTOP="Gershwin"
+ 
++# FoxynBSD: UTF-8 unless the login class or the user chose a locale
++# (xterm and command-line tools otherwise show UTF-8 text as Latin-1).
++[ -n "${LC_ALL:-}${LC_CTYPE:-}${LANG:-}" ] || export LANG=en_US.UTF-8
++
+ # Allow users to access CUPS at http://localhost:631/admin/; TODO: Move in a suitable place
+ # Cannot run it like this here because e.g., on stock FreeBSD there is no sudo
+ # sudo usermod -aG lpadmin $USER
+@@ -45,6 +49,13 @@
    export SUDO_ASKPASS=/System/Library/Tools/SudoAskPass
  fi
  
