@@ -160,15 +160,24 @@ login)
 		# (a failed attempt leaves the password in the field)
 		xdotool mousemove 695 300 click --repeat 3 --delay 100 1
 		xdotool type --delay 50 "$2"
+		# GNUstep spends a click on a button of a window that is not
+		# key on making it key: after xdotool's typing the window of a
+		# freshly started LoginWindow is not, and the click on Log In
+		# was lost (0 of 2 logins, 2 of 2 with this click first).
+		xdotool mousemove 640 420 click 1
+		sleep 1
 		# The Log In button (Return started a second login, which ended
 		# the first session, in some runs).
 		xdotool mousemove 765 503 click 1
 	}
-	# logout: as Menu's Log Out, then wait for the login window again
+	# logout: as Menu's Log Out, then wait for LoginWindow's cleanup
+	# (the user's processes end, the PAM session closes) and the login
+	# window.  (The login window stays in the window tree while the
+	# session runs, unmapped: greeter alone does not wait.)
 	logout() {
 		pkill -TERM -u "$uid" -x gershwin-session
 		i=0
-		while pgrep -u "$uid" -x 'gershwin-session|Workspace|Menu' >/dev/null &&
+		while { pgrep -u "$uid" || [ -d "/var/run/xdg/$user" ]; } >/dev/null &&
 		    [ "$i" -lt 30 ]; do
 			sleep 1; i=$((i + 1))
 		done
@@ -189,11 +198,35 @@ login)
 	fi
 	denied nobody && echo "desktop-session: the session's display rejects nobody" ||
 	    fail "nobody can use the session's display"
+	# The PAM session LoginWindow opened: pam_xdg's runtime directory,
+	# and in it the session's sound (Gershwin.sh starts foxyn-audio).
+	rt=/var/run/xdg/$user
+	if [ -d "$rt" ] && [ "$(stat -f %u:%Lp "$rt")" = "$uid:700" ]; then
+		echo "desktop-session: the session has its runtime directory $rt"
+	else
+		fail "no runtime directory $rt for the session"
+	fi
+	if [ -x /System/Library/PipeWire/bin/pipewire ] && [ -c /dev/dsp ]; then
+		i=0
+		# (foxyn-audio's duplex attempt alone can take 10 s.)
+		while ! { [ -S "$rt/pipewire-0" ] &&
+		    pgrep -u "$uid" -x wireplumber >/dev/null; } && [ "$i" -lt 60 ]; do
+			sleep 1; i=$((i + 1))
+		done
+		if [ -S "$rt/pipewire-0" ] && pgrep -u "$uid" -x wireplumber >/dev/null; then
+			echo "desktop-session: PipeWire and WirePlumber run in the session"
+			sh "$0" audio || fail "no sound in the LoginWindow session"
+		else
+			fail "no PipeWire in the session ($(cat "$rt/jackd.log" "$rt/pipewire.log" 2>/dev/null | tail -3 | tr '\n' ' '))"
+		fi
+	fi
 	if logout; then
 		echo "desktop-session: logging out shows the login window again"
 	else
 		fail "no login window after logging out"
 	fi
+	[ -d "$rt" ] && fail "$rt remains after logging out" ||
+	    echo "desktop-session: logging out removed $rt"
 	denied "$user" && echo "desktop-session: after logging out $user cannot use the display" ||
 	    fail "$user can still use the display"
 	pgrep -u "$uid" >/dev/null &&
@@ -223,7 +256,10 @@ audio)
 	[ -c /dev/dsp ] || { echo "desktop-session: FAIL no sound card"; exit 1; }
 	pw=/System/Library/PipeWire/bin
 	[ -x $pw/pw-play ] || { echo "desktop-session: FAIL no PipeWire"; exit 1; }
+	# The automatic session's runtime directory (foxyn-session), else
+	# that of a LoginWindow session (pam_xdg).
 	rt=/var/run/user/$uid
+	[ -d "$rt" ] || rt=/var/run/xdg/$user
 	ruby -e 'r = 48000; d = (0...r * 4).map { |i| (Math.sin(2 * Math::PI * 440 * i / r) * 12000).to_i }.pack("s<*")
 	    File.binwrite("/tmp/tone.wav", ["RIFF", 36 + d.size, "WAVE", "fmt ", 16, 1, 1, r, r * 2, 2, 16, "data", d.size].pack("a4Va4a4VvvVVvva4V") + d)'
 	chmod 644 /tmp/tone.wav

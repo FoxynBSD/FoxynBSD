@@ -1,0 +1,21 @@
+FoxynBSD changes to Gershwin's session script (contrib/gershwin-system,
+Library/Scripts/Gershwin.sh), which LoginWindow runs as the user:
+- start the session's sound with /usr/local/libexec/foxyn-audio, which
+  foxyn-desktop installs (jackd on OSS, then PipeWire and WirePlumber).
+
+--- a/Library/Scripts/Gershwin.sh
++++ b/Library/Scripts/Gershwin.sh
+@@ -45,6 +45,13 @@
+   export SUDO_ASKPASS=/System/Library/Tools/SudoAskPass
+ fi
+ 
++# FoxynBSD: the session's sound (jackd, then PipeWire and WirePlumber, as
++# the user, in the XDG_RUNTIME_DIR that pam_xdg gave the login session).
++# LoginWindow ends them with the user's other processes at logout.
++if [ -x /usr/local/libexec/foxyn-audio ]; then
++  /usr/local/libexec/foxyn-audio &
++fi
++
+ # Supervise the desktop apps: gershwin-session (the session supervisor)
+ # restarts any of them that exits and shuts them all down when this session
+ # ends. The app names are passed as arguments so the desktop composition

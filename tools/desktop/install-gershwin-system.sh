@@ -9,7 +9,8 @@
 #	gershwin-assets' Library: Fonts (Inter, Luxi, Nimbus Sans, URW) and
 #	Desktop Pictures
 # The rest of gershwin-system (other scripts for FreeBSD/Linux images,
-# the LoginWindow service) is not installed.
+# the LoginWindow service) is not installed.  Gershwin.sh gets
+# patches/gershwin-system-dragonfly.txt (the session's sound).
 #
 # Run as the unprivileged user who may write /System, like the other
 # helpers.
@@ -20,6 +21,8 @@ system_sha=c3969f4a0e912c73082b4bfeb5b47ab1de1e3bb378da0a8c25a662af18bc152a
 assets_rev=67e6946db9c47c8a666730f4e086d8c63986265b
 assets_sha=a6cdb533555ddaa0b1e472189b9338df9657c3919a3b1bf7a4bce640e8a84042
 prefix=/System
+script_dir=$(CDPATH= cd -- "$(dirname "$0")" && pwd)
+patches=$script_dir/patches
 
 say() { echo "install-gershwin-system: $*"; }
 die() { echo "install-gershwin-system: $*" >&2; exit 1; }
@@ -27,9 +30,11 @@ die() { echo "install-gershwin-system: $*" >&2; exit 1; }
 [ "$#" -eq 0 ] || die "usage: $0"
 [ "$(id -u)" != 0 ] || die "run as an unprivileged user"
 [ -w "$prefix/Library" ] || die "$prefix is not writable by $(id -un)"
-for tool in fetch sha256 tar; do
+for tool in fetch sha256 tar patch; do
 	command -v "$tool" >/dev/null 2>&1 || die "missing command: $tool"
 done
+[ -r "$patches/gershwin-system-dragonfly.txt" ] ||
+    die "patch not found: $patches/gershwin-system-dragonfly.txt"
 
 work=$(mktemp -d "${TMPDIR:-/tmp}/gershwin-system.XXXXXXXX")
 trap 'rm -rf "$work"' EXIT
@@ -47,6 +52,9 @@ get()
 }
 get gershwin-system "$system_rev" "$system_sha"
 get gershwin-assets "$assets_rev" "$assets_sha"
+(cd "$work/gershwin-system" &&
+    patch -s -p1 < "$patches/gershwin-system-dragonfly.txt") ||
+    die "gershwin-system-dragonfly.txt does not apply"
 
 mkdir -p "$prefix/Library/Preferences"
 (cd "$work/gershwin-system/Library/Preferences" && tar cf - .) |

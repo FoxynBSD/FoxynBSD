@@ -1477,6 +1477,7 @@ do_rootfs() {
 	    "$SRCDIR/tools/desktop/patches/menu-dragonfly-extra-poll.txt" \
 	    "$SRCDIR/tools/desktop/patches/workspace-dragonfly.txt" \
 	    "$SRCDIR/tools/desktop/patches/loginwindow-dragonfly.txt" \
+	    "$SRCDIR/tools/desktop/patches/gershwin-system-dragonfly.txt" \
 	    "$SRCDIR/tools/desktop/patches/eau-searchfield-keydown.txt" \
 	    "$SRCDIR/tools/desktop/patches/openrc-dragonfly.txt" \
 	    "$SRCDIR/tools/desktop/patches/pipewire-dragonfly.txt" \

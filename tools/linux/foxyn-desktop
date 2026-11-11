@@ -601,8 +601,11 @@ export PATH
 auth=/var/run/xauth
 if ! pgrep -x Xorg >/dev/null; then
 	rm -f "$auth"
-	umask 077
-	xauth -q -f "$auth" add :0 MIT-MAGIC-COOKIE-1 "$(openssl rand -hex 16)" ||
+	# Only the cookie is private: LoginWindow inherits the umask, and
+	# refuses (with an alert at every start) the preferences it writes
+	# unless they are mode 0644.
+	(umask 077 &&
+	    xauth -q -f "$auth" add :0 MIT-MAGIC-COOKIE-1 "$(openssl rand -hex 16)") ||
 	    exit 1
 	if [ -x /System/Library/XLibre/bin/Xorg ]; then
 		/usr/local/libexec/foxyn-xinput
@@ -639,7 +642,23 @@ pidfile=/var/run/foxyn_loginwindow.pid
 command=/usr/sbin/daemon
 procname=/usr/sbin/daemon
 command_args="-r -f -o /var/log/LoginWindow.log -P $pidfile /usr/local/libexec/foxyn-loginwindow"
+stop_precmd=foxyn_loginwindow_prestop
 stop_postcmd=foxyn_loginwindow_poststop
+
+# A user's session outlives LoginWindow (its supervisor restarted the
+# applications after X ended): end it as Log Out does, and give
+# LoginWindow time to clean up after it.
+foxyn_loginwindow_prestop()
+{
+	local lw i
+	lw=$(pgrep -x LoginWindow) || return 0
+	pkill -TERM -P "$lw" -x gershwin-session || return 0
+	i=0
+	while pgrep -P "$lw" -x gershwin-session >/dev/null && [ "$i" -lt 15 ]; do
+		sleep 1; i=$((i + 1))
+	done
+	sleep 2
+}
 
 # The X server foxyn-loginwindow started outlives LoginWindow.
 foxyn_loginwindow_poststop()

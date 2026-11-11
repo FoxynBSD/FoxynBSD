@@ -7,8 +7,17 @@ FoxynBSD changes to Gershwin's LoginWindow (contrib/gershwin-components):
   user id (localuser) for the session, and withdraw it when the session
   ends.  Upstream's server ran without any working authorization file,
   so every local user could connect to the login screen;
-- also end Workspace's ddbd and fswatcher daemons at logout, like gpbs
-  and gdnc.
+- also end Workspace's ddbd and fswatcher daemons, and the session's
+  sound (jackd, pipewire, wireplumber), at logout, like gpbs and gdnc:
+  they run in sessions of their own, which the session cleanup misses
+  (a jackd left running kept /dev/dsp from the next session);
+- open the PAM session before starting the user's session: upstream
+  only closed it, so no session module (pam_lastlog, pam_xdg's
+  XDG_RUNTIME_DIR) ran for graphical logins.
+- clean up after a session that GNUstep's NSTask SIGCHLD handler
+  reaped (waitpid(-1)): monitorSession then got ECHILD and showed the
+  login window without ending the user's processes, closing the PAM
+  session or withdrawing the user's access to the display.
 
 --- a/LoginWindow.m
 +++ b/LoginWindow.m
@@ -66,7 +75,25 @@ FoxynBSD changes to Gershwin's LoginWindow (contrib/gershwin-components):
  static BOOL g_xserver_cookie_valid = NO;
  
  // Check if /tmp is writable by actually creating, writing to, and removing a temporary file
-@@ -1523,6 +1563,8 @@
+@@ -1444,6 +1484,17 @@
+ 
+     NSLog(@"[LoginWindow] ═══════════════════════════════════════════");
+ 
++    // Open the PAM session as root, before the fork, so that its
++    // modules (lastlog, the XDG runtime directory) run and their
++    // environment reaches the session; it is closed when the session
++    // ends.
++    if (![pamAuth openSession]) {
++        NSLog(@"[LoginWindow] %@", [pamAuth getLastError]);
++        [self showStatus:NSLocalizedString(@"Failed to open session", @"Status PAM session failure")];
++        [pamAuth closeSession];
++        return;
++    }
++
+     // Get PAM environment
+     char **pam_envlist = [pamAuth getEnvironmentList];
+     NSDebugLLog(@"gwcomp", @"[DEBUG] PAM environment list obtained: %p", pam_envlist);
+@@ -1523,6 +1574,8 @@
      
      // Start the user's session
      NSDebugLLog(@"gwcomp", @"[DEBUG] About to fork for session");
@@ -75,7 +102,7 @@ FoxynBSD changes to Gershwin's LoginWindow (contrib/gershwin-components):
      pid_t pid = fork();
      if (pid == 0) {
          // Child process - create new session to avoid X11 threading issues
-@@ -1969,6 +2011,8 @@
+@@ -1969,6 +2022,8 @@
      
      // Start the user's session (reuse the existing session starting code)
      NSDebugLLog(@"gwcomp", @"[DEBUG] About to fork for auto-login session");
@@ -84,7 +111,17 @@ FoxynBSD changes to Gershwin's LoginWindow (contrib/gershwin-components):
      pid_t pid = fork();
      if (pid == 0) {
          // Child process - create new session to avoid X11 threading issues
-@@ -2234,6 +2278,8 @@
+@@ -2231,9 +2286,18 @@
+     int status;
+     pid_t result = waitpid(sessionPid, &status, WNOHANG);
+     
++    // Once an NSTask has run, GNUstep's SIGCHLD handler reaps every
++    // child (waitpid(-1)), the session too: then the session has ended
++    // all the same, with an unknown status, and needs the same cleanup.
++    if (result == -1 && errno == ECHILD) {
++        result = sessionPid;
++        status = 0;
++    }
      if (result == sessionPid) {
          // Session has ended
          NSDebugLLog(@"gwcomp", @"[DEBUG] Session PID %d has ended", sessionPid);
@@ -93,16 +130,16 @@ FoxynBSD changes to Gershwin's LoginWindow (contrib/gershwin-components):
          
          // Check if session ended very quickly (within 5 seconds), indicating a startup error
          NSTimeInterval sessionDuration = -[sessionStartTime timeIntervalSinceNow];
-@@ -2323,7 +2369,7 @@
+@@ -2323,7 +2387,7 @@
  // Names of daemons that detach from the session (fork + new SID).
  // These escape process-group and session-based cleanup, so we match
  // them explicitly by UID + command name.
 -static const char *detachedDaemons[] = { "gpbs", "gdnc", "dbus-daemon", NULL };
-+static const char *detachedDaemons[] = { "gpbs", "gdnc", "dbus-daemon", "ddbd", "fswatcher", NULL };
++static const char *detachedDaemons[] = { "gpbs", "gdnc", "dbus-daemon", "ddbd", "fswatcher", "jackd", "pipewire", "wireplumber", NULL };
  
  static bool isDetachedDaemon(const char *comm)
  {
-@@ -2889,7 +2935,7 @@
+@@ -2889,7 +2953,7 @@
      
      // Find X server executable
      NSString *xserverPath = nil;

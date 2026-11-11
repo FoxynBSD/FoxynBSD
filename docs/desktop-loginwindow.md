@@ -103,3 +103,56 @@ took over 45 seconds to appear after the password was accepted; a
 failing session, other users, the Shut Down and Restart buttons and
 physical hardware were not tested. The automated boot test still uses
 the automatic session.
+
+## Session cleanup, PAM session and the first login, 2026-11-10 (night)
+
+Found while adding sound to LoginWindow sessions (see
+`desktop-pipewire.md`), in QEMU on the `build.sh desktop` image with the
+patched LoginWindow rebuilt in the VM:
+
+- **No PAM session.** LoginWindow authenticated through PAM but never
+  called `pam_open_session` for a password login (only
+  `pam_close_session`), so no session module ran. It now opens the
+  session as root before starting the user's session; with `pam_xdg` in
+  `/etc/pam.d/login` the session gets `XDG_RUNTIME_DIR`.
+- **Logout without cleanup.** Once LoginWindow has run an NSTask,
+  GNUstep's SIGCHLD handler reaps every child with `waitpid(-1)`, the
+  session too. `monitorSession` then got `ECHILD` and showed the login
+  window again without ending the user's processes, closing the PAM
+  session or withdrawing the user's access to the display: after Log Out,
+  `foxyn` could still connect to the display and its daemons kept
+  running. The patch treats `ECHILD` as the end of the session.
+- **Sound daemons.** `jackd`, `pipewire` and `wireplumber` run in
+  sessions of their own and are now ended at logout with LoginWindow's
+  other detached daemons.
+- **Alert at every start.** `foxyn-loginwindow` set `umask 077` for the X
+  cookie, and LoginWindow inherited it: the preferences it writes after a
+  login (`/Local/Library/Preferences/LoginWindow.plist`) were mode 0600,
+  and LoginWindow refuses such a file with a modal "Autologin File
+  Permission Error" at its next start, i.e. after every reboot. The umask
+  now applies to the cookie only.
+- **Stopping the service.** `service foxyn_loginwindow stop` during a
+  session left the user's `gershwin-session` running, which restarted the
+  applications after X ended. The service now ends the session first, as
+  Log Out does, and gives LoginWindow time to clean up.
+- **The first login.** After the test's `xdotool` typing, the login
+  window of a freshly started LoginWindow is no longer GNUstep's key
+  window, and GNUstep spends a click on a button of a window that is not
+  key on making it key (`acceptsFirstMouse:` is NO for buttons): the click
+  on Log In did nothing (0 of 2 tries). With a click on the window's
+  background first, 2 of 2 first logins started the session; after a
+  logout LoginWindow activates itself again, which is why later logins
+  always worked. The test now clicks the window first. Whether a person
+  using a real mouse hits this was not tested (earlier logins by hand
+  through QEMU's keyboard worked). The earlier failure mode, a session
+  ended about two seconds after it started, was not seen after these
+  changes and is not explained.
+
+With these changes `desktop-session login` passed in the VM: the first
+login started the session, which had `/var/run/xdg/foxyn` and sound;
+logging out ended the user's processes, removed the directory and
+withdrew display access; a second login and a wrong password behaved as
+before. A wrong password still shows a modal alert ("Authentication
+error", OpenPAM's text, which LoginWindow does not recognise as a wrong
+password).
+

@@ -162,10 +162,45 @@ on the WAV backend; which `jackd` mode it got was not logged.)
   Bluetooth, no ALSA or PulseAudio compatibility layers (`pipewire-pulse`
   is not configured), no realtime scheduling (no RTKit; `jackd` and
   PipeWire run without it).
-- The sound starts with the automatic session's `.xsession`: tested with
+- The sound starts with the automatic session's `.xsession` (tested with
   the rc.d service `foxyn_desktop`; OpenRC's `foxyn-desktop` runs the same
-  `foxyn-session` but was not tested with sound. A session started by
-  LoginWindow (`Gershwin.sh`) does not start it yet.
+  `foxyn-session` but was not tested with sound) and with a LoginWindow
+  session (`Gershwin.sh`, see below).
 - PipeWire's error messages print `m` where they mean the error's text:
   DragonFly's `printf` has no glibc `%m`.
 - Only the HDA card in QEMU was tested; no physical hardware.
+
+## Sound in LoginWindow sessions, 2026-11-10
+
+A session started by LoginWindow runs `/System/Library/Scripts/Gershwin.sh`
+instead of `.xsession`, and had no sound: nothing started `foxyn-audio`,
+and the session had no `XDG_RUNTIME_DIR` for PipeWire's sockets.
+
+- `pam_xdg(8)`, from FreeBSD (`lib/libpam/modules/pam_xdg`, BSD-2-Clause,
+  main `9cf02c38e492`), is now a base PAM module, and `/etc/pam.d/login`
+  runs it as an optional session module. A login session gets
+  `XDG_RUNTIME_DIR=/var/run/xdg/<user>` (mode 0700, the user's); the
+  directory is removed when the user's last session closes. This covers
+  console logins too: `boot-test.sh --root` now checks that root's
+  serial login gets `/var/run/xdg/root`.
+- LoginWindow never opened the PAM session (it only closed it), so no
+  session module ran; `loginwindow-dragonfly.txt` opens it, as root,
+  before starting the session, and the PAM environment reaches it.
+- `gershwin-system-dragonfly.txt`, applied by
+  `install-gershwin-system.sh`, makes `Gershwin.sh` start `foxyn-audio`
+  in the background before the session supervisor.
+- At logout LoginWindow now also ends `jackd`, `pipewire` and
+  `wireplumber`: they run in sessions of their own, which its cleanup
+  missed, and a `jackd` left running kept `/dev/dsp` from the next
+  session.
+
+Tested in QEMU (KVM, `-vga std`, HDA output-only card recorded by QEMU's
+WAV backend) on the `build.sh desktop` image with the patched LoginWindow
+built in the VM: after logging in through LoginWindow, `/var/run/xdg/foxyn`
+existed (0700, `foxyn`), `jackd`, `pipewire` and `wireplumber` ran as
+`foxyn`, `wpctl` showed `JACK Sink` as the default sink, and `pw-play` of
+a 4 s 440 Hz tone in that session reached the card (4 s at 440 Hz, RMS
+7318, as in the automatic session). After Log Out the processes were gone
+and the directory removed. `LOGIN_CHECK=1 boot-test.sh --desktop` checks
+this (`desktop-session login`).
+
