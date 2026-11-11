@@ -212,3 +212,33 @@ worked 6 of 6 times, and xdotool's instant click 6 of 6 too, so the press
 length is not shown to matter. Not resolved. The test now presses for
 150 ms, and when no session appears within 30 s it prints
 `desktop-session: WARN ...` and clicks once more.
+
+## A failing session, 2026-11-11
+
+`desktop-session login` now also logs in with the user's shell set to
+`/usr/sbin/nologin`, so the session ends at once. LoginWindow shows
+"Session Startup Error" ("The session failed to start properly. Session
+exited with error code: 1"), without credentials. After OK the login
+window is back, the user has no processes and no runtime directory and
+cannot use the display, and with the shell restored the next login works.
+
+Two fixes came out of it:
+
+- **The exit status.** When GNUstep's NSTask SIGCHLD handler reaps the
+  session first (see above), `waitpid()` gives no status. A first
+  version took that for success, and a failing session was then not
+  reported, about two times in three. A second version took a session
+  that ended within 5 s for a failure, which misreported a Log Out 4 s
+  after logging in (the alert then blocked the login window). LoginWindow
+  now watches the session with a kqueue `EVFILT_PROC`/`NOTE_EXIT` event
+  right after the fork; the kernel puts the exit status in the event, so
+  the status is known whoever reaps the process. When none is available
+  it is taken for success.
+- **The test typed too early after a logout.** The login window stays in
+  X's window tree while unmapped, so waiting for it there returned at
+  once, and a password typed while LoginWindow reset its fields lost
+  characters ("Authentication failed"). The test now waits until the
+  window is mapped, then 3 s.
+
+In QEMU (no sound card, so the test logs out a few seconds after logging
+in), three runs in a row passed without FAIL or WARN.

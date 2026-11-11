@@ -135,11 +135,24 @@ login)
 		    >/dev/null 2>&1
 	}
 	# greeter: wait for the login window (60 s)
+	# shown PATTERN: a window of xwininfo's tree matching the awk
+	# PATTERN is mapped (the tree also lists unmapped windows)
+	shown() {
+		for w in $(xwininfo -root -tree 2>/dev/null | awk "/$1/ {print \$1}"); do
+			xwininfo -id "$w" | grep -q 'Map State: IsViewable' && return 0
+		done
+		return 1
+	}
+	# greeter: wait for the login window to be shown (60 s), and for
+	# LoginWindow to settle: typing right after a logout, while it reset
+	# its fields, lost characters of the password.
 	greeter() {
 		i=0
 		while [ "$i" -lt 30 ]; do
-			xwininfo -root -tree 2>/dev/null |
-			    grep -q '("LoginWindow" "LoginWindow")' && return 0
+			if shown '"[^"]*": \("LoginWindow" "LoginWindow"\)  400x370'; then
+				sleep 3
+				return 0
+			fi
 			sleep 2; i=$((i + 1))
 		done
 		return 1
@@ -257,6 +270,43 @@ login)
 	started && echo "desktop-session: a second login starts the session" ||
 	    fail "no session after the second login"
 	logout >/dev/null
+	# A session that fails at once (the user's shell is nologin):
+	# LoginWindow reports it, and after OK the system is as before the
+	# login: the login window, nothing of the user's left, no access to
+	# the display.  (Eau's alert panel: an unnamed window 500 wide.)
+	shell=$(pw usershow "$user" | cut -d: -f10)
+	pw usermod "$user" -s /usr/sbin/nologin
+	alert='\(has no name\): \("LoginWindow" "LoginWindow"\)  500x[0-9]+'
+	# reported N: wait up to N seconds for the alert
+	reported() {
+		i=0
+		while ! shown "$alert" && [ "$i" -lt "$1" ]; do sleep 2; i=$((i + 2)); done
+		shown "$alert"
+	}
+	type_login "$user" "$pass"
+	if ! reported 30; then
+		echo "desktop-session: WARN no report 30 s after Log In; clicking it again"
+		login_click
+		reported 30
+	fi
+	if shown "$alert"; then
+		echo "desktop-session: a failing session is reported"
+	else
+		fail "no report of the failing session"
+	fi
+	# OK
+	xdotool mousemove 815 479 mousedown 1
+	sleep 0.15
+	xdotool mouseup 1
+	sleep 3
+	pw usermod "$user" -s "$shell"
+	if shown '"[^"]*": \("LoginWindow" "LoginWindow"\)  400x370' &&
+	    ! pgrep -u "$uid" >/dev/null && [ ! -d "/var/run/xdg/$user" ] &&
+	    denied "$user"; then
+		echo "desktop-session: after a failing session the login window is back, nothing of $user left"
+	else
+		fail "after a failing session: processes $(pgrep -u "$uid" -l | tr '\n' ' '), xdg $(ls -d /var/run/xdg/$user 2>/dev/null)"
+	fi
 	# A wrong password: refused, without an alert (a modal alert
 	# blocked LoginWindow until dismissed), and the right password works
 	# right after it.

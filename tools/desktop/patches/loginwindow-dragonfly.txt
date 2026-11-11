@@ -17,7 +17,9 @@ FoxynBSD changes to Gershwin's LoginWindow (contrib/gershwin-components):
 - clean up after a session that GNUstep's NSTask SIGCHLD handler
   reaped (waitpid(-1)): monitorSession then got ECHILD and showed the
   login window without ending the user's processes, closing the PAM
-  session or withdrawing the user's access to the display.
+  session or withdrawing the user's access to the display; the session's
+  exit status then comes from a kqueue NOTE_EXIT event, so a session
+  that fails at once is still reported;
 - never start an X server: when none runs, exit (the rc.d service
   restarts foxyn-loginwindow, which starts it with a cookie).  The
   server LoginWindow started had no working authorization, and it did
@@ -28,7 +30,16 @@ FoxynBSD changes to Gershwin's LoginWindow (contrib/gershwin-components):
 
 --- a/LoginWindow.m
 +++ b/LoginWindow.m
-@@ -24,6 +24,15 @@
+@@ -13,6 +13,8 @@
+ #import <login_cap.h>
+ #import <sys/sysctl.h>
+ #import <sys/user.h>
++#import <sys/event.h>
++#import <sys/time.h>
+ #if defined(__OpenBSD__)
+ #import <util.h>
+ // OpenBSD's struct kinfo_proc uses p_* field names (and p__pgid, since
+@@ -24,6 +26,15 @@
  #define GW_KP_COMM  p_comm
  // OpenBSD has no login_getpwclass(); look the class up by name from pw_class.
  #define GW_LOGIN_GETPWCLASS(p) login_getclass((p)->pw_class)
@@ -44,7 +55,7 @@ FoxynBSD changes to Gershwin's LoginWindow (contrib/gershwin-components):
  #else
  #import <libutil.h>
  #define GW_KP_PID   ki_pid
-@@ -110,6 +119,37 @@
+@@ -110,6 +121,80 @@
  
  // Global storage for the current X server cookie (shared between X server and user sessions)
  static unsigned char g_xserver_cookie[16];
@@ -54,6 +65,49 @@ FoxynBSD changes to Gershwin's LoginWindow (contrib/gershwin-components):
 +// can connect to a server that otherwise only accepts LoginWindow's
 +// cookie.
 +static char g_session_user[256];
++
++// The session's exit status, from a kqueue NOTE_EXIT event: GNUstep's
++// NSTask SIGCHLD handler may reap the session before monitorSession
++// does (waitpid() then fails with ECHILD), and the kernel reports the
++// status in the event.
++static int g_session_kq = -1;
++static void gw_watch_session(pid_t pid)
++{
++#if !defined(__linux__)
++    struct kevent kev;
++
++    if (g_session_kq >= 0)
++        close(g_session_kq);
++    g_session_kq = kqueue();
++    if (g_session_kq < 0)
++        return;
++    EV_SET(&kev, pid, EVFILT_PROC, EV_ADD | EV_ONESHOT, NOTE_EXIT, 0, NULL);
++    if (kevent(g_session_kq, &kev, 1, NULL, 0, NULL) < 0) {
++        close(g_session_kq);
++        g_session_kq = -1;
++    }
++#endif
++}
++// The status, or -1 when it is not known.
++static int gw_session_status(void)
++{
++#if defined(__linux__)
++    return -1;
++#else
++    struct kevent kev;
++    struct timespec zero = { 0, 0 };
++    int status = -1;
++
++    if (g_session_kq >= 0 &&
++        kevent(g_session_kq, NULL, 0, &kev, 1, &zero) == 1 &&
++        (kev.fflags & NOTE_EXIT))
++        status = (int)kev.data;
++    if (g_session_kq >= 0)
++        close(g_session_kq);
++    g_session_kq = -1;
++    return status;
++#endif
++}
 +static void gw_x_localuser(const char *user, BOOL grant)
 +{
 +    Display *d;
@@ -82,7 +136,7 @@ FoxynBSD changes to Gershwin's LoginWindow (contrib/gershwin-components):
  static BOOL g_xserver_cookie_valid = NO;
  
  // Check if /tmp is writable by actually creating, writing to, and removing a temporary file
-@@ -1444,6 +1484,17 @@
+@@ -1444,6 +1529,17 @@
  
      NSLog(@"[LoginWindow] ═══════════════════════════════════════════");
  
@@ -100,7 +154,7 @@ FoxynBSD changes to Gershwin's LoginWindow (contrib/gershwin-components):
      // Get PAM environment
      char **pam_envlist = [pamAuth getEnvironmentList];
      NSDebugLLog(@"gwcomp", @"[DEBUG] PAM environment list obtained: %p", pam_envlist);
-@@ -1523,6 +1574,8 @@
+@@ -1523,6 +1619,8 @@
      
      // Start the user's session
      NSDebugLLog(@"gwcomp", @"[DEBUG] About to fork for session");
@@ -109,7 +163,15 @@ FoxynBSD changes to Gershwin's LoginWindow (contrib/gershwin-components):
      pid_t pid = fork();
      if (pid == 0) {
          // Child process - create new session to avoid X11 threading issues
-@@ -1969,6 +2022,8 @@
+@@ -1742,6 +1840,7 @@
+         
+         // Store session information
+         sessionPid = pid;
++        gw_watch_session(pid);
+         sessionUid = pwd->pw_uid;
+         sessionGid = pwd->pw_gid;
+         sessionStartTime = [[NSDate date] retain];
+@@ -1969,6 +2068,8 @@
      
      // Start the user's session (reuse the existing session starting code)
      NSDebugLLog(@"gwcomp", @"[DEBUG] About to fork for auto-login session");
@@ -118,7 +180,15 @@ FoxynBSD changes to Gershwin's LoginWindow (contrib/gershwin-components):
      pid_t pid = fork();
      if (pid == 0) {
          // Child process - create new session to avoid X11 threading issues
-@@ -2231,9 +2286,18 @@
+@@ -2201,6 +2302,7 @@
+         
+         // Store session information
+         sessionPid = pid;
++        gw_watch_session(pid);
+         sessionUid = pwd->pw_uid;
+         sessionGid = pwd->pw_gid;
+         sessionStartTime = [[NSDate date] retain];
+@@ -2231,9 +2333,23 @@
      int status;
      pid_t result = waitpid(sessionPid, &status, WNOHANG);
      
@@ -126,8 +196,13 @@ FoxynBSD changes to Gershwin's LoginWindow (contrib/gershwin-components):
 +    // child (waitpid(-1)), the session too: then the session has ended
 +    // all the same, with an unknown status, and needs the same cleanup.
 +    if (result == -1 && errno == ECHILD) {
++        // Reaped elsewhere: the status from the kqueue, else unknown,
++        // taken for success (no alert).
++        int st = gw_session_status();
 +        result = sessionPid;
-+        status = 0;
++        status = st >= 0 ? st : 0;
++    } else if (result == sessionPid) {
++        gw_session_status();
 +    }
      if (result == sessionPid) {
          // Session has ended
@@ -137,7 +212,7 @@ FoxynBSD changes to Gershwin's LoginWindow (contrib/gershwin-components):
          
          // Check if session ended very quickly (within 5 seconds), indicating a startup error
          NSTimeInterval sessionDuration = -[sessionStartTime timeIntervalSinceNow];
-@@ -2323,7 +2387,7 @@
+@@ -2323,7 +2439,7 @@
  // Names of daemons that detach from the session (fork + new SID).
  // These escape process-group and session-based cleanup, so we match
  // them explicitly by UID + command name.
@@ -146,7 +221,7 @@ FoxynBSD changes to Gershwin's LoginWindow (contrib/gershwin-components):
  
  static bool isDetachedDaemon(const char *comm)
  {
-@@ -2889,7 +2953,7 @@
+@@ -2889,7 +3005,7 @@
      
      // Find X server executable
      NSString *xserverPath = nil;
