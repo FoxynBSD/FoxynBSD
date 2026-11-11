@@ -1005,6 +1005,19 @@ a second one stalls both), without its camera monitor (`monitor.v4l2 =
 disabled`): unloading it faults in libinotify. `DPORTS_MIRROR` picks a
 faster mirror than pkg's default, e.g.
 `https://mirror.sjtu.edu.cn/dragonflybsd/dports`.
+
+Recording: `tools/linux/test-audio.sh start DIR` runs a private PipeWire
+and WirePlumber on the host (no D-Bus, no hardware, the host's own sound
+server untouched) with a microphone, `foxyn-mic`, that plays a 1000 Hz
+tone, and a speaker, `foxyn-speaker`, recorded to `DIR/speaker.wav`;
+`qemu.sh` with `AUDIO=pipewire`, `PIPEWIRE_RUNTIME_DIR=DIR`,
+`AUDIO_IN=foxyn-mic` and `AUDIO_OUT=foxyn-speaker` (the line `start`
+prints) gives the machine a duplex HDA card on them; `test-audio.sh stop
+DIR` ends it. `AUDIO_CHECK=capture boot-test.sh --desktop` does this:
+the session records 3 s from its default source, must hear 1000 Hz in
+them, and plays them back, and the `audio-wav-tones:` line shows the
+440 Hz test tone and the 1000 Hz recording reaching the speaker. It
+needs `pipewire`, `wireplumber` and `python3` on the host.
 [`docs/hardware-report.md`](../../docs/hardware-report.md) says how to make a
 hardware report with inxi and the base system's tools, and what to remove
 before sharing it.

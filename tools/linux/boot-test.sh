@@ -46,7 +46,14 @@
 #			audio.wav, and the "audio-wav:" line in the log says
 #			how long and at what frequency it sounded.  With
 #			--desktop: the tone through the session's own
-#			PipeWire (desktop-session audio), no download
+#			PipeWire (desktop-session audio), no download.
+#			capture: with --desktop, the card is also recorded
+#			from: QEMU's PipeWire backend on a private PipeWire
+#			(tools/linux/test-audio.sh) whose microphone plays a
+#			1000 Hz tone; the session records it, must hear the
+#			tone and plays it back, and the "audio-wav:" lines
+#			then show both tones (host: pipewire, wireplumber,
+#			python3)
 #	DISK		disk for --disk and --desktop-setup (default
 #			$OBJDIR/disk.img; --desktop: $OBJDIR/desktop.img)
 #	LOGIN_CHECK	1: --desktop also drives Gershwin's LoginWindow
@@ -152,12 +159,33 @@ if [ "${DESKTOP_CHECK:-0}" = 1 ] || [ "$MODE" = desktopsetup ] ||
     USB_DEVS=
 fi
 # The audio test: an HDA card whose output QEMU writes to a WAV file.
+# AUDIO_CHECK=capture: a duplex card on test-audio.sh's PipeWire, whose
+# speaker recording becomes the WAV file once QEMU exits.
 WAV=$OBJDIR/qemu/audio.wav
-if [ "${AUDIO_CHECK:-0}" = 1 ]; then
-	rm -f "$WAV"
+AUDIO_TONE=
+case ${AUDIO_CHECK:-0} in
+0) ;;
+1)	rm -f "$WAV"
 	DESKTOP_DEVS="$DESKTOP_DEVS -device intel-hda
-	    -device hda-output,audiodev=snd0 -audiodev wav,id=snd0,path=$WAV"
-fi
+	    -device hda-output,audiodev=snd0 -audiodev wav,id=snd0,path=$WAV" ;;
+capture)
+	[ "$MODE" = desktop ] || { echo ">>> AUDIO_CHECK=capture needs --desktop" >&2; exit 2; }
+	rm -f "$WAV"
+	AUDIO_TONE=1000
+	# A short path: PipeWire's socket name must fit in 108 bytes.
+	AUDIO_DIR=$(mktemp -d /tmp/foxyn-audio.XXXXXX)
+	trap '"$SRCDIR/tools/linux/test-audio.sh" stop "$AUDIO_DIR"; rm -rf "$AUDIO_DIR"' EXIT
+	trap 'exit 1' HUP INT TERM
+	"$SRCDIR/tools/linux/test-audio.sh" start "$AUDIO_DIR" "$AUDIO_TONE" >/dev/null ||
+	    { echo ">>> test-audio.sh could not start" >&2; exit 1; }
+	PIPEWIRE_RUNTIME_DIR=$AUDIO_DIR
+	export PIPEWIRE_RUNTIME_DIR
+	# (100 ms buffers, as qemu.sh: QEMU's default loses more input.)
+	DESKTOP_DEVS="$DESKTOP_DEVS -device intel-hda
+	    -device hda-duplex,audiodev=snd0
+	    -audiodev pipewire,id=snd0,in.name=foxyn-mic,out.name=foxyn-speaker,in.latency=100000,out.latency=100000" ;;
+*)	echo ">>> AUDIO_CHECK must be 0, 1 or capture" >&2; exit 2 ;;
+esac
 # --desktop takes its screenshot through the QEMU monitor.
 MONITOR=$OBJDIR/qemu/$CONF.monitor
 if [ "$MODE" = desktop ]; then
@@ -309,8 +337,8 @@ if [ "$result" -eq 0 ] && [ "$MODE" = desktop ]; then
 	fi
 	# AUDIO_CHECK=1: a tone through the session's PipeWire (daudio-42);
 	# what reached the card is in the WAV file ("audio-wav:" line).
-	if [ "$result" -eq 0 ] && [ "${AUDIO_CHECK:-0}" = 1 ]; then
-		printf "sh -c 'sh /root/tests/desktop-session audio; echo daudio-\$((6*7)): \$?'\r" >&3
+	if [ "$result" -eq 0 ] && [ "${AUDIO_CHECK:-0}" != 0 ]; then
+		printf "sh -c 'sh /root/tests/desktop-session audio $AUDIO_TONE; echo daudio-\$((6*7)): \$?'\r" >&3
 		tries=0
 		while [ "$tries" -lt 12 ] && ! grep -aq '^daudio-42:' "$LOG"; do
 			sleep 5
@@ -482,11 +510,19 @@ kill "$pid" 2>/dev/null || :
 wait "$pid" 2>/dev/null || :
 [ -n "$catpid" ] && { kill "$catpid" 2>/dev/null || :; wait "$catpid" 2>/dev/null || :; }
 
+# AUDIO_CHECK=capture: end the recording of the speaker, then use it.
+if [ -n "$AUDIO_TONE" ]; then
+	"$SRCDIR/tools/linux/test-audio.sh" stop "$AUDIO_DIR"
+	cp "$AUDIO_DIR/speaker.wav" "$WAV" 2>/dev/null ||
+	    echo ">>> test-audio.sh recorded nothing" >&2
+fi
+
 # What the HDA card played: QEMU's WAV is 16-bit stereo at 44100 Hz.  In
 # 0.1 s windows of the left channel, those louder than RMS 1000 count as
 # sound; the frequency is the median over them of half the window's zero
-# crossings per second.
-if [ "${AUDIO_CHECK:-0}" = 1 ] && [ -f "$WAV" ]; then
+# crossings per second.  "audio-wav-tones:" lists each frequency (to
+# 10 Hz) heard for at least 1 s.
+if [ "${AUDIO_CHECK:-0}" != 0 ] && [ -f "$WAV" ]; then
 	od -An -v -td2 -w4 -j44 "$WAV" | awk '
 	{ x = $1; sq += x * x; if ((x < 0) != (p < 0)) zc++; p = x; n++
 	  if (n == 4410) { if (sq / n > 1000000) print zc * 5
@@ -494,7 +530,14 @@ if [ "${AUDIO_CHECK:-0}" = 1 ] && [ -f "$WAV" ]; then
 	END { printf "audio-wav: %.1f s of sound", NR / 10
 	      if (NR) printf ", %d Hz", f[int((NR + 1) / 2)]
 	      printf "\n" }' >> "$LOG"
-	grep -a '^audio-wav:' "$LOG" >&2
+	od -An -v -td2 -w4 -j44 "$WAV" | awk '
+	{ x = $1; sq += x * x; if ((x < 0) != (p < 0)) zc++; p = x; n++
+	  if (n == 4410) { if (sq / n > 1000000) t[int(zc * 5 / 10 + 0.5) * 10]++
+	      n = 0; sq = 0; zc = 0 } }
+	END { printf "audio-wav-tones:"
+	      for (f in t) if (t[f] >= 10) printf " %.1f s at %d Hz;", t[f] / 10, f
+	      printf "\n" }' >> "$LOG"
+	grep -a '^audio-wav' "$LOG" >&2
 fi
 
 if [ "$result" -eq 0 ]; then

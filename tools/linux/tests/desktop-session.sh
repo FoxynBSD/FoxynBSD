@@ -15,7 +15,11 @@
 #		the desktop user through the session's PipeWire (JACK sink);
 #		boot-test.sh checks what reached the card.  When the card
 #		records (a JACK source), also record 3 s and check their
-#		length
+#		length.  `audio HZ`: the card's input plays a HZ tone (such
+#		as boot-test.sh's AUDIO_CHECK=capture); the recording must
+#		have at least 2 s of sound at HZ ±3% (measured by the
+#		median period: QEMU's input loses blocks of frames), and is
+#		then played back
 #	login	(after stop) Gershwin's LoginWindow, when installed: start
 #		foxyn_loginwindow with a test password for the user; check
 #		that another account cannot use the display, that a wrong
@@ -710,6 +714,33 @@ audio)
 			sed 's/^/desktop-session: /' /tmp/pw-record.log
 			fail "pw-record: ${ms} ms in 3 s"
 		fi
+		# What was recorded, left channel: sound is 0.1 s windows
+		# louder than RMS 1000; the frequency is 48 kHz over the
+		# median distance between rising zero crossings in them.
+		# QEMU's input loses blocks of frames: a lost block shortens
+		# one period, and the median ignores it.  od prints 8
+		# samples, 4 frames, a line.
+		if [ -n "${2:-}" ]; then
+			heard=$(od -An -v -td2 -j44 /tmp/rec.wav | awk '
+			{ for (i = 1; i <= NF; i += 2) { x = $i; sq += x * x; k++
+			      if (p < 0 && x >= 0) { if (last) d[nd++] = k - last; last = k }
+			      p = x; n++
+			      if (n == 4800) { if (sq / n > 1000000) { s++
+				      for (c = 0; c < nd; c++) h[d[c]]++
+				      m += nd }
+				  n = 0; sq = 0; nd = 0 } } }
+			END { for (l = 1; cum < m / 2 && l < 48000; l++) cum += h[l]
+			      printf "%.1f %d", s / 10, (m && l > 1) ? 48000 / (l - 1) : 0 }')
+			echo "desktop-session: the recording has ${heard% *} s of sound, at ${heard#* } Hz"
+			[ "$(echo "$heard" | awk -v hz="$2" '{ print ($1 >= 2 && $2 >= hz * 0.97 && $2 <= hz * 1.03) }')" = 1 ] ||
+			    fail "the card's $2 Hz input did not reach the recording"
+			su -m "$user" -c "env XDG_RUNTIME_DIR=$rt timeout 30 $pw/pw-play /tmp/rec.wav" \
+			    > /tmp/pw-play.log 2>&1 &&
+			    echo "desktop-session: $user played the recording back" ||
+			    fail "pw-play of the recording"
+		fi
+	elif [ -n "${2:-}" ]; then
+		fail "no audio source, but the card's input plays $2 Hz"
 	else
 		echo "desktop-session: no audio source (the card does not record)"
 	fi

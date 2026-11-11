@@ -155,9 +155,8 @@ on the WAV backend; which `jackd` mode it got was not logged.)
 
 ## Limits
 
-- Recording was tested with a silent input only: the path, the source
-  and the timing, not that a signal arrives. QEMU's WAV backend has no
-  input; `AUDIO=host` would use the host's microphone.
+- Recording was tested in QEMU with a generated tone (below), not with a
+  microphone on physical hardware.
 - One sound card, the first OSS device, at 48 kHz; no hot plug, no
   Bluetooth, no ALSA or PulseAudio compatibility layers (`pipewire-pulse`
   is not configured), no realtime scheduling (no RTKit; `jackd` and
@@ -203,4 +202,63 @@ a 4 s 440 Hz tone in that session reached the card (4 s at 440 Hz, RMS
 7318, as in the automatic session). After Log Out the processes were gone
 and the directory removed. `LOGIN_CHECK=1 boot-test.sh --desktop` checks
 this (`desktop-session login`).
+
+## Recording a real signal, 2026-11-11
+
+The earlier recording tests had a silent input. Now a known signal
+reaches the card's input, without the host's sound server or devices:
+
+- `tools/linux/test-audio.sh start DIR` runs a private PipeWire and
+  WirePlumber on the Linux host (their own socket in `DIR`, no D-Bus,
+  no hardware monitors). It has a microphone, `foxyn-mic` (a loopback
+  whose other end plays a 1000 Hz sine), and a speaker, `foxyn-speaker`,
+  recorded to `DIR/speaker.wav`.
+- `qemu.sh` with `AUDIO=pipewire` gives the machine a duplex HDA card on
+  QEMU's PipeWire backend, from `AUDIO_IN` and to `AUDIO_OUT`, with
+  100 ms buffers.
+- `desktop-session audio 1000` records 3 s. They must have at least 2 s
+  of sound (0.1 s windows louder than RMS 1000), at 1000 Hz ±3% by
+  the median distance between rising zero crossings. A lost block of
+  frames (see below) shortens one period only, and the median ignores
+  it. The test then plays the recording back.
+- `AUDIO_CHECK=capture boot-test.sh --desktop` runs it all. The
+  `audio-wav-tones:` line lists what reached the speaker: the 440 Hz
+  test tone and the 1000 Hz recording.
+
+Tested in QEMU (KVM), on the `build.sh desktop` image, in the automatic
+session, as `foxyn`:
+
+- The card is play/rec, so `foxyn-audio` started `jackd -i 2 -o 2` (duplex).
+  `wpctl status` showed `JACK Sink` and `JACK Source` as the defaults.
+- `pw-record` from the default source: 2.9 s of sound, median 1000 Hz, RMS
+  8448 (the host plays at 12000 peak, RMS 8485). Played back, the host's
+  speaker received 2.9 s at 1000 Hz.
+- Capture volume: with `wpctl set-volume @DEFAULT_AUDIO_SOURCE@ 0.5` the
+  RMS fell to 1055 (0.125, 0.5³, as the playback volume), and with
+  `wpctl set-mute @DEFAULT_AUDIO_SOURCE@ 1` nothing was recorded.
+
+QEMU's input loses frames. The samples are a clean sine, but they jump
+at block boundaries, and that raises the measured frequency:
+
+- QEMU's default buffers: 581 jumps in 3 s, about 1070 Hz.
+- 100 ms buffers (`in.latency`): the first recording after the session
+  started had one jump and measured 1000 Hz. Later ones had 47 to
+  94 jumps and measured 1000 to 1015 Hz, or 1040 to 1080 Hz on a busier
+  machine. In the end-to-end run, 1050 Hz.
+- The same happens without JACK. Reading `/dev/dsp` directly, through
+  a virtual channel next to `jackd`, gives 1015 to 1050 Hz.
+- `in.frequency=48000` and `in.mixing-engine=off` did not change it.
+  QEMU 11 has no `use-timer` property on the HDA codecs.
+
+So the loss is below `jackd`, in QEMU's emulation or in `sound(4)`; the
+cause is not found. Zero crossings counted in 0.1 s windows, as at
+first, measured above 1030 Hz in most windows of the end-to-end run.
+The median period does not depend on the loss: on a generated 1000 Hz
+recording that loses 17 frames in every 300 (5.7%), it gives 1000 Hz.
+Recording on physical hardware would tell whether `sound(4)` has a part
+in it.
+
+The test does not cover a microphone or line input on physical hardware,
+other sample rates than 48 kHz, or input level controls of the card's
+mixer (`mixer(8)`): the source's volume is PipeWire's.
 

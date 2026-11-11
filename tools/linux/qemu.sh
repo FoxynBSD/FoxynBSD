@@ -74,7 +74,15 @@
 #			backend, with real timing: for recording tests); a
 #			path ending in .wav records what the guest plays to
 #			that file (16-bit stereo, 44.1 kHz; complete when QEMU
-#			exits), with no input
+#			exits), with no input; "pipewire" plays and records
+#			through QEMU's PipeWire backend, on the PipeWire of
+#			PIPEWIRE_RUNTIME_DIR, such as the test microphone and
+#			speaker of tools/linux/test-audio.sh (100 ms
+#			buffers: with QEMU's default, the card's input lost
+#			more blocks of samples; see docs/desktop-pipewire.md)
+#	AUDIO_IN, AUDIO_OUT	with AUDIO=pipewire: the PipeWire nodes the
+#			card records from and plays to (default: WirePlumber's
+#			defaults)
 #
 # Host packages: qemu-desktop (window) or qemu-base (serial only),
 # edk2-ovmf; Debian/Ubuntu: qemu-system-x86 qemu-system-gui ovmf
@@ -340,7 +348,13 @@ silent)	set -- "$@" -device intel-hda -device hda-duplex,audiodev=snd0 \
 	    -audiodev none,id=snd0 ;;
 *.wav)	set -- "$@" -device intel-hda -device hda-output,audiodev=snd0 \
 	    -audiodev "wav,id=snd0,path=$AUDIO" ;;
-*)	die "AUDIO must be host, silent or a .wav path" ;;
+pipewire)
+	case ${AUDIO_IN:-}${AUDIO_OUT:-} in
+	*,*) die "AUDIO_IN and AUDIO_OUT must not contain a comma" ;;
+	esac
+	set -- "$@" -device intel-hda -device hda-duplex,audiodev=snd0 \
+	    -audiodev "pipewire,id=snd0,in.latency=100000,out.latency=100000${AUDIO_IN:+,in.name=$AUDIO_IN}${AUDIO_OUT:+,out.name=$AUDIO_OUT}" ;;
+*)	die "AUDIO must be host, silent, pipewire or a .wav path" ;;
 esac
 
 # An explicit monitor remains available in headless runs for screendump.
