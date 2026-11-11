@@ -499,7 +499,10 @@ fi
 xpid=$!
 echo "$xpid" > /var/run/foxyn-session.X.pid
 i=0
-while [ ! -S /tmp/.X11-unix/X0 ] && [ "$i" -lt 30 ]; do sleep 1; i=$((i + 1)); done
+# (Not longer than X runs: a server that exits at once, e.g. on a bad
+# configuration, ends the wait.)
+while [ ! -S /tmp/.X11-unix/X0 ] && kill -0 "$xpid" 2>/dev/null &&
+    [ "$i" -lt 30 ]; do sleep 1; i=$((i + 1)); done
 if ! kill -0 "$xpid" 2>/dev/null || [ ! -S /tmp/.X11-unix/X0 ]; then
 	echo "X did not start (see /var/log/foxyn-session.X.log); no session"
 	kill "$xpid" 2>/dev/null

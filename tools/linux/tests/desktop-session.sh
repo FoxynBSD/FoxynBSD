@@ -23,6 +23,13 @@
 #		that logging out returns to the login window and takes the
 #		user's access away, and a second login; then stop the
 #		service and remove the password
+#	openrc	(after stop, with foxyn_openrc) OpenRC's order and recovery:
+#		starting the desktop runlevel starts dbus before
+#		foxyn-desktop and stopping it stops them the other way; with
+#		an X configuration that stops the server, the runlevel still
+#		starts, dbus runs, foxyn-desktop is reported crashed and the
+#		console keeps working; without it, `rc-service foxyn-desktop
+#		restart` brings the desktop back
 ok=1
 fail() { echo "desktop-session: FAIL $*"; ok=0; }
 user=$(sed -n 's/^foxyn_desktop_user="\(.*\)"$/\1/p' /etc/rc.conf | tail -n 1)
@@ -341,6 +348,61 @@ login)
 	while pgrep -x Xorg >/dev/null && [ "$i" -lt 20 ]; do sleep 1; i=$((i + 1)); done
 	pgrep -x Xorg >/dev/null && fail "Xorg still runs after stopping LoginWindow"
 	[ "$ok" = 1 ] && echo "desktop-session: LoginWindow stopped"
+	;;
+openrc)
+	if ! grep -q '^foxyn_openrc_enable="YES"' /etc/rc.conf; then
+		echo "desktop-session: OpenRC does not run the desktop"
+		exit 0
+	fi
+	# order WORD FIRST SECOND FILE: "WORD FIRST" comes before "WORD
+	# SECOND" in OpenRC's output
+	order() {
+		a=$(grep -n "$1 $2" "$4" | head -n 1 | cut -d: -f1)
+		b=$(grep -n "$1 $3" "$4" | head -n 1 | cut -d: -f1)
+		[ -n "$a" ] && [ -n "$b" ] && [ "$a" -lt "$b" ]
+	}
+	service foxyn_openrc start > /tmp/openrc-start.log 2>&1
+	sh "$0" wait > /tmp/openrc-wait.log 2>&1 ||
+	    fail "no desktop from OpenRC: $(grep FAIL /tmp/openrc-wait.log | tr '\n' ' ')"
+	order Starting dbus foxyn-desktop /tmp/openrc-start.log &&
+	    echo "desktop-session: OpenRC starts dbus, then foxyn-desktop" ||
+	    fail "OpenRC's start order: $(tr '\n' ' ' < /tmp/openrc-start.log)"
+	service foxyn_openrc stop > /tmp/openrc-stop.log 2>&1
+	order Stopping foxyn-desktop dbus /tmp/openrc-stop.log &&
+	    echo "desktop-session: OpenRC stops foxyn-desktop, then dbus" ||
+	    fail "OpenRC's stop order: $(tr '\n' ' ' < /tmp/openrc-stop.log)"
+	# The graphical stack fails: a configuration X refuses.
+	xconf=/System/Library/XLibre/etc/X11/xorg.conf.d
+	[ -d $xconf ] || xconf=/usr/local/etc/X11/xorg.conf.d
+	printf 'Section "Broken"\n' > $xconf/99-broken.conf
+	lines=$(wc -l < /var/log/foxyn-session.log)
+	service foxyn_openrc start > /tmp/openrc-broken.log 2>&1
+	i=0
+	while [ "$i" -lt 45 ]; do
+		st=$(rc-status desktop 2>/dev/null)
+		echo "$st" | grep -q 'foxyn-desktop.*crashed' && break
+		sleep 3; i=$((i + 3))
+	done
+	if echo "$st" | grep -q 'dbus.*started' &&
+	    echo "$st" | grep -q 'foxyn-desktop.*crashed' &&
+	    ! pgrep -x Xorg >/dev/null; then
+		# (this runs on the console)
+		echo "desktop-session: with X broken, dbus runs, foxyn-desktop is reported crashed, the console works"
+	else
+		fail "with X broken: $(echo "$st" | tr -s ' \n' ' ')"
+	fi
+	tail -n +$((lines + 1)) /var/log/foxyn-session.log | grep -q 'X did not start' &&
+	    echo "desktop-session: foxyn-session.log says why: X did not start" ||
+	    fail "no reason in foxyn-session.log"
+	rm -f $xconf/99-broken.conf
+	rc-service foxyn-desktop restart > /tmp/openrc-restart.log 2>&1
+	if sh "$0" wait > /tmp/openrc-wait2.log 2>&1; then
+		echo "desktop-session: rc-service foxyn-desktop restart brings the desktop back"
+	else
+		fail "no desktop after the restart: $(grep FAIL /tmp/openrc-wait2.log | tr '\n' ' ')"
+	fi
+	sh "$0" stop >/dev/null 2>&1
+	[ "$ok" = 1 ]
 	;;
 audio)
 	[ -c /dev/dsp ] || { echo "desktop-session: FAIL no sound card"; exit 1; }

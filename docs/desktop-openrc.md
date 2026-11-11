@@ -122,3 +122,36 @@ Limits: after Log Out (or a session that ends by itself) OpenRC shows
 stopping it; the console remains and `rc-service foxyn-desktop restart`
 starts a new session. LoginWindow (`-l`) still runs from rc.d only. Not
 tested on physical hardware.
+
+## Automated order and recovery test, 2026-11-11
+
+`desktop-session openrc` (run by `DESKTOP_OPENRC=1 boot-test.sh
+--desktop`) checks, after the session test:
+
+- `service foxyn_openrc start` prints `Starting dbus` before `Starting
+  foxyn-desktop`, and the session comes up (`desktop-session wait`);
+  `service foxyn_openrc stop` prints `Stopping foxyn-desktop` before
+  `Stopping dbus`.
+- With an X configuration XLibre refuses (an unterminated section in
+  `xorg.conf.d/99-broken.conf`), `service foxyn_openrc start` still
+  starts the runlevel: `dbus` is started, `foxyn-desktop` is reported
+  `crashed`, no X server runs, the console works (the test runs on it),
+  and the new lines of `foxyn-session.log` say `X did not start`.
+- Without the file, `rc-service foxyn-desktop restart` brings the
+  desktop back (`desktop-session wait`).
+
+Writing it found that `foxyn-session` waited the whole 30 s for X's
+socket even when X had already exited, so for that long OpenRC still saw
+the service as started; it now stops waiting when X exits.
+
+By hand in QEMU on the `DESKTOP_OPENRC=1 build.sh desktop` image: with
+the broken file, the screen showed the console login instead of the
+desktop, and after a reboot with the file still there the system came up
+the same way: the console login, `dbus` started, `foxyn-desktop`
+crashed, `X did not start` in `foxyn-session.log`. After removing the
+file, `rc-service foxyn-desktop restart` showed the desktop again.
+
+The same run changed `foxyn-audio`: it tries recording only when
+`/dev/sndstat` lists the default device as `play/rec`. On QEMU's
+playback-only card, the duplex `jackd` sometimes outlived its 10 s probe
+and left a capture source that delivered nothing (`pw-record` got 0 ms).

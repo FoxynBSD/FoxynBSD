@@ -308,6 +308,17 @@ EOF
 		tries=$((tries + 1))
 	done
 	grep -aq '^dstop-42: 0' "$LOG" || result=1
+	# With OpenRC (DESKTOP_OPENRC=1): its order and the recovery when
+	# X fails (dopenrc-42).
+	if [ "${DESKTOP_OPENRC:-0}" = 1 ]; then
+		printf "sh -c 'sh /root/tests/desktop-session openrc; echo dopenrc-\$((6*7)): \$?'\r" >&3
+		tries=0
+		while [ "$tries" -lt 60 ] && ! grep -aq '^dopenrc-42:' "$LOG"; do
+			sleep 5
+			tries=$((tries + 1))
+		done
+		grep -aq '^dopenrc-42: 0' "$LOG" || result=1
+	fi
 	# LOGIN_CHECK=1: then Gershwin's LoginWindow (dlogin-42): login,
 	# logout, a second login, a wrong password.  Opt-in: the first login
 	# of a freshly started LoginWindow driven by xdotool is unreliable.
