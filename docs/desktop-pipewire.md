@@ -8,6 +8,7 @@ and starts them with the desktop session.
 | --- | --- | --- |
 | PipeWire 1.6.11 | `contrib/pipewire` (`4287f31510`) | `/System/Library/PipeWire` |
 | WirePlumber 0.5.19 | `contrib/wireplumber` (`4ab992fa29`) | `/System/Library/PipeWire` |
+| PulseAudio 17.0, client side (libpulse, pactl, paplay) | `contrib/pulseaudio` (`1f020889c9`) | `/System/Library/PipeWire` |
 | epoll-shim 0.0.20240608 | GitHub archive (SHA-256 in the script) | `/System/Library/PipeWire/lib` |
 | JACK (jackd) | DPorts' `jackit` | `/usr/local` |
 
@@ -158,9 +159,9 @@ on the WAV backend; which `jackd` mode it got was not logged.)
 - Recording was tested in QEMU with a generated tone (below), not with a
   microphone on physical hardware.
 - One sound card, the first OSS device, at 48 kHz; no hot plug, no
-  Bluetooth, no ALSA or PulseAudio compatibility layers (`pipewire-pulse`
-  is not configured), no realtime scheduling (no RTKit; `jackd` and
-  PipeWire run without it).
+  Bluetooth, no ALSA compatibility layer, no realtime scheduling (no
+  RTKit; `jackd` and PipeWire run without it). PulseAudio applications
+  are served by `pipewire-pulse` (see "Applications" below).
 - The sound starts with the automatic session's `.xsession` (tested with
   the rc.d service `foxyn_desktop`; OpenRC's `foxyn-desktop` runs the same
   `foxyn-session` but was not tested with sound) and with a LoginWindow
@@ -261,4 +262,57 @@ in it.
 The test does not cover a microphone or line input on physical hardware,
 other sample rates than 48 kHz, or input level controls of the card's
 mixer (`mixer(8)`): the source's volume is PipeWire's.
+
+## Applications, 2026-11-11
+
+Applications reach the card in three ways:
+
+| Application | Path | Through PipeWire |
+| --- | --- | --- |
+| PipeWire clients (`pw-play`, `pw-record`) | PipeWire → JACK tunnel → `jackd` → `/dev/dsp` | yes |
+| PulseAudio clients (`paplay`; browsers and players built with libpulse) | libpulse → `pipewire-pulse` → PipeWire → … | yes |
+| OSS applications, GNUstep's `NSSound` | `/dev/dsp` → a virtual channel of `sound(4)`, mixed with `jackd`'s | no |
+
+- **PulseAudio clients.** `build-pipewire.sh` builds PulseAudio 17.0's
+  client side: `libpulse`, `libpulse-simple`, `pactl`, `paplay` and
+  `parec`. There is no daemon and no `padsp`. PipeWire starts
+  `pipewire-pulse` with WirePlumber (`10-foxyn.conf`'s `context.exec`).
+  Its socket is `$XDG_RUNTIME_DIR/pulse/native`, where libpulse looks
+  by default. `pipewire-pulse` is a link to `pipewire`, and its process
+  is named `pipewire`, so the session's cleanup and LoginWindow's logout
+  already end it. The logout checks found no process of the user left.
+
+  `tools/desktop/patches/pulseaudio-dragonfly.txt` makes two changes.
+  Credentials over Unix sockets use FreeBSD's `struct cmsgcred` and
+  `SCM_CREDS`: DragonFly has no `struct ucred` and no `SCM_CREDENTIALS`.
+  The program's name comes from `KERN_PROC_PATHNAME`.
+
+  The build needs `-Db_lundef=false`: DragonFly's libc has no `environ`
+  (`crt1.o` has it), and `libpulsecommon` uses it. It also needs
+  `-Doss-output=disabled`: `padsp`'s `ioctl` prototype conflicts with
+  DragonFly's.
+- **NSSound.** `gnustep-gui` plays through libao (its `AudioOutput`
+  bundle). DPorts' libao has only an OSS driver, so `NSSound` opens
+  `/dev/dsp`. `sound(4)` mixes it with `jackd`'s output in a virtual
+  channel, outside PipeWire: `wpctl`'s volume does not apply to it.
+- **Applications from DPorts.** Those built with DPorts' `libpulse` use
+  the same protocol and socket. They were not tested.
+
+Tested in QEMU (KVM) on the `build.sh desktop` image, with PulseAudio's
+client built in the VM as `build-pipewire.sh` builds it. As `foxyn`:
+
+| Step | Result |
+| --- | --- |
+| `pactl info` | `Server Name: PulseAudio (on PipeWire 1.6.11)`, default sink `jack_sink` |
+| `paplay` of an 880 Hz tone | played |
+| `NSSound` (`tools/linux/tests/gnustep-sound.m`), a 660 Hz tone | finished after 3.0 s |
+
+`test-audio.sh`'s speaker recorded the 440 Hz test tone and both of
+these: 5.8 s at 880 Hz and 5.8 s at 660 Hz, from two runs.
+`desktop-session audio` now runs both steps, which `boot-test.sh` runs
+with `AUDIO_CHECK=1` or `capture`.
+
+Once, `wpctl inspect @DEFAULT_AUDIO_SOURCE@` faulted (SIGSEGV) after
+answering. 40 more runs did not reproduce it, and it was not
+investigated.
 

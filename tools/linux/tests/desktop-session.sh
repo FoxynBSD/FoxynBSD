@@ -13,7 +13,11 @@
 #		foxyn_openrc stop`, which must stop the system bus too
 #	audio	(after wait, with a sound card) play a 4 s 440 Hz tone as
 #		the desktop user through the session's PipeWire (JACK sink);
-#		boot-test.sh checks what reached the card.  When the card
+#		boot-test.sh checks what reached the card.  Then as
+#		applications do: an 880 Hz tone with paplay, a PulseAudio
+#		client, through pipewire-pulse, and a 660 Hz one with
+#		AppKit's NSSound (tests/gnustep-sound.m), which plays
+#		through libao's OSS driver.  When the card
 #		records (a JACK source), also record 3 s and check their
 #		length.  `audio HZ`: the card's input plays a HZ tone (such
 #		as boot-test.sh's AUDIO_CHECK=capture); the recording must
@@ -685,9 +689,14 @@ audio)
 	# that of a LoginWindow session (pam_xdg).
 	rt=/var/run/user/$uid
 	[ -d "$rt" ] || rt=/var/run/xdg/$user
-	ruby -e 'r = 48000; d = (0...r * 4).map { |i| (Math.sin(2 * Math::PI * 440 * i / r) * 12000).to_i }.pack("s<*")
-	    File.binwrite("/tmp/tone.wav", ["RIFF", 36 + d.size, "WAVE", "fmt ", 16, 1, 1, r, r * 2, 2, 16, "data", d.size].pack("a4Va4a4VvvVVvva4V") + d)'
-	chmod 644 /tmp/tone.wav
+	# tone HZ SECONDS FILE: a 48 kHz mono WAV of a sine
+	tone() {
+		ruby -e 'hz, s = ARGV[0].to_i, ARGV[1].to_i; r = 48000
+		    d = (0...r * s).map { |i| (Math.sin(2 * Math::PI * hz * i / r) * 12000).to_i }.pack("s<*")
+		    File.binwrite(ARGV[2], ["RIFF", 36 + d.size, "WAVE", "fmt ", 16, 1, 1, r, r * 2, 2, 16, "data", d.size].pack("a4Va4a4VvvVVvva4V") + d)' "$@"
+		chmod 644 "$3"
+	}
+	tone 440 4 /tmp/tone.wav
 	sink=$(su -m "$user" -c "env XDG_RUNTIME_DIR=$rt $pw/wpctl inspect @DEFAULT_AUDIO_SINK@" 2>&1 |
 	    sed -n 's/.*node.description = "\(.*\)"/\1/p')
 	echo "desktop-session: default sink: ${sink:-none}"
@@ -697,6 +706,47 @@ audio)
 	else
 		sed 's/^/desktop-session: /' /tmp/pw-play.log
 		fail "pw-play"
+	fi
+	# A PulseAudio application: paplay (libpulse from contrib/pulseaudio)
+	# through pipewire-pulse, which PipeWire starts.
+	if [ -x $pw/paplay ]; then
+		tone 880 3 /tmp/tone880.wav
+		server=$(su -m "$user" -c "env XDG_RUNTIME_DIR=$rt $pw/pactl info" 2>/dev/null |
+		    sed -n 's/^Server Name: //p')
+		echo "desktop-session: PulseAudio server: ${server:-none}"
+		if su -m "$user" -c "env XDG_RUNTIME_DIR=$rt timeout 30 $pw/paplay /tmp/tone880.wav" \
+		    > /tmp/paplay.log 2>&1; then
+			echo "desktop-session: $user played an 880 Hz tone with paplay (PulseAudio)"
+		else
+			sed 's/^/desktop-session: /' /tmp/paplay.log
+			fail "paplay"
+		fi
+	fi
+	# A GNUstep application: NSSound (libao's OSS driver: a virtual
+	# channel of the card, next to jackd's).
+	if [ -r /System/Library/Makefiles/GNUstep.sh ] &&
+	    [ -d /System/Library/Bundles/AudioOutput.nssound ]; then
+		d=$(mktemp -d /tmp/gnustep-sound.XXXXXX) || exit 1
+		cp "$(dirname "$0")/gnustep-sound.m" "$d/"
+		tone 660 3 "$d/tone660.wav"
+		chown -R "$user" "$d"
+		cat > "$d/run.sh" <<'RUN'
+set +u
+. /System/Library/Makefiles/GNUstep.sh
+cd "$1" || exit 1
+libs=/System/Library/Libraries
+clang19 $(gnustep-config --objc-flags) -o sound gnustep-sound.m \
+    $(gnustep-config --gui-libs) -L$libs -Wl,-rpath,$libs || exit 3
+./sound tone660.wav 2>/dev/null
+RUN
+		out=$(env DISPLAY=:0 XAUTHORITY="$(cat /var/run/foxyn-session.xauthority 2>/dev/null)" \
+		    su -m "$user" -c "sh $d/run.sh $d" 2>&1)
+		rc=$?
+		echo "$out" | sed 's/^/desktop-session: /'
+		[ "$rc" = 0 ] &&
+		    echo "desktop-session: $user played a 660 Hz tone with NSSound (GNUstep)" ||
+		    fail "NSSound (exit $rc)"
+		rm -rf "$d"
 	fi
 	# (Only a card that records: "play/rec" in /dev/sndstat.)
 	if grep 'default' /dev/sndstat | grep -q 'rec' &&

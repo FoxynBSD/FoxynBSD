@@ -1473,7 +1473,8 @@ do_rootfs() {
 	install -m 555 "$SRCDIR/tools/linux/foxyn-desktop" "$root/usr/sbin/foxyn-desktop"
 	install -m 755 "$SRCDIR/tools/linux/tests/desktop-session.sh" "$root/root/tests/desktop-session"
 	install -m 644 "$SRCDIR/tools/linux/tests/gnustep-mainqueue.m" \
-	    "$SRCDIR/tools/linux/tests/gnustep-clickprobe.m" "$root/root/tests/"
+	    "$SRCDIR/tools/linux/tests/gnustep-clickprobe.m" \
+	    "$SRCDIR/tools/linux/tests/gnustep-sound.m" "$root/root/tests/"
 	# What foxyn-desktop builds GNUstep (contrib/gnustep-*'s revisions)
 	# and Gershwin's session and applications with.
 	mkdir -p "$root/usr/share/foxynbsd/desktop/patches"
