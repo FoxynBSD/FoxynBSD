@@ -80,6 +80,17 @@ Three patches are applied to GNUstep Base, from `tools/desktop/patches`:
   wrote the remote name into a nil connection; Workspace crashed there at
   every start (see [desktop-workspace.md](desktop-workspace.md)).
 
+- `gnustep-base-dispatch-pipe.txt` (2026-11-11): on Unix systems other
+  than Linux, libdispatch's main queue handle is a pipe packed in a 64-bit
+  value (read end in the high 32 bits, write end in the low 32 bits).
+  `NSRunLoop.m` called `_dispatch_get_main_queue_handle_4CF()` without a
+  declaration, so the value was truncated to an `int`, the write end,
+  and the run loop waited for it to become readable: blocks dispatched to
+  the main queue, and operations on `NSOperationQueue`'s main queue, never
+  ran. The patch declares the function, watches the read end and empties
+  the pipe before draining the queue, as the Linux code does with its
+  eventfd.
+
 These are small changes to the upstream sources that should go upstream.
 Make, libobjc2, GUI and Back build unmodified.
 
@@ -115,3 +126,37 @@ client without the cookie, and `service foxyn_desktop stop` ended X and
 the user's processes. The sessions log `Failed to get _NET_WORKAREA`
 and `gdnc - unable to register with name server`; their causes were not
 investigated.
+
+## Base's test suite, 2026-11-11
+
+GNUstep Base's own tests (`Tests/base` of the pinned revision), run in
+QEMU on the `build.sh desktop` image as `foxyn` against the GNUstep in
+`/System`. The installed `gnustep-tests` is a stub (GNUstep Make was
+configured without bash), so a copy was run with DPorts' bash, installed
+in the test VM only; some tests need Base's source tree configured
+(`./configure`, for `config.h`/`config.mak`).
+
+- First run: 13,077 tests passed, 40 "dashed hopes" (tests marked as
+  expected to fail upstream), and 11 failed: 5 that need the main queue
+  (`NSOperation/threads.m`, `NSRunLoop/dispatch.m`), fixed by
+  `gnustep-base-dispatch-pipe.txt`, and 6 network tests (HTTPS to
+  google.com; `http://www.gnustep.org`, which redirects to HTTPS).
+- The network tests failed because GnuTLS trusted no certificate
+  authority: it reads them through p11-kit's trust module, which DPorts'
+  p11-kit builds without a path (`trust list` showed none). Base's own
+  bundle is only a fallback when that call fails, and it did not fail.
+  `foxyn-desktop` now installs `ca_root_nss` and a module file in
+  `/usr/local/etc/pkcs11/modules` that points the trust module at
+  `/usr/local/share/certs/ca-root-nss.crt` (117 authorities); this
+  affects every GnuTLS program, not only GNUstep.
+- With Base rebuilt with the patch and the trust path set, the main
+  queue and network directories passed (`NSOperation`, `NSRunLoop`,
+  `NSURLConnection`, `NSStream`, `NSURLHandle`: 0 failures).
+
+`lld` crashed (SIGSEGV) twice while the suite built its tests, without a
+failed build; not investigated. `desktop-session gnustep` (run by
+`boot-test.sh --desktop`) builds and runs `tests/gnustep-mainqueue.m`:
+5 blocks dispatched to the main queue and an `NSOperationQueue` main
+queue operation must run from the run loop. `desktop-session wait` checks
+that p11-kit trusts at least one certificate authority.
+

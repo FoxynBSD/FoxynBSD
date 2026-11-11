@@ -118,7 +118,7 @@ else
 	# (boot-test.sh --desktop), and what PipeWire and WirePlumber build
 	# and run with (jackd, the sound server PipeWire plays through).
 	pkgs="$pkgs gmake llvm19 pkgconf cmake-core ninja libxml2 libxslt
-	    libffi gnutls icu curl avahi-app gmp libgcrypt cups giflib
+	    libffi gnutls icu curl ca_root_nss avahi-app gmp libgcrypt cups giflib
 	    jpeg-turbo png tiff libsndfile libao flite cairo fontconfig
 	    freetype2 libXcursor libXext libXfixes libXft libXmu libXrender
 	    libXt libglvnd dbus gettext-runtime sqlite3
@@ -139,6 +139,18 @@ gnustep_sh=$gsroot/System/Library/Makefiles/GNUstep.sh
 say "installing $(echo $pkgs)"
 pkg install -y $pkgs >> "$log" 2>&1 || {
 	tail -n 5 "$log" >&2; die "pkg install failed (see $log)"; }
+
+# GnuTLS (GNUstep's TLS, among others) reads the system's certificate
+# authorities through p11-kit's trust module, which DPorts' p11-kit
+# builds without a path: it found none, and every HTTPS connection was
+# refused ("certificate hasn't got a known issuer").  Point it at
+# ca_root_nss's bundle.
+if [ -r /usr/local/share/p11-kit/modules/p11-kit-trust.module ]; then
+	mkdir -p /usr/local/etc/pkcs11/modules
+	sed 's|^x-init-reserved:.*|x-init-reserved: paths=/usr/local/share/certs/ca-root-nss.crt|' \
+	    /usr/local/share/p11-kit/modules/p11-kit-trust.module \
+	    > /usr/local/etc/pkcs11/modules/p11-kit-trust.module
+fi
 
 # Several drivers match the framebuffer, and Xorg then gives up
 # ("Cannot run in framebuffer mode"): name scfb.

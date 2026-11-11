@@ -91,6 +91,14 @@ wait)
 		fi
 	done
 	pgrep -u 0 -x Xorg >/dev/null || fail "Xorg is not running"
+	# GnuTLS (GNUstep's TLS) finds the system's certificate authorities
+	# through p11-kit (foxyn-desktop configures its trust module).
+	if command -v trust >/dev/null; then
+		n=$(trust list --filter=ca-anchors 2>/dev/null | grep -c 'label:')
+		[ "$n" -gt 0 ] &&
+		    echo "desktop-session: p11-kit trusts $n certificate authorities" ||
+		    fail "p11-kit trusts no certificate authority (HTTPS fails)"
+	fi
 	for w in Terminal "$appwin"; do
 		xwininfo -root -tree | grep -q "\"$w\"" &&
 		    echo "desktop-session: window \"$w\" is mapped" ||
