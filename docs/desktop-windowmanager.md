@@ -112,3 +112,37 @@ license, copyright and attribution notices across the tracked tree found
 the notices described above and no separate license grant for the icon.
 This is not a complete file-by-file or binary-asset audit; ScanCode was not
 installed. The review used an AI assistant and has not had human legal review.
+
+## Lost button releases and "typing appears only after a click", 2026-11-11
+
+In the desktop session (QEMU, XLibre, Gershwin's WindowManager), text
+typed into TextEdit (by xdotool or by QEMU's keyboard, the same path as a
+physical keyboard) appeared only after the next mouse click; xterm showed
+it at once. With GNUstep's own theme instead of Eau, and without the
+`gnustep-base-dispatch-pipe.txt` patch, it was the same.
+
+A small GNUstep program that logs what `NSApplication` dispatches (a
+window with a text view, `-sendEvent:`, `-mouseDown:` and `-keyDown:`
+overridden) showed why: after an instantaneous click (xdotool's `click`:
+press and release back to back), the text view's `-mouseDown:` did not
+return; it waited in its mouse tracking loop for the button release,
+which never came, so the key events stayed queued until the next click
+supplied a release (then `-mouseDown:` returned and both keys were
+dispatched in the same millisecond). The application did read from the X
+connection all along (about 30 reads a second in a `ktrace`), so it was
+not asleep. With the button held for 300 ms the release arrived, the
+tracking loop ended and the keys were dispatched as they were typed.
+LoginWindow's "stuck Log In button" (`desktop-loginwindow.md`) is the
+same: a button's tracking loop waiting for a release.
+
+WindowManager grabs button 1 on its windows in synchronous pointer mode
+(`xcb_grab_button(..., XCB_GRAB_MODE_SYNC, ...)` in `XCBWindow.m`) and
+replays each press (`xcb_allow_events(..., XCB_ALLOW_REPLAY_POINTER, ...)`);
+gnustep-back drops a `ButtonRelease` whose window is not one of the
+application's (`XGServerEvent.m`). A release that falls into that window
+is a likely way to lose it; not confirmed yet (it needs a trace of the
+window manager's and the application's X events). Human clicks last tens
+to hundreds of milliseconds and are much less exposed than synthetic
+ones, but the effect when it happens (a control or text view that stops
+responding until the next click) is the same. The tests press for 150 ms
+(`login_click`).
