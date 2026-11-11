@@ -325,7 +325,12 @@ dsclose(cdev_t dev, int mode, struct diskslices *ssp)
 
 	slice = dkslice(dev);
 	part  = dkpart(dev);
-	if (slice < ssp->dss_nslices) {
+	/*
+	 * ssp is NULL once the disk went away (disk_invalidate()), as when
+	 * a USB stick is pulled and its file system unmounted afterwards:
+	 * nothing is left to clear.
+	 */
+	if (ssp != NULL && slice < ssp->dss_nslices) {
 		sp = &ssp->dss_slices[slice];
 		dsclrmask(sp, part);
 		if (sp->ds_flags & DSF_REPROBE) {
