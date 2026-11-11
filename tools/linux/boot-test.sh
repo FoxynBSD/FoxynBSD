@@ -58,6 +58,10 @@
 #			$OBJDIR/disk.img; --desktop: $OBJDIR/desktop.img)
 #	LOGIN_CHECK	1: --desktop also drives Gershwin's LoginWindow
 #			(desktop-session login); not reliable yet
+#	NET_URL		--desktop: a URL the session's GNUstep program also
+#			loads (desktop-session net), such as
+#			https://www.dragonflybsd.org/: DNS and HTTPS; needs
+#			the internet.  Without it, only http://10.0.2.100/
 #	DESKTOP_GNUSTEP	source (default) or dports: foxyn-desktop -g, where
 #			--desktop-setup's GNUstep comes from
 #	DESKTOP_OPENRC	1: --desktop-setup runs foxyn-desktop -o (the session
@@ -334,6 +338,19 @@ if [ "$result" -eq 0 ] && [ "$MODE" = desktop ]; then
 			tries=$((tries + 1))
 		done
 		grep -aq '^duse-42: 0' "$LOG" || result=1
+	fi
+	# The network as the desktop user's applications see it: the lease,
+	# fetch(1) and a GNUstep program load http://10.0.2.100/; with
+	# NET_URL (such as https://example.org/), the GNUstep program loads
+	# that too, through DNS and TLS (dnet-42).
+	if [ "$result" -eq 0 ]; then
+		printf "sh -c 'sh /root/tests/desktop-session net ${NET_URL:-}; echo dnet-\$((6*7)): \$?'\r" >&3
+		tries=0
+		while [ "$tries" -lt 24 ] && ! grep -aq '^dnet-42:' "$LOG"; do
+			sleep 5
+			tries=$((tries + 1))
+		done
+		grep -aq '^dnet-42: 0' "$LOG" || result=1
 	fi
 	# AUDIO_CHECK=1: a tone through the session's PipeWire (daudio-42);
 	# what reached the card is in the WAV file ("audio-wav:" line).

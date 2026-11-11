@@ -988,7 +988,12 @@ the mirror, and a failed run leaves an existing `desktop.img` in place.
 with its windows, a client without the cookie is rejected, ending the
 session (SIGTERM to the supervisor, as Log Out does) stops X, the service
 and the user's processes, and QEMU's screen is saved in
-`$OBJDIR/qemu/desktop.ppm`. `foxyn-desktop -l` instead starts Gershwin's
+`$OBJDIR/qemu/desktop.ppm`. It also checks the network as the user's
+programs see it: the DHCP lease, `fetch(1)` and a GNUstep program
+(`NSURLSession`, `NSData`) loading a page that QEMU serves; with
+`NET_URL=https://...` the GNUstep program loads that URL too, through DNS
+and TLS ([`docs/desktop-network.md`](../../docs/desktop-network.md)).
+`foxyn-desktop -l` instead starts Gershwin's
 LoginWindow at boot, a graphical login with the user's password
 ([`docs/desktop-loginwindow.md`](../../docs/desktop-loginwindow.md)); the
 automated test uses the automatic session. it is not the issue #13 desktop

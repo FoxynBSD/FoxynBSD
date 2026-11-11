@@ -46,6 +46,14 @@
 #		Trash (Alt+Backspace, OK); change a setting (System
 #		Preferences > Defaults: GSSavePanelShowProgress YES, Set).
 #		Each result is checked on disk
+#	net [URL]	(after wait) the network as the desktop user's
+#		applications see it: vtnet0 has a DHCP lease (an address,
+#		the default route and a name server); the user's fetch(1)
+#		and a GNUstep program (tests/gnustep-fetch.m: NSURLSession
+#		and NSData) load http://10.0.2.100/, which boot-test.sh has
+#		QEMU answer.  With URL (boot-test.sh's NET_URL), the GNUstep
+#		program loads it too: a name to resolve, and HTTPS through
+#		GnuTLS and the system's certificate authorities
 #	media STEP LABEL	(after wait, with automount) a USB stick
 #		with a FAT file system labelled LABEL, which boot-test.sh
 #		plugs in and pulls out through QEMU's monitor:
@@ -803,6 +811,54 @@ RUN
 		fail "no audio source, but the card's input plays $2 Hz"
 	else
 		echo "desktop-session: no audio source (the card does not record)"
+	fi
+	[ "$ok" = 1 ]
+	;;
+net)
+	# The lease comes in parts; the desktop has been up for a while,
+	# but wait a little for all three.
+	i=0
+	while ! { ifconfig vtnet0 2>/dev/null | grep -q '^[[:space:]]*inet ' &&
+	    route -n get default >/dev/null 2>&1 &&
+	    grep -q '^nameserver' /etc/resolv.conf 2>/dev/null; }; do
+		i=$((i + 1))
+		[ $i -lt 30 ] || break
+		sleep 1
+	done
+	addr=$(ifconfig vtnet0 | awk '$1 == "inet" { print $2; exit }')
+	gw=$(route -n get default 2>/dev/null | awk '$1 == "gateway:" { print $2 }')
+	ns=$(awk '$1 == "nameserver" { print $2; exit }' /etc/resolv.conf 2>/dev/null)
+	echo "desktop-session: vtnet0 ${addr:-none}, gateway ${gw:-none}, nameserver ${ns:-none}"
+	[ -n "$addr" ] && [ -n "$gw" ] && [ -n "$ns" ] ||
+	    fail "no DHCP lease (address, route and name server)"
+	out=$(su -m "$user" -c 'fetch -T 20 -q -o - http://10.0.2.100/' 2>&1)
+	case $out in
+	*foxynbsd-net-42*) echo "desktop-session: $user fetched http://10.0.2.100/" ;;
+	*) fail "fetch http://10.0.2.100/ as $user: $out" ;;
+	esac
+	if [ -r /System/Library/Makefiles/GNUstep.sh ]; then
+		d=$(mktemp -d /tmp/gnustep-fetch.XXXXXX) || exit 1
+		cp "$(dirname "$0")/gnustep-fetch.m" "$d/"
+		chown -R "$user" "$d"
+		cat > "$d/run.sh" <<'RUN'
+set +u
+. /System/Library/Makefiles/GNUstep.sh
+cd "$1" || exit 1
+libs=/System/Library/Libraries
+clang19 $(gnustep-config --objc-flags) -fblocks -o fetch gnustep-fetch.m \
+    $(gnustep-config --base-libs) -L$libs -Wl,-rpath,$libs || exit 3
+./fetch http://10.0.2.100/ foxynbsd-net-42 || exit $?
+[ -z "$2" ] || ./fetch "$2"
+RUN
+		out=$(su -m "$user" -c "sh $d/run.sh $d ${2:-}" 2>&1)
+		rc=$?
+		echo "$out" | sed 's/^/desktop-session: gnustep-fetch: /'
+		if [ "$rc" = 0 ]; then
+			echo "desktop-session: a GNUstep program of $user loaded http://10.0.2.100/${2:+ and $2}"
+		else
+			fail "gnustep-fetch (exit $rc)"
+		fi
+		rm -rf "$d"
 	fi
 	[ "$ok" = 1 ]
 	;;
