@@ -423,7 +423,12 @@ pw=/System/Library/PipeWire
     { echo "foxyn-audio: no XDG_RUNTIME_DIR" >&2; exit 1; }
 PATH=$pw/bin:/usr/local/bin:/usr/bin:/bin
 export PATH
-for inputs in 2 0; do
+# Recording only when the default device records ("play/rec" in
+# /dev/sndstat): on a playback-only card the duplex jackd sometimes
+# outlived the 10 s probe and left a capture that delivered nothing.
+tries=0
+grep 'default' /dev/sndstat 2>/dev/null | grep -q 'rec' && tries="2 0"
+for inputs in $tries; do
 	if [ "$inputs" = 2 ]; then
 		set -- -C /dev/dsp -P /dev/dsp
 	else

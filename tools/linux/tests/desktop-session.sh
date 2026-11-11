@@ -425,7 +425,9 @@ audio)
 		sed 's/^/desktop-session: /' /tmp/pw-play.log
 		fail "pw-play"
 	fi
-	if su -m "$user" -c "env XDG_RUNTIME_DIR=$rt $pw/wpctl inspect @DEFAULT_AUDIO_SOURCE@" \
+	# (Only a card that records: "play/rec" in /dev/sndstat.)
+	if grep 'default' /dev/sndstat | grep -q 'rec' &&
+	    su -m "$user" -c "env XDG_RUNTIME_DIR=$rt $pw/wpctl inspect @DEFAULT_AUDIO_SOURCE@" \
 	    > /tmp/pw-source.log 2>&1; then
 		rm -f /tmp/rec.wav
 		su -m "$user" -c "env XDG_RUNTIME_DIR=$rt timeout 3 $pw/pw-record --rate 48000 --channels 2 --format s16 /tmp/rec.wav" \
