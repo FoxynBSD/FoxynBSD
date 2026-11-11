@@ -46,6 +46,16 @@
 #		Trash (Alt+Backspace, OK); change a setting (System
 #		Preferences > Defaults: GSSavePanelShowProgress YES, Set).
 #		Each result is checked on disk
+#	media STEP LABEL	(after wait, with automount) a USB stick
+#		with a FAT file system labelled LABEL, which boot-test.sh
+#		plugs in and pulls out through QEMU's monitor:
+#		mount: automount mounts it on /media/LABEL as the desktop
+#		user (who may unmount it), within 30 s; the user writes a
+#		file on it, unless it is there from an earlier mount
+#		eject: Eject in its menu on Workspace's desktop (the second
+#		icon, under System Disk) unmounts it
+#		gone: within 30 s of being pulled out while mounted, it is
+#		unmounted (automount's reap) and the kernel survived it
 #	openrc	(after stop, with foxyn_openrc) OpenRC's order and recovery:
 #		starting the desktop runlevel starts dbus before
 #		foxyn-desktop and stopping it stops them the other way; with
@@ -796,6 +806,68 @@ RUN
 	fi
 	[ "$ok" = 1 ]
 	;;
-*)	echo "usage: desktop-session wait|stop|audio|login" >&2; exit 2 ;;
+media)
+	label=${3:-}
+	[ -n "$label" ] || { echo "usage: desktop-session media mount|eject|gone LABEL" >&2; exit 2; }
+	[ -x /usr/local/sbin/automount ] || { echo "desktop-session: FAIL no automount"; exit 1; }
+	mnt=/media/$label
+	# mounted: "mounted by USER" in mount -v when the user mounted it
+	mounted() { mount -v | grep -q " on $mnt (.*mounted by $user"; }
+	case ${2:-} in
+	mount)
+		i=0
+		while ! mounted && [ "$i" -lt 30 ]; do sleep 1; i=$((i + 1)); done
+		if ! mounted; then
+			mount | grep media | sed 's/^/desktop-session: /'
+			tail -n 5 /var/log/automount.log | sed 's/^/desktop-session: /'
+			fail "$label is not mounted on $mnt by $user"
+		elif [ -f "$mnt/foxyn-test.txt" ]; then
+			echo "desktop-session: $label mounted again on $mnt by $user, with the file written before: $(cat "$mnt/foxyn-test.txt")"
+		else
+			echo "desktop-session: automount mounted $label on $mnt as $user ($(mount | sed -n "s|.* on $mnt (\(.*\))|\1|p"))"
+			printf 'echo written by %s > %s/foxyn-test.txt\n' "$user" "$mnt" > /tmp/media-write.sh
+			chmod 644 /tmp/media-write.sh
+			if su -m "$user" -c "sh /tmp/media-write.sh" &&
+			    [ "$(cat "$mnt/foxyn-test.txt")" = "written by $user" ]; then
+				echo "desktop-session: $user wrote a file on $label"
+			else
+				fail "$user cannot write on $label"
+			fi
+		fi
+		;;
+	eject)
+		command -v xdotool >/dev/null || { echo "desktop-session: FAIL no xdotool"; exit 1; }
+		XAUTHORITY=$(cat /var/run/foxyn-session.xauthority 2>/dev/null)
+		export XAUTHORITY
+		# GNUstep's context menu stays up while the right button is
+		# held; Eject is its fourth item.
+		xdotool mousemove 1231 135 mousedown 3
+		sleep 1.5
+		xdotool mousemove 1180 215
+		sleep 0.3
+		xdotool mouseup 3
+		i=0
+		while mount | grep -q " on $mnt " && [ "$i" -lt 15 ]; do sleep 1; i=$((i + 1)); done
+		if mount | grep -q " on $mnt "; then
+			fail "Workspace's Eject did not unmount $mnt"
+		else
+			echo "desktop-session: Workspace's Eject unmounted $label as $user"
+		fi
+		;;
+	gone)
+		i=0
+		while mount | grep -q " on $mnt " && [ "$i" -lt 30 ]; do sleep 1; i=$((i + 1)); done
+		if mount | grep -q " on $mnt "; then
+			tail -n 5 /var/log/automount.log | sed 's/^/desktop-session: /'
+			fail "$mnt is still mounted after the stick was pulled out"
+		else
+			echo "desktop-session: pulled out while mounted, $label was unmounted ($(grep -c reap /var/log/automount.log) reap)"
+		fi
+		;;
+	*)	echo "usage: desktop-session media mount|eject|gone LABEL" >&2; exit 2 ;;
+	esac
+	[ "$ok" = 1 ]
+	;;
+*)	echo "usage: desktop-session wait|stop|audio|login|media" >&2; exit 2 ;;
 esac
 [ "$ok" = 1 ]

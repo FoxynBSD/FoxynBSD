@@ -346,6 +346,64 @@ if [ "$result" -eq 0 ] && [ "$MODE" = desktop ]; then
 		done
 		grep -aq '^daudio-42: 0' "$LOG" || result=1
 	fi
+	# A USB stick (dmedia-42), with automount and the host's mkfs.fat: a
+	# FAT file system labelled FOXYNUSB on an MBR slice, plugged in and
+	# pulled out through QEMU's monitor.  First mounted as the desktop
+	# user, written to, ejected from Workspace and pulled out; then
+	# plugged in again (the file is still there) and pulled out while
+	# mounted.
+	if [ "$result" -eq 0 ] && command -v mkfs.fat >/dev/null 2>&1; then
+		usb=$OBJDIR/qemu/usb-stick.img
+		rm -f "$usb"
+		truncate -s 64M "$usb"
+		printf 'label: dos\nstart=2048, type=c\n' | sfdisk -q "$usb"
+		mkfs.fat -F 32 -n FOXYNUSB --offset 2048 "$usb" 64512 >/dev/null
+		# monitor COMMAND...: QEMU monitor commands, one per argument
+		monitor() {
+			python3 -I - "$MONITOR" "$@" <<'EOF' || :
+import socket, sys, time
+s = socket.socket(socket.AF_UNIX)
+s.connect(sys.argv[1])
+for c in sys.argv[2:]:
+    s.sendall(c.encode() + b"\n")
+    time.sleep(0.5)
+time.sleep(1)
+s.close()
+EOF
+		}
+		# media STEP N: desktop-session media STEP FOXYNUSB, its result
+		# line dmedia-N-42; 0 if it passed
+		media() {
+			printf "sh -c 'sh /root/tests/desktop-session media $1 FOXYNUSB; echo dmedia-$2-\$((6*7)): \$?'\r" >&3
+			tries=0
+			while [ "$tries" -lt 12 ] && ! grep -aq "^dmedia-$2-42:" "$LOG"; do
+				sleep 5
+				tries=$((tries + 1))
+			done
+			grep -aq "^dmedia-$2-42: 0" "$LOG"
+		}
+		mresult=1
+		monitor "drive_add 0 if=none,id=stick1,file=$usb,format=raw" \
+		    "device_add usb-storage,bus=xhci.0,drive=stick1,id=usbstick1"
+		if media mount 1 && media eject 2; then
+			monitor "device_del usbstick1"
+			sleep 5
+			monitor "drive_add 0 if=none,id=stick2,file=$usb,format=raw" \
+			    "device_add usb-storage,bus=xhci.0,drive=stick2,id=usbstick2"
+			if media mount 3; then
+				monitor "device_del usbstick2"
+				media gone 4 && mresult=0
+			fi
+		fi
+		# (Not into $LOG: the console's copy writes over what is
+		# appended to it while it runs.)
+		if [ "$mresult" = 0 ]; then
+			echo ">>> removable media: the USB stick was mounted, ejected and reaped" >&2
+		else
+			echo ">>> removable media: failed (dmedia-N-42 lines in $LOG)" >&2
+			result=1
+		fi
+	fi
 	# What the video console shows: the screen QEMU's VGA card scans out.
 	rm -f "$OBJDIR/qemu/desktop.ppm"
 	python3 -I - "$MONITOR" "$OBJDIR/qemu/desktop.ppm" <<'EOF' || :
