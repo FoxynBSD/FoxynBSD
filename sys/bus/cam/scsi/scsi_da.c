@@ -500,9 +500,11 @@ daopen(struct dev_open_args *ap)
 	int error;
 
 	/*
-	 * Disallow CAM access if RESTRICTEDROOT
+	 * Disallow CAM access if RESTRICTEDROOT (only the capability is
+	 * tested: for other users the device's permissions decide, as in
+	 * diskopen()).
 	 */
-	if (caps_priv_check_self(SYSCAP_RESTRICTEDROOT))
+	if (caps_priv_check_self(SYSCAP_RESTRICTEDROOT | __SYSCAP_NOROOTTEST))
 		return (EPERM);
 
 	unit = dkunit(dev);

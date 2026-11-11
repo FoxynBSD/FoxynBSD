@@ -1067,9 +1067,12 @@ diskopen(struct dev_open_args *ap)
 		return (ENXIO);
 
 	/*
-	 * Disallow access to disk volumes if RESTRICTEDROOT
+	 * Disallow access to disk volumes if RESTRICTEDROOT.  Only the
+	 * capability is tested (NOROOTTEST, as syscons does): for other
+	 * users the device's permissions decide, as before (the operator
+	 * group, the desktop user owning a USB stick's node).
 	 */
-	if (caps_priv_check_self(SYSCAP_RESTRICTEDROOT))
+	if (caps_priv_check_self(SYSCAP_RESTRICTEDROOT | __SYSCAP_NOROOTTEST))
 		return (EPERM);
 
 	error = 0;
