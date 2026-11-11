@@ -82,3 +82,7 @@
 	path = contrib/wireplumber
 	url = https://gitlab.freedesktop.org/pipewire/wireplumber.git
 	shallow = true
+[submodule "contrib/pulseaudio"]
+	path = contrib/pulseaudio
+	url = https://gitlab.freedesktop.org/pulseaudio/pulseaudio.git
+	shallow = true

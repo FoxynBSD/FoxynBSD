@@ -1,0 +1,27 @@
+PulseAudio
+==========
+
+url    = https://gitlab.freedesktop.org/pulseaudio/pulseaudio.git
+tag    = v17.0
+commit = 1f020889c9aa44ea0f63d7222e8c2b62c3f45f68
+date   = 2024-01-12
+
+tools/desktop/build-pipewire.sh builds the client side of this revision
+(GitLab's archive of the tag, identical to the submodule, checked by
+SHA-256) with tools/desktop/patches/pulseaudio-dragonfly.txt: libpulse,
+libpulse-simple and the utilities (pactl, paplay, parec), installed in
+/System/Library/PipeWire.  The PulseAudio daemon is not built: PipeWire's
+pipewire-pulse serves PulseAudio applications (docs/desktop-pipewire.md).
+Keep build output outside the submodule; when upgrading, update the tag
+and checksum in build-pipewire.sh too.
+
+License: LGPL-2.1-or-later except as LICENSE notes (see LICENSE, LGPL,
+GPL and individual file notices).  The client is built without D-Bus and
+without the optional GPL dependencies LICENSE lists, which apply to the
+server side, not built here.
+Complete the file-level and asset provenance review and preserve
+applicable notices and source obligations before distribution.
+
+When upgrading, review dependencies, API and ABI compatibility, FoxynBSD
+portability (the patch), license notices and the full desktop build and
+runtime tests, including the audio check.

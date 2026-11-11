@@ -280,18 +280,21 @@ if [ "$gnustep" = source ]; then
 	[ -e "$gwbin/Menu" ] ||
 	    ln -s ../CoreServices/Applications/Menu.app/Menu "$gwbin/Menu"
 	# PipeWire plays through its JACK tunnel (no OSS backend) and starts
-	# WirePlumber; foxyn-audio starts jackd first.
+	# WirePlumber, and pipewire-pulse for PulseAudio applications
+	# (libpulse from contrib/pulseaudio); foxyn-audio starts jackd first.
 	pwconf=/System/Library/PipeWire/etc/pipewire/pipewire.conf.d
 	mkdir -p "$pwconf"
 	cat > "$pwconf/10-foxyn.conf" <<'EOF'
 # FoxynBSD (foxyn-desktop): sound through jackd on OSS (a JACK sink, and
-# a JACK source when the card records), and the session manager.
+# a JACK source when the card records), the session manager, and the
+# PulseAudio server for PulseAudio applications.
 context.modules = [
   { name = libpipewire-module-jack-tunnel
     args = { tunnel.mode = duplex } }
 ]
 context.exec = [
   { path = "/System/Library/PipeWire/bin/wireplumber" args = "" }
+  { path = "/System/Library/PipeWire/bin/pipewire-pulse" args = "" }
 ]
 EOF
 	chmod -R go-w /System/Library/PipeWire/etc

@@ -1,6 +1,8 @@
 #!/bin/sh
 # Build PipeWire and WirePlumber from the revisions pinned by
-# contrib/pipewire and contrib/wireplumber, with epoll-shim, and install
+# contrib/pipewire and contrib/wireplumber, with epoll-shim, and
+# PulseAudio's client side (libpulse, pactl, paplay; contrib/pulseaudio)
+# for PulseAudio applications, which pipewire-pulse serves, and install
 # them in /System/Library/PipeWire.
 #
 # epoll-shim is built here, not taken from DPorts: DPorts' copy was built
@@ -20,12 +22,15 @@ pw_tag=1.6.11
 pw_sha256=f3f70c4af173cc93d05070a9d412efe3ef5889bdf4ac32298e2c0d9ae1350559
 wp_tag=0.5.19
 wp_sha256=f9454eae3a5a6ca903c05ead2a7e47d7d3957fb0ffac3ebb11d92842603ae80f
+pa_tag=17.0
+pa_sha256=896eab02c40783fc0a5dfd098b6f3ec1586686651ee4dcac573dcef666f4531f
 shim_version=0.0.20240608
 shim_sha256=8f5125217e4a0eeb96ab01f9dfd56c38f85ac3e8f26ef2578e538e72e87862cb
 prefix=/System/Library/PipeWire
 script_dir=$(CDPATH= cd -- "$(dirname "$0")" && pwd)
 patch_file=$script_dir/patches/pipewire-dragonfly.txt
 wp_patch_file=$script_dir/patches/wireplumber-dragonfly.txt
+pa_patch_file=$script_dir/patches/pulseaudio-dragonfly.txt
 
 say() { echo "build-pipewire: $*"; }
 die() { echo "build-pipewire: $*" >&2; exit 1; }
@@ -33,7 +38,7 @@ die() { echo "build-pipewire: $*" >&2; exit 1; }
 [ "$#" -eq 0 ] || die "usage: $0"
 [ "$(id -u)" != 0 ] || die "run as an unprivileged user"
 [ -w /System/Library ] || die "/System/Library is not writable by $(id -un)"
-for f in "$patch_file" "$wp_patch_file"; do
+for f in "$patch_file" "$wp_patch_file" "$pa_patch_file"; do
 	[ -r "$f" ] || die "patch not found: $f"
 done
 for tool in fetch sha256 tar patch meson ninja cmake pkgconf clang19 jackd; do
@@ -68,6 +73,11 @@ get wireplumber "https://gitlab.freedesktop.org/pipewire/wireplumber/-/archive/$
 (cd "$work/pipewire" && patch -s -p1 < "$patch_file") || die "the PipeWire patch does not apply"
 (cd "$work/wireplumber" && patch -s -p1 < "$wp_patch_file") ||
     die "the WirePlumber patch does not apply"
+get pulseaudio "https://gitlab.freedesktop.org/pulseaudio/pulseaudio/-/archive/v$pa_tag/pulseaudio-v$pa_tag.tar.gz" "$pa_sha256"
+(cd "$work/pulseaudio" && patch -s -p1 < "$pa_patch_file") ||
+    die "the PulseAudio patch does not apply"
+# Its version comes from git, which the archive does not have.
+echo "$pa_tag" > "$work/pulseaudio/.tarball-version"
 
 export CC=clang19 CXX=clang++19
 export PKG_CONFIG_PATH=$prefix/lib/pkgconfig:$prefix/libdata/pkgconfig
@@ -117,7 +127,24 @@ step "configure WirePlumber" meson setup "$work/wireplumber/b" "$work/wireplumbe
 step "build WirePlumber" ninja -C "$work/wireplumber/b"
 step "install WirePlumber" ninja -C "$work/wireplumber/b" install
 
-for f in bin/pipewire bin/wireplumber bin/pw-play; do
+# PulseAudio's client side only: no daemon (pipewire-pulse is the
+# server), no padsp (OSS applications use OSS).  b_lundef=false: libc
+# has no environ (crt1.o has), which libpulsecommon uses.
+step "configure PulseAudio's client" meson setup "$work/pulseaudio/b" "$work/pulseaudio" \
+    --prefix="$prefix" --buildtype=release -Db_lundef=false \
+    -Ddaemon=false -Dclient=true -Ddoxygen=false -Dman=false -Dtests=false \
+    -Ddatabase=simple -Dalsa=disabled -Dasyncns=disabled -Davahi=disabled \
+    -Dbluez5=disabled -Dconsolekit=disabled -Ddbus=disabled -Delogind=disabled \
+    -Dfftw=disabled -Dglib=disabled -Dgsettings=disabled -Dgstreamer=disabled \
+    -Dgtk=disabled -Djack=disabled -Dlirc=disabled -Dopenssl=disabled \
+    -Dorc=disabled -Dsoxr=disabled -Dspeex=disabled -Dsystemd=disabled \
+    -Dtcpwrap=disabled -Dudev=disabled -Dvalgrind=disabled -Dx11=disabled \
+    -Dwebrtc-aec=disabled -Doss-output=disabled \
+    -Dbashcompletiondir=no -Dzshcompletiondir=no
+step "build PulseAudio's client" ninja -C "$work/pulseaudio/b"
+step "install PulseAudio's client" ninja -C "$work/pulseaudio/b" install
+
+for f in bin/pipewire bin/wireplumber bin/pw-play bin/pipewire-pulse bin/paplay; do
 	[ -x "$prefix/$f" ] || die "$prefix/$f is missing"
 done
 say "installed $prefix"

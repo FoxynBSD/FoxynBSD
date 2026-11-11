@@ -1506,6 +1506,7 @@ do_rootfs() {
 	    "$SRCDIR/tools/desktop/patches/openrc-dragonfly.txt" \
 	    "$SRCDIR/tools/desktop/patches/pipewire-dragonfly.txt" \
 	    "$SRCDIR/tools/desktop/patches/wireplumber-dragonfly.txt" \
+	    "$SRCDIR/tools/desktop/patches/pulseaudio-dragonfly.txt" \
 	    "$root/usr/share/foxynbsd/desktop/patches/"
 	# Copy the shared libraries, following NEEDED entries to a fixpoint
 	# (not for /boot: the kernel and its modules do not load them).
