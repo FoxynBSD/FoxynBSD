@@ -73,7 +73,8 @@
 #			else sdl, whichever this QEMU has)
 #	AUDIO		an Intel HDA sound card (snd_hda in the guest): "host"
 #			(the default in a window) plays and records through
-#			QEMU's default audio backend (the host's speakers and
+#			the first of QEMU's pipewire, pa, alsa, sdl, coreaudio
+#			or oss backends (the host's speakers and
 #			microphone); "none" (the default without a window, or
 #			empty) adds no card; "silent" has a
 #			silent input and discards the output (QEMU's "none"
@@ -359,7 +360,19 @@ if [ -z "${AUDIO+set}" ] && [ "$GUI" = 1 ]; then
 fi
 case ${AUDIO:-} in
 ''|none) ;;
-host)	set -- "$@" -device intel-hda -device hda-duplex ;;
+host)	# QEMU 11 no longer picks an audio backend for a card without
+	# audiodev=, so name the first host backend this QEMU has.
+	drivers=$(qemu-system-x86_64 -audiodev help 2>/dev/null) || :
+	drv=
+	for b in pipewire pa alsa sdl coreaudio oss; do
+		if printf '%s\n' "$drivers" | grep -qx "$b"; then
+			drv=$b
+			break
+		fi
+	done
+	[ -n "$drv" ] || die "this QEMU has no host audio backend (pacman -S qemu-audio-pipewire); set AUDIO=none"
+	set -- "$@" -device intel-hda -device hda-duplex,audiodev=snd0 \
+	    -audiodev "$drv,id=snd0" ;;
 *,*)	die "AUDIO must not contain a comma" ;;
 silent)	set -- "$@" -device intel-hda -device hda-duplex,audiodev=snd0 \
 	    -audiodev none,id=snd0 ;;
