@@ -241,9 +241,9 @@ login)
 	session && echo "desktop-session: a second login starts the session" ||
 	    fail "no session after the second login"
 	logout >/dev/null
-	# Last, a wrong password.  (A login typed right after a failed one
-	# did not start a session in this test, while the same by hand did;
-	# not resolved.)
+	# A wrong password: refused, without an alert (a modal alert
+	# blocked LoginWindow until dismissed), and the right password works
+	# right after it.
 	type_login "$user" wrong-password
 	sleep 8
 	if pgrep -u "$uid" -x gershwin-session >/dev/null; then
@@ -251,6 +251,24 @@ login)
 	else
 		echo "desktop-session: a wrong password is refused"
 	fi
+	# (Eau's alert panel is an unnamed 500x150 LoginWindow window.)
+	alert=0
+	for w in $(xwininfo -root -tree 2>/dev/null |
+	    awk '/\(has no name\): \("LoginWindow" "LoginWindow"\)  500x150/ {print $1}'); do
+		xwininfo -id "$w" | grep -q 'Map State: IsViewable' && alert=1
+	done
+	if [ "$alert" = 1 ]; then
+		fail "a wrong password shows an alert"
+	else
+		echo "desktop-session: a wrong password shows no alert"
+	fi
+	type_login "$user" "$pass"
+	if session; then
+		echo "desktop-session: the right password works after a wrong one"
+	else
+		fail "no session with the right password after a wrong one"
+	fi
+	logout >/dev/null
 	service foxyn_loginwindow onestop >/dev/null
 	pw usermod "$user" -w none
 	i=0

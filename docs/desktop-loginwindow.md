@@ -152,7 +152,26 @@ With these changes `desktop-session login` passed in the VM: the first
 login started the session, which had `/var/run/xdg/foxyn` and sound;
 logging out ended the user's processes, removed the directory and
 withdrew display access; a second login and a wrong password behaved as
-before. A wrong password still shows a modal alert ("Authentication
-error", OpenPAM's text, which LoginWindow does not recognise as a wrong
-password).
+before.
+
+## Wrong password, 2026-11-11
+
+A wrong password showed a modal "Authentication Error" alert. LoginWindow
+treats a failure whose text contains "Authentication failure",
+Linux-PAM's text for `PAM_AUTH_ERR`, as a wrong password and only shakes
+the window; OpenPAM's text is "authentication error". The alert blocked
+LoginWindow until it was dismissed, so the right password typed next did
+nothing (the earlier "a login typed right after a failed one did not
+start a session"). `LoginWindowPAM.m` now reports `PAM_AUTH_ERR`,
+`PAM_USER_UNKNOWN` and `PAM_MAXTRIES` with the same text, so a wrong
+password and an unknown user look alike: "Authentication failed" in the
+window, the password field cleared, no alert. Other failures (account
+management, for example) still show their alert.
+
+`desktop-session login` now checks that a wrong password shows no alert
+(a mapped, unnamed 500x150 LoginWindow window, Eau's alert panel) and that
+the right password works right after it. In QEMU on the `build.sh
+desktop` image, with the old LoginWindow both checks failed; with the
+patched one built in the VM both passed. The unknown user `nosuchuser`
+gave the same window as a wrong password.
 

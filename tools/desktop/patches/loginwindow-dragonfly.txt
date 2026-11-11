@@ -18,6 +18,9 @@ FoxynBSD changes to Gershwin's LoginWindow (contrib/gershwin-components):
   reaped (waitpid(-1)): monitorSession then got ECHILD and showed the
   login window without ending the user's processes, closing the PAM
   session or withdrawing the user's access to the display.
+- a wrong password (or an unknown user) only shakes the window, as
+  intended: LoginWindow recognised Linux-PAM's text for it, and showed
+  OpenPAM's ("authentication error") in a modal alert.
 
 --- a/LoginWindow.m
 +++ b/LoginWindow.m
@@ -159,3 +162,22 @@ FoxynBSD changes to Gershwin's LoginWindow (contrib/gershwin-components):
  #else
          const char *pcomm = procs[i].ki_comm;
  #endif
+--- a/LoginWindowPAM.m
++++ b/LoginWindowPAM.m
+@@ -193,7 +193,15 @@
+             const char *error = pam_strerror(pam_handle, result);
+             NSDebugLLog(@"gwcomp", @"[PAM] pam_authenticate failed: %s", error);
+             [_lastErrorMessage release];
+-            _lastErrorMessage = [[NSString stringWithFormat:@"Authentication failed: %s", error] retain];
++            // A wrong password or an unknown user: the same text as
++            // Linux-PAM's, which the caller takes for a wrong password
++            // (no alert, nothing about which one).  OpenPAM's text for
++            // PAM_AUTH_ERR is "authentication error".
++            if (result == PAM_AUTH_ERR || result == PAM_USER_UNKNOWN ||
++                result == PAM_MAXTRIES)
++                _lastErrorMessage = [@"Authentication failure" retain];
++            else
++                _lastErrorMessage = [[NSString stringWithFormat:@"Authentication failed: %s", error] retain];
+             pam_end(pam_handle, result);
+             pam_handle = NULL;
+             authenticationInProgress = NO;
