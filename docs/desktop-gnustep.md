@@ -160,3 +160,40 @@ failed build; not investigated. `desktop-session gnustep` (run by
 queue operation must run from the run loop. `desktop-session wait` checks
 that p11-kit trusts at least one certificate authority.
 
+## libobjc2 and GNUstep GUI tests, 2026-11-11
+
+Same QEMU setup, image from `367ed195d0`.
+
+- **libobjc2** (pinned revision with robin-map, built as
+  `build-gnustep.sh` does but with `-DTESTS=ON`, then `ctest`): 194 of
+  198 passed. The 4 failures are one test, `UnexpectedException`, in its
+  four variants: an Objective-C exception that nothing catches must reach
+  the handler set with `objc_setUncaughtExceptionHandler`; the process
+  aborts instead. `objc_exception_throw` calls the handler only when
+  `_Unwind_RaiseException` returns `_URC_END_OF_STACK`. A C program that
+  raises an exception no frame claims gets 5 (`_URC_END_OF_STACK`) when
+  built with the base `cc` (GCC 8), but a value that looks like the
+  exception's address when built with DPorts' `clang19`, with
+  `-lgcc_pic` (the default) or `-lgcc_eh`; `_Unwind_Backtrace` walks the
+  same frames to the end of the stack in both. Not resolved. Catching
+  exceptions works (libobjc2's other exception tests pass); an uncaught
+  exception in a clang-built program aborts without GNUstep's "uncaught
+  exception" report.
+- **GNUstep GUI** (`Tests/gui` of the pinned revision, configured, run as
+  `foxyn` in the desktop session's display):
+  - with GNUstep's own theme (`GSTheme GNUstep` in the user's defaults):
+    4,111 tests passed; "application is hidden after hide:" failed
+    (it depends on the window manager); 9 `render.m` comparisons with
+    reference images that the previous run, with Eau, had captured are
+    not counted;
+  - with the session's settings (Gershwin's Eau theme): 4,102 passed, 7
+    tests and one set failed and `NSPanel/behaviour.m` aborted, all of
+    them passing with GNUstep's theme: a box's fill colour, the colour
+    panel's new-button image, the system font size for size 0,
+    `NSMenuView` item area insets, a table header title's alignment,
+    alternating row colours and text field bezels by default. These are
+    the Eau theme's (see `desktop-eau.md`).
+  - The first run, without access to the display (the session's cookie
+    is readable by root only), had failed every test that needs a window
+    server; that run is not counted.
+

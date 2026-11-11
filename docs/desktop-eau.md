@@ -158,3 +158,16 @@ implementation for every view; a key sent to a button then made
 stack overflowed. LoginWindow crashed that way (SIGSEGV; backtrace from
 its core). The patch adds the method to NSSearchField first, as Eau's
 NSButton swizzle already does; no crash was seen after it.
+
+## GNUstep GUI's tests under Eau, 2026-11-11
+
+GNUstep GUI's test suite in the desktop session (see `desktop-gnustep.md`)
+fails these with Eau and passes them with GNUstep's own theme:
+`NSBox` custom fill colour (`rendering.m`), `NSColorPicker`
+`insertNewButtonImage:in:` (`backend.m`), the system font size for a zero
+size (`systemfonts.m`), `NSMenuView` item area insets
+(`menuItemAreaInsets.m`), a centred table header title (`headerCell.m`),
+alternating row colours and text field bezels off/on by default
+(`state.m`), and `NSPanel/behaviour.m`, which aborts. Some are deliberate
+theme choices, the abort is not; not investigated yet.
+
