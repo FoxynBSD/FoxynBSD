@@ -475,6 +475,7 @@ PATH=/sbin:/bin:/usr/sbin:/usr/bin:/usr/local/sbin:/usr/local/bin
 export PATH
 user=$1
 exec >> /var/log/foxyn-session.log 2>&1
+rm -f /var/run/foxyn-session.stopping
 # The cookie stays in this directory: the server's copy root's, the
 # user's copy theirs (the directory can be searched, not listed).
 auth=$(mktemp -d /tmp/foxyn-session.XXXXXXXX) || exit 1
@@ -528,6 +529,7 @@ while kill -0 "$spid" 2>/dev/null; do
 done
 wait "$spid"
 echo "session for $user ended: $?"
+ended=1
 kill "$xpid" 2>/dev/null
 wait "$xpid"
 # GNUstep's per-user daemons, Workspace's helpers and the sound servers
@@ -551,6 +553,18 @@ if pgrep -u "$user" >/dev/null; then
 	pkill -KILL -u "$user"
 fi
 rm -rf "$auth" "$rt" /var/run/foxyn-session.X.pid /var/run/foxyn-session.xauthority
+# Under OpenRC (foxyn-desktop -o): a session that ended by Log Out leaves
+# the service stopped, not crashed (as when X does not start).  Not while
+# OpenRC stops the service itself: it holds the service's lock.  (The
+# init script passes "openrc": start-stop-daemon removes OpenRC's RC_*
+# variables from the environment.)
+if [ "${2:-}" = openrc ] && [ "${ended:-0}" = 1 ]; then
+	if [ -e /var/run/foxyn-session.stopping ]; then
+		rm -f /var/run/foxyn-session.stopping
+	else
+		/sbin/rc-service foxyn-desktop zap
+	fi
+fi
 EOF
 chmod 555 /usr/local/libexec/foxyn-session
 cat > /usr/local/etc/rc.d/foxyn_desktop <<'EOF'
@@ -766,7 +780,7 @@ EOF
 description="FoxynBSD desktop session"
 : ${foxyn_desktop_user:=foxyn}
 command=/usr/local/libexec/foxyn-session
-command_args=$foxyn_desktop_user
+command_args="$foxyn_desktop_user openrc"
 command_background=yes
 pidfile=/var/run/foxyn-session.openrc.pid
 
@@ -780,6 +794,9 @@ depend()
 stop()
 {
 	ebegin "Stopping $RC_SVCNAME"
+	# (foxyn-session: this stop ends the session, OpenRC's state is
+	# being changed already)
+	touch /var/run/foxyn-session.stopping
 	pkill -TERM -u "$foxyn_desktop_user" -x gershwin-session
 	[ -f /var/run/foxyn-session.X.pid ] &&
 	    kill "$(cat /var/run/foxyn-session.X.pid)" 2>/dev/null
@@ -793,10 +810,53 @@ stop()
 	eend 0
 }
 EOF
-	chmod 555 $initd/dbus $initd/foxyn-desktop
+	# LoginWindow (-o -l): foxyn-loginwindow under daemon(8), which
+	# restarts it, as the rc.d service foxyn_loginwindow does.
+	cat > $initd/foxyn-loginwindow <<'EOF'
+#!/sbin/openrc-run
+# Gershwin's LoginWindow as the display manager (foxyn-desktop -o -l).
+description="Gershwin LoginWindow"
+pidfile=/var/run/foxyn_loginwindow.openrc.pid
+command=/usr/sbin/daemon
+command_args="-r -f -o /var/log/LoginWindow.log -P $pidfile /usr/local/libexec/foxyn-loginwindow"
+
+depend()
+{
+	need dbus
+}
+
+# A user's session outlives LoginWindow: end it as Log Out does, and
+# give LoginWindow time to clean up after it.
+stop_pre()
+{
+	lw=$(pgrep -x LoginWindow) || return 0
+	pkill -TERM -P "$lw" -x gershwin-session || return 0
+	i=0
+	while pgrep -P "$lw" -x gershwin-session >/dev/null && [ "$i" -lt 15 ]; do
+		sleep 1; i=$((i + 1))
+	done
+	sleep 2
+}
+
+# The X server foxyn-loginwindow started outlives LoginWindow.
+stop_post()
+{
+	[ -f /var/run/foxyn-loginwindow.X.pid ] &&
+	    kill "$(cat /var/run/foxyn-loginwindow.X.pid)" 2>/dev/null
+	rm -f /var/run/foxyn-loginwindow.X.pid /var/run/xauth
+}
+EOF
+	chmod 555 $initd/dbus $initd/foxyn-desktop $initd/foxyn-loginwindow
 	printf 'foxyn_desktop_user="%s"\n' "$user" > /usr/local/etc/conf.d/foxyn-desktop
 	mkdir -p /usr/local/etc/runlevels/desktop /usr/local/etc/runlevels/off
-	ln -sf $initd/dbus $initd/foxyn-desktop /usr/local/etc/runlevels/desktop/
+	# The runlevel runs the automatic session, or LoginWindow with -l.
+	rm -f /usr/local/etc/runlevels/desktop/foxyn-desktop \
+	    /usr/local/etc/runlevels/desktop/foxyn-loginwindow
+	if [ "$login" = 1 ]; then
+		ln -sf $initd/dbus $initd/foxyn-loginwindow /usr/local/etc/runlevels/desktop/
+	else
+		ln -sf $initd/dbus $initd/foxyn-desktop /usr/local/etc/runlevels/desktop/
+	fi
 	cat > /usr/local/etc/rc.d/foxyn_openrc <<'EOF'
 #!/bin/sh
 #
@@ -847,14 +907,14 @@ fi
 sed -i.bak -e '/^foxyn_desktop_enable=/d' -e '/^foxyn_desktop_user=/d' \
     -e '/^foxyn_loginwindow_enable=/d' -e '/^foxyn_openrc_enable=/d' /etc/rc.conf
 rm -f /etc/rc.conf.bak
-if [ "$login" = 1 ]; then
-	printf 'foxyn_loginwindow_enable="YES"\n' >> /etc/rc.conf
-	say "done: LoginWindow starts at the next boot (or: service foxyn_loginwindow start)"
-elif [ "$openrc" = 1 ]; then
+if [ "$openrc" = 1 ]; then
 	# foxyn_desktop_user stays for the boot test; OpenRC's service reads
-	# its conf.d.
+	# its conf.d.  (With -l the runlevel runs LoginWindow.)
 	printf 'foxyn_openrc_enable="YES"\nfoxyn_desktop_user="%s"\n' "$user" >> /etc/rc.conf
 	say "done: OpenRC starts the desktop at the next boot (or: service foxyn_openrc start)"
+elif [ "$login" = 1 ]; then
+	printf 'foxyn_loginwindow_enable="YES"\n' >> /etc/rc.conf
+	say "done: LoginWindow starts at the next boot (or: service foxyn_loginwindow start)"
 else
 	printf 'foxyn_desktop_enable="YES"\nfoxyn_desktop_user="%s"\n' "$user" >> /etc/rc.conf
 	say "done: the desktop starts at the next boot (or: service foxyn_desktop start)"

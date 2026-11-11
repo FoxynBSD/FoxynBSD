@@ -109,15 +109,36 @@ stop)
 	else
 		service $svc stop | sed 's/^/desktop-session: /'
 	fi
+	# running: the session's service runs.  (Asked from OpenRC itself:
+	# DragonFly's rc.subr returns 0 from a status_cmd whatever its
+	# result, so `service foxyn_openrc status` always succeeds.)
+	running() {
+		if [ "$svc" = foxyn_openrc ]; then
+			rc-service foxyn-desktop status
+		else
+			service $svc status
+		fi
+	}
 	i=0
-	while { pgrep -x Xorg || pgrep -u "$uid" ||
-	    service $svc status; } >/dev/null && [ "$i" -lt 30 ]; do
+	while { pgrep -x Xorg || pgrep -u "$uid" || running; } >/dev/null &&
+	    [ "$i" -lt 30 ]; do
 		sleep 1; i=$((i + 1))
 	done
 	pgrep -x Xorg >/dev/null && fail "Xorg still runs"
 	pgrep -u "$uid" >/dev/null && fail "processes of $user remain: $(pgrep -u "$uid" -l | tr '\n' ' ')"
-	service $svc status >/dev/null && fail "$svc still runs"
+	running >/dev/null && fail "$svc still runs"
 	if [ "$svc" = foxyn_openrc ]; then
+		# After Log Out OpenRC reports the session stopped, not crashed.
+		if [ -n "$sup" ]; then
+			i=0
+			while ! rc-status desktop | grep -q 'foxyn-desktop.*stopped' &&
+			    [ "$i" -lt 10 ]; do
+				sleep 1; i=$((i + 1))
+			done
+			rc-status desktop | grep -q 'foxyn-desktop.*stopped' &&
+			    echo "desktop-session: after Log Out OpenRC reports foxyn-desktop stopped" ||
+			    fail "after Log Out: $(rc-status desktop | grep foxyn-desktop | tr -s ' ')"
+		fi
 		service foxyn_openrc stop 2>&1 | sed 's/^/desktop-session: /'
 		pgrep -f 'dbus-daemon --system' >/dev/null &&
 		    fail "the system bus still runs"
@@ -402,6 +423,39 @@ openrc)
 		fail "no desktop after the restart: $(grep FAIL /tmp/openrc-wait2.log | tr '\n' ' ')"
 	fi
 	sh "$0" stop >/dev/null 2>&1
+	# LoginWindow from OpenRC (foxyn-desktop -o -l runs it instead of
+	# foxyn-desktop): the login window on an X server with a cookie,
+	# and stopping the service ends both.
+	if [ -x /usr/local/etc/init.d/foxyn-loginwindow ] &&
+	    [ -x /System/Library/CoreServices/Applications/LoginWindow.app/LoginWindow ]; then
+		rc-service dbus start >/dev/null 2>&1
+		rc-service foxyn-loginwindow start > /tmp/openrc-lw.log 2>&1
+		i=0 shown=0
+		while [ "$i" -lt 60 ]; do
+			for w in $(env DISPLAY=:0 XAUTHORITY=/var/run/xauth xwininfo -root -tree 2>/dev/null |
+			    awk '/"[^"]*": \("LoginWindow" "LoginWindow"\)  400x370/ {print $1}'); do
+				env DISPLAY=:0 XAUTHORITY=/var/run/xauth xwininfo -id "$w" |
+				    grep -q 'IsViewable' && shown=1
+			done
+			[ "$shown" = 1 ] && break
+			sleep 2; i=$((i + 2))
+		done
+		if [ "$shown" = 1 ] &&
+		    ! su -m nobody -c 'env DISPLAY=:0 XAUTHORITY=/dev/null xwininfo -root' >/dev/null 2>&1; then
+			echo "desktop-session: OpenRC's foxyn-loginwindow shows the login window; nobody cannot use the display"
+		else
+			fail "OpenRC's foxyn-loginwindow: shown=$shown $(tr '\n' ' ' < /tmp/openrc-lw.log)"
+		fi
+		rc-service foxyn-loginwindow stop >/dev/null 2>&1
+		rc-service dbus stop >/dev/null 2>&1
+		i=0
+		while pgrep -x 'Xorg|LoginWindow' >/dev/null && [ "$i" -lt 20 ]; do
+			sleep 1; i=$((i + 1))
+		done
+		pgrep -x 'Xorg|LoginWindow' >/dev/null &&
+		    fail "X or LoginWindow still runs after rc-service foxyn-loginwindow stop" ||
+		    echo "desktop-session: rc-service foxyn-loginwindow stop ends LoginWindow and X"
+	fi
 	[ "$ok" = 1 ]
 	;;
 audio)

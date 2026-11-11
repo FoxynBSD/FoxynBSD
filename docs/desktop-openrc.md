@@ -121,7 +121,8 @@ Limits: after Log Out (or a session that ends by itself) OpenRC shows
 `foxyn-desktop` as crashed, since its process exited without OpenRC
 stopping it; the console remains and `rc-service foxyn-desktop restart`
 starts a new session. LoginWindow (`-l`) still runs from rc.d only. Not
-tested on physical hardware.
+tested on physical hardware. (Both fixed since: see "Log Out and
+LoginWindow under OpenRC" below.)
 
 ## Automated order and recovery test, 2026-11-11
 
@@ -155,3 +156,34 @@ The same run changed `foxyn-audio`: it tries recording only when
 `/dev/sndstat` lists the default device as `play/rec`. On QEMU's
 playback-only card, the duplex `jackd` sometimes outlived its 10 s probe
 and left a capture source that delivered nothing (`pw-record` got 0 ms).
+
+## Log Out and LoginWindow under OpenRC, 2026-11-11
+
+- **Log Out.** A session ended by Log Out left `foxyn-desktop` shown as
+  `crashed`. The init script now runs `foxyn-session <user> openrc` (the
+  argument, because `start-stop-daemon` removes OpenRC's `RC_*`
+  variables), and `foxyn-session` marks the service stopped (`rc-service
+  foxyn-desktop zap`) when a session that started ends. Not when OpenRC
+  itself stops the service (it holds the service's lock; the init
+  script's stop leaves a marker), and not when X does not start: that
+  stays `crashed`.
+- **LoginWindow.** `foxyn-desktop -o -l` puts
+  `/usr/local/etc/init.d/foxyn-loginwindow` in the `desktop` runlevel
+  instead of `foxyn-desktop`: `foxyn-loginwindow` under daemon(8), which
+  restarts it, as rc.d's `foxyn_loginwindow` does, with `need dbus`; its
+  stop ends a running session first and then the X server.
+  `foxyn_openrc` is enabled, not `foxyn_loginwindow`.
+- **Test.** DragonFly's `rc.subr` returns 0 from a `status_cmd` whatever
+  its result, so `service foxyn_openrc status` always succeeds;
+  `desktop-session stop` now asks `rc-service foxyn-desktop status`.
+
+Tests, in QEMU on the `DESKTOP_OPENRC=1 build.sh desktop` image with the
+new scripts installed: after Log Out `rc-status` showed `foxyn-desktop`
+stopped (within 3 s); `desktop-session openrc` also started
+`foxyn-loginwindow` with `rc-service`, saw the login window on a server
+that refused `nobody`, and after `rc-service foxyn-loginwindow stop` no
+X server or LoginWindow ran. With `foxyn-loginwindow` in the `desktop`
+runlevel instead of `foxyn-desktop`, a reboot came up with `dbus` and
+`foxyn-loginwindow` started, LoginWindow on XLibre with `-auth
+/var/run/xauth`, showing the login window.
+
