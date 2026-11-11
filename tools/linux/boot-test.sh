@@ -418,9 +418,11 @@ if [ "$result" -eq 0 ] && [ -n "$ROOTARG" ] && [ "$MODE" != install ] &&
 fi
 
 # A disk is shut down cleanly, so the next boot finds its file system
-# clean and what this one wrote on it.
-if [ "$result" -eq 0 ] && [ "$MODE" != root ] && [ "$MODE" != done ] &&
-    [ -n "$MODE" ]; then
+# clean and what this one wrote on it: also after a failed check, once
+# root is logged in (killing QEMU with the disk mounted read-write left
+# the desktop image damaged, its password database included).
+if [ "$MODE" != root ] && [ "$MODE" != done ] && [ -n "$MODE" ] &&
+    { [ "$result" -eq 0 ] || grep -aFq "$LOGIN_OK" "$LOG"; }; then
 	printf 'halt -p\r' >&3
 	tries=0
 	while [ "$tries" -lt 24 ] && kill -0 "$pid" 2>/dev/null; do
