@@ -55,7 +55,7 @@ done
     die "remove DPorts' libobjc2 first (pkg delete libobjc2)"
 for p in gnustep-base-dragonfly-uuid.txt gnustep-base-kvm-configure.txt \
     gnustep-base-connection-null.patch gnustep-base-dispatch-pipe.txt \
-    libdispatch-dragonfly.txt; do
+    gnustep-back-mouse-init.txt libdispatch-dragonfly.txt; do
 	[ -r "$patches/$p" ] || die "patch not found: $patches/$p"
 done
 
@@ -96,6 +96,8 @@ get back "$gh/gnustep/libs-back/tar.gz/$back_rev" "$back_sha"
     patch -s -p1 < "$patches/gnustep-base-connection-null.patch" &&
     patch -s -p1 < "$patches/gnustep-base-dispatch-pipe.txt") ||
     die "GNUstep Base patches do not apply"
+(cd "$work/back" && patch -s -p1 < "$patches/gnustep-back-mouse-init.txt") ||
+    die "the GNUstep Back patch does not apply"
 (cd "$work/dispatch" && patch -s -p1 < "$patches/libdispatch-dragonfly.txt") ||
     die "the libdispatch patch does not apply"
 

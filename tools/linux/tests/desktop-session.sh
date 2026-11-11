@@ -26,6 +26,11 @@
 #	gnustep	(with GNUstep in /System) build and run, as the desktop
 #		user, gnustep-mainqueue.m: blocks dispatched to the main
 #		queue and NSOperationQueue's main queue run from the run loop
+#	clicks	(after wait) build tests/gnustep-clickprobe.m and run it in
+#		the session's display as the desktop user; after focusing
+#		another window, two instant clicks into it and a key: every
+#		-mouseDown: must get its release (return within 1 s) and the
+#		key must arrive when typed
 #	openrc	(after stop, with foxyn_openrc) OpenRC's order and recovery:
 #		starting the desktop runlevel starts dbus before
 #		foxyn-desktop and stopping it stops them the other way; with
@@ -403,6 +408,58 @@ RUN
 	echo "$out" | sed 's/^/desktop-session: /'
 	[ "$rc" = 0 ] && echo "desktop-session: GNUstep runs main-queue blocks from the run loop" ||
 	    fail "GNUstep's main queue (exit $rc)"
+	rm -rf "$d"
+	[ "$ok" = 1 ]
+	;;
+clicks)
+	[ -r /System/Library/Makefiles/GNUstep.sh ] ||
+	    { echo "desktop-session: no GNUstep in /System"; exit 0; }
+	command -v xdotool >/dev/null || { echo "desktop-session: FAIL no xdotool"; exit 1; }
+	XAUTHORITY=$(cat /var/run/foxyn-session.xauthority 2>/dev/null)
+	export XAUTHORITY
+	d=$(mktemp -d /tmp/clickprobe.XXXXXX) || exit 1
+	cp "$(dirname "$0")/gnustep-clickprobe.m" "$d/"
+	chown -R "$user" "$d"
+	cat > "$d/run.sh" <<'RUN'
+set +u
+. /System/Library/Makefiles/GNUstep.sh
+cd "$1" || exit 1
+libs=/System/Library/Libraries
+clang19 $(gnustep-config --objc-flags) -o clickprobe gnustep-clickprobe.m \
+    $(gnustep-config --gui-libs) -L$libs -Wl,-rpath,$libs || exit 2
+exec ./clickprobe > clickprobe.log 2>&1
+RUN
+	# Detached (daemon -f: a session of its own, no controlling
+	# terminal): a background su took the console over.
+	env DISPLAY=:0 XAUTHORITY="$XAUTHORITY" \
+	    daemon -f su -m "$user" -c "sh $d/run.sh $d"
+	i=0
+	while ! xwininfo -root -tree 2>/dev/null | grep -q '"clickprobe"' && [ "$i" -lt 60 ]; do
+		sleep 2; i=$((i + 2))
+	done
+	sleep 2
+	# Another window first (the session's xterm), so the click into the
+	# probe activates it; then the clicks as xdotool makes them, press
+	# and release back to back.
+	xdotool search --name '^Terminal$' windowactivate --sync >/dev/null 2>&1
+	sleep 1
+	xdotool mousemove 1000 400 click 1; sleep 1
+	xdotool mousemove 1000 400 click 1; sleep 1
+	typed=$(date +%s)
+	xdotool type x
+	sleep 3
+	pkill -u "$uid" -x clickprobe
+	log=$d/clickprobe.log
+	stuck=$(awk '/mouseDown enter/ {t=$2} /mouseDown return/ && t {if ($2 - t > 1) n++; t=0}
+	    END {print n + 0}' "$log")
+	open=$(awk '/mouseDown enter/ {o++} /mouseDown return/ {o--} END {print o + 0}' "$log")
+	key=$(awk '/keyDown x/ {print int($2); exit}' "$log")
+	if [ "$stuck" = 0 ] && [ "$open" = 0 ] && [ -n "$key" ] && [ $((key - typed)) -le 1 ]; then
+		echo "desktop-session: GNUstep gets every click's release; a key arrives when typed"
+	else
+		fail "clicks: $stuck mouse-downs waited for a release, $open never returned, key at ${key:-never} (typed at $typed)"
+		sed 's/^/desktop-session: /' "$log" | tail -8
+	fi
 	rm -rf "$d"
 	[ "$ok" = 1 ]
 	;;

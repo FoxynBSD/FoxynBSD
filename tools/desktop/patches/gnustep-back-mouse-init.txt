@@ -1,0 +1,34 @@
+GNUstep Back: read the mouse settings when the X connection's input
+source is set up, not on the first button press (Source/x11/
+XGServerEvent.m).  -initializeMouse registers for a distributed
+notification, a synchronous call to gdnc that runs a nested run loop;
+called while the first ButtonPress was being handled, that nested loop
+handled the following X events, the press's ButtonRelease among them,
+and queued the mouse-up before the mouse-down.  The view tracking the
+press waited for a release that had gone, and from then on each click
+ended the previous one's tracking: key events stayed queued until the
+next click (text typed into TextEdit appeared only after a click), and
+buttons stayed pressed.
+
+--- a/Source/x11/XGServerEvent.m
++++ b/Source/x11/XGServerEvent.m
+@@ -271,6 +271,19 @@
+       procEvent = (void (*)(id, SEL, XEvent*))
+         [self methodForSelector: procSel];
+     }
++  /* Read the mouse settings, and register for their changes, now, before
++   * any event is handled.  Done lazily on the first button press, the
++   * registration (a distributed notification: a synchronous call to gdnc)
++   * ran a nested run loop that handled the X events after the press, its
++   * button release among them, before the press itself was queued: the
++   * view tracking the press then waited for a release that had gone, and
++   * every later click ended the previous one's tracking instead of its
++   * own (key events stayed queued until the next click).
++   */
++  if (clickTime == 0)
++    {
++      [self initializeMouse];
++    }
+ }
+ 
+ #if LIB_FOUNDATION_LIBRARY

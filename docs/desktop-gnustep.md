@@ -91,8 +91,14 @@ Three patches are applied to GNUstep Base, from `tools/desktop/patches`:
   the pipe before draining the queue, as the Linux code does with its
   eventfd.
 
+One patch is applied to GNUstep Back: `gnustep-back-mouse-init.txt`
+(2026-11-11) reads the mouse settings when the X input source is set up
+instead of on the first button press, where their registration (a
+synchronous call to `gdnc`) handled the press's button release first; see
+`desktop-windowmanager.md`, "Lost button releases".
+
 These are small changes to the upstream sources that should go upstream.
-Make, libobjc2, GUI and Back build unmodified.
+Make, libobjc2 and GUI build unmodified.
 
 ## Licenses
 

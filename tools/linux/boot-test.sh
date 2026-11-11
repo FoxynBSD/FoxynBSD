@@ -285,6 +285,16 @@ if [ "$result" -eq 0 ] && [ "$MODE" = desktop ]; then
 		done
 		grep -aq '^dgnustep-42: 0' "$LOG" || result=1
 	fi
+	# Clicks and keys in a GNUstep application (dclicks-42).
+	if [ "$result" -eq 0 ]; then
+		printf "sh -c 'sh /root/tests/desktop-session clicks; echo dclicks-\$((6*7)): \$?'\r" >&3
+		tries=0
+		while [ "$tries" -lt 36 ] && ! grep -aq '^dclicks-42:' "$LOG"; do
+			sleep 5
+			tries=$((tries + 1))
+		done
+		grep -aq '^dclicks-42: 0' "$LOG" || result=1
+	fi
 	# AUDIO_CHECK=1: a tone through the session's PipeWire (daudio-42);
 	# what reached the card is in the WAV file ("audio-wav:" line).
 	if [ "$result" -eq 0 ] && [ "${AUDIO_CHECK:-0}" = 1 ]; then

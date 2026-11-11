@@ -135,14 +135,22 @@ tracking loop ended and the keys were dispatched as they were typed.
 LoginWindow's "stuck Log In button" (`desktop-loginwindow.md`) is the
 same: a button's tracking loop waiting for a release.
 
-WindowManager grabs button 1 on its windows in synchronous pointer mode
-(`xcb_grab_button(..., XCB_GRAB_MODE_SYNC, ...)` in `XCBWindow.m`) and
-replays each press (`xcb_allow_events(..., XCB_ALLOW_REPLAY_POINTER, ...)`);
-gnustep-back drops a `ButtonRelease` whose window is not one of the
-application's (`XGServerEvent.m`). A release that falls into that window
-is a likely way to lose it; not confirmed yet (it needs a trace of the
-window manager's and the application's X events). Human clicks last tens
-to hundreds of milliseconds and are much less exposed than synthetic
-ones, but the effect when it happens (a control or text view that stops
-responding until the next click) is the same. The tests press for 150 ms
-(`login_click`).
+Cause (found later the same day; the window manager is not involved:
+the same happened with WindowManager stopped): gnustep-back read the
+mouse settings lazily, in `-initializeMouse`, on the first button press,
+and that registers for a distributed notification, a synchronous call to
+`gdnc` that runs a nested run loop. That nested loop handled the X events
+after the press, its `ButtonRelease` among them, so the mouse-up was
+queued before the mouse-down (an `XNextEvent` shim showed the press first,
+a breakpoint on `NSEvent` creation showed the release created first,
+inside `-[NSDistributedNotificationCenter addObserver:...]` called from
+`-[XGServer processEvent:]`). The view tracking that press waited for a
+release that had gone, and from then on each click ended the previous
+one's tracking. `gnustep-back-mouse-init.txt` (applied by
+`build-gnustep.sh`) reads the mouse settings when the X connection's
+input source is set up, before any event is handled. With it, text typed
+into TextEdit appeared at once, and the probe's mouse-downs all returned
+with their release. `desktop-session clicks` (run by `boot-test.sh
+--desktop`) builds `tests/gnustep-clickprobe.m` and checks this after
+moving the focus away and two instant clicks: in the same VM it failed 2
+of 3 runs with the unpatched Back and passed 3 of 3 with the patch.
