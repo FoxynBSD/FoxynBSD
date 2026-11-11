@@ -320,6 +320,16 @@ if [ "$gnustep" = source ] && [ ! -x "$apps/TextEdit.app/TextEdit" ]; then
 	install_app TextEdit.app
 	rm -rf "$work"
 fi
+# Gershwin's Terminal (contrib/gershwin-terminal), which the Dock lists
+# with TextEdit and System Preferences.
+if [ "$gnustep" = source ] && [ ! -x "$apps/Terminal.app/Terminal" ]; then
+	[ -r "$share/build-terminal.sh" ] || die "$share/build-terminal.sh is missing"
+	work=$(mktemp -d /tmp/foxyn-term.XXXXXXXX) || die "mktemp failed"
+	chown "$user" "$work"
+	build_as "Gershwin Terminal" "'$share/build-terminal.sh' '$work/Terminal.app'"
+	install_app Terminal.app
+	rm -rf "$work"
+fi
 
 # Removable media: automount (contrib/automount) mounts a USB stick or SD
 # card under /media/<label> as the desktop user (Workspace shows it and

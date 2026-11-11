@@ -90,3 +90,7 @@
 	path = contrib/automount
 	url = https://github.com/vermaden/automount.git
 	shallow = true
+[submodule "contrib/gershwin-terminal"]
+	path = contrib/gershwin-terminal
+	url = https://github.com/gershwin-desktop/gershwin-terminal.git
+	shallow = true

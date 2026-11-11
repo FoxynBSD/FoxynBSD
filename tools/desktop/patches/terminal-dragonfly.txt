@@ -1,0 +1,35 @@
+--- TerminalView.m.orig
++++ TerminalView.m
+@@ -40,6 +40,11 @@
+ #  include <termios.h>
+ #  include <libutil.h>
+ #  include <pcap.h>
++#elif defined(__DragonFly__)
++#  include <sys/types.h>
++#  include <sys/ioctl.h>
++#  include <termios.h>
++#  include <libutil.h>
+ #elif defined(__OpenBSD__)
+ #  include <termios.h>
+ #  include <util.h>
+@@ -53,7 +58,7 @@
+ #include <sys/types.h>
+ #include <unistd.h>
+ #include <fcntl.h>
+-#ifndef __FreeBSD__
++#if !defined(__FreeBSD__) && !defined(__DragonFly__)
+ #if !(defined (__NetBSD__)) && !(defined (__SOLARIS__)) && !(defined(__OpenBSD__))
+ #  include <pty.h>
+ #endif
+--- GNUmakefile.preamble.orig
++++ GNUmakefile.preamble
+@@ -37,3 +37,9 @@
+ ADDITIONAL_LDFLAGS += -liconv
+ endif
+ 
++# On DragonFly, GNU libiconv's header in /usr/local/include (DPorts'
++# libiconv, which GNUstep pulls in) is found before libc's, likewise.
++ifeq ($(findstring dragonfly,$(GNUSTEP_TARGET_OS)),dragonfly)
++ADDITIONAL_LDFLAGS += -L/usr/local/lib -liconv
++endif
++

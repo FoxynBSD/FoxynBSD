@@ -41,3 +41,23 @@ includes a GPL version 2 license text. Keep this application as a separate
 component and complete a file-level license and provenance review before
 distribution. No upstream source was incorporated into the FoxynBSD tree
 or modified in this experiment.
+
+## Gershwin Terminal in the desktop, 2026-11-11
+
+`foxyn-desktop` now builds Gershwin Terminal (`contrib/gershwin-terminal`,
+tag 26.09, `2c77b9c3f7`) with `tools/desktop/build-terminal.sh` and installs
+it in `/System/Applications`, where the Dock lists it between TextEdit and
+System Preferences (Gershwin's `org.gnustep.Workspace` defaults). The
+build gap above was the platform branch in `TerminalView.m`: DragonFly
+took Linux's `<termio.h>` and `<pty.h>`. `terminal-dragonfly.txt` gives it
+FreeBSD's headers (`<termios.h>`, `<libutil.h>` for `forkpty(3)`), and links
+`-liconv`: GNUstep pulls in DPorts' GNU libiconv, whose header in
+`/usr/local/include` renames the `iconv` functions, as on FreeBSD and
+OpenBSD.
+
+In QEMU, Terminal opened in the Gershwin session as the desktop user with
+a `csh` on `pts/0` (window "Terminal — csh (pts/0) 80x25"), in the Eau
+theme, with its Terminal, Shell, Edit, Font and Windows menus in Menu's
+bar. Typing into it was not verified in that run (the lab VM had been
+started by hand, with root's environment, after Workspace was killed
+twice). The license notes above still apply.

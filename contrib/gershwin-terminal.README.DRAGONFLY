@@ -1,0 +1,20 @@
+Gershwin Terminal
+=================
+
+url    = https://github.com/gershwin-desktop/gershwin-terminal.git
+tag    = 26.09
+commit = 2c77b9c3f7c8a4b7a200830f5ba81b5f9085be06
+date   = 2026-09-17
+
+This revision is built by tools/desktop/build-terminal.sh, which
+foxyn-desktop(8) runs on the desktop image (tools/linux/build.sh desktop):
+it downloads the revision's archive (identical to the submodule), checks
+its SHA-256 and applies tools/desktop/patches/terminal-dragonfly.txt
+(FreeBSD's termios.h and libutil.h instead of Linux's termio.h and pty.h,
+and -liconv for DPorts' libiconv, as on FreeBSD and OpenBSD).  It is
+installed as /System/Applications/Terminal.app, which the Dock lists.  It
+is not part of buildworld.  Keep build output outside the submodule; when
+upgrading, update the revision and checksum in build-terminal.sh too.
+License: GPL text in Resources/COPYING and file-specific notices; see docs/desktop-terminal.md. Complete provenance review and preserve applicable notices
+and source obligations before distributing selected components.
+On upgrade, review dependencies, ABI, installation paths and desktop tests.

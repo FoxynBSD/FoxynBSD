@@ -1485,6 +1485,7 @@ do_rootfs() {
 	install -m 444 "$SRCDIR/tools/desktop/build-gnustep.sh" \
 	    "$SRCDIR/tools/desktop/build-windowmanager.sh" \
 	    "$SRCDIR/tools/desktop/build-textedit.sh" \
+	    "$SRCDIR/tools/desktop/build-terminal.sh" \
 	    "$SRCDIR/tools/desktop/build-menu.sh" \
 	    "$SRCDIR/tools/desktop/build-systempreferences.sh" \
 	    "$SRCDIR/tools/desktop/build-workspace.sh" \
@@ -1515,6 +1516,7 @@ do_rootfs() {
 	    "$SRCDIR/tools/desktop/patches/wireplumber-dragonfly.txt" \
 	    "$SRCDIR/tools/desktop/patches/pulseaudio-dragonfly.txt" \
 	    "$SRCDIR/tools/desktop/patches/automount-dragonfly.txt" \
+	    "$SRCDIR/tools/desktop/patches/terminal-dragonfly.txt" \
 	    "$root/usr/share/foxynbsd/desktop/patches/"
 	# Copy the shared libraries, following NEEDED entries to a fixpoint
 	# (not for /boot: the kernel and its modules do not load them).

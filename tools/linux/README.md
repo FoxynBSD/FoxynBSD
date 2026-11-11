@@ -966,7 +966,9 @@ with the scfb and libinput drivers from `contrib/xlibre*` with
 `build-xlibre.sh`
 ([`docs/desktop-xlibre.md`](../../docs/desktop-xlibre.md)), then
 WindowManager (`build-windowmanager.sh`: pinned source, checksum, the
-titlebar patch) and TextEdit (`build-textedit.sh`) against it; the helpers
+titlebar patch), TextEdit (`build-textedit.sh`) and Gershwin's Terminal
+(`build-terminal.sh`, with `terminal-dragonfly.txt`;
+[`docs/desktop-terminal.md`](../../docs/desktop-terminal.md)) against it; the helpers
 are in the image's `/usr/share/foxynbsd/desktop`. `/System` and the
 applications in `/System/Applications` end up root's. Last, it enables the
 `foxyn_desktop` rc.d service. `DESKTOP_GNUSTEP=dports` (`foxyn-desktop -g
