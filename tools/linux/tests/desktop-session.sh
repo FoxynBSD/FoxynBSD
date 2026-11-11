@@ -38,11 +38,18 @@ else
 fi
 case ${1:-} in
 wait)
+	# Also for the session's sound: on a card that cannot record,
+	# foxyn-audio's duplex attempt takes up to 10 s to fail before it
+	# starts jackd for playback only, then PipeWire.
+	audio=0
+	[ -x /System/Library/PipeWire/bin/pipewire ] && [ -c /dev/dsp ] && audio=1
 	i=0
 	while [ "$i" -lt 90 ]; do
 		XAUTHORITY=$(cat /var/run/foxyn-session.xauthority 2>/dev/null)
 		xwininfo -root -tree 2>/dev/null | grep -q "\"$appwin\"" &&
-		    xwininfo -root -tree | grep -q '"Terminal"' && break
+		    xwininfo -root -tree | grep -q '"Terminal"' &&
+		    { [ "$audio" = 0 ] || pgrep -u "$uid" -x wireplumber >/dev/null; } &&
+		    break
 		sleep 2; i=$((i + 1))
 	done
 	service $svc status | sed 's/^/desktop-session: /'
@@ -62,8 +69,7 @@ wait)
 	[ -x /System/Library/CoreServices/Applications/Menu.app/Menu ] &&
 	    procs="$procs Menu"
 	# The session's sound (foxyn-audio), with PipeWire and a sound card.
-	[ -x /System/Library/PipeWire/bin/pipewire ] && [ -c /dev/dsp ] &&
-	    procs="$procs jackd pipewire wireplumber"
+	[ "$audio" = 1 ] && procs="$procs jackd pipewire wireplumber"
 	# Gershwin's session: its supervisor and Workspace.
 	[ -x /System/Library/Tools/gershwin-session ] && [ -x /System/Library/Tools/Workspace ] &&
 	    procs="$procs gershwin-session Workspace"
