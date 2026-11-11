@@ -98,3 +98,33 @@ host's file system was full, and QEMU paused the VM (`info status`:
 
 Not tested: file management in Workspace, the System Preferences panes,
 the dock's items, a second login, XLibre and physical hardware.
+
+## Using the session by mouse and keyboard (automated), 2026-11-11
+
+`desktop-session use` (run by `boot-test.sh --desktop`) uses the
+automatic Gershwin session as the desktop user would, with xdotool,
+clicks held 150 ms, and checks each result on disk:
+
+- TextEdit: a click into the untitled document, "Hello from FoxynBSD"
+  typed, Alt+S (GNUstep's Command key is Alt), the file name typed into
+  the save panel's Name field and Return: the file in the user's home has
+  that text.
+- Workspace: a click on the desktop until Workspace is the active
+  application (the active window in the same X client range as its
+  "Desktop" window; GNUstep windows have no `_NET_WM_PID`), then
+  Command-Shift-N (File > New Folder): `~/Desktop/New Folder` exists;
+  a click on its icon, Command-Backspace (Move to Trash) and Return in the
+  confirmation ("Move one item from: /home/foxyn/Desktop to the Trash?"):
+  it is in `~/.Trash`.
+- System Preferences (the dock's third icon) > Defaults: the setting
+  `GSSavePanelShowProgress` set to YES with Set: `defaults read` in a new
+  process returns it (the test removes it afterwards).
+
+Choosing Workspace's menu items by their position in the menu bar was
+not reliable (the menu bar shows the active application's menus, and the
+click could land in the previous application's); the keyboard shortcuts
+are. In QEMU, three runs in a row after restarting the session passed.
+The same steps by hand, with screenshots, are in issue #13. Not covered:
+the other System Preferences panes (Date and Time, Internet, Indexing; the
+Modifier keys pane is disabled), drag and drop, and file operations other
+than creating and trashing a folder.

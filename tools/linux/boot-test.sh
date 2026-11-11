@@ -295,6 +295,18 @@ if [ "$result" -eq 0 ] && [ "$MODE" = desktop ]; then
 		done
 		grep -aq '^dclicks-42: 0' "$LOG" || result=1
 	fi
+	# The session used by mouse and keyboard: TextEdit saves a document,
+	# Workspace makes a folder and trashes it, System Preferences changes
+	# a setting (duse-42).
+	if [ "$result" -eq 0 ]; then
+		printf "sh -c 'sh /root/tests/desktop-session use; echo duse-\$((6*7)): \$?'\r" >&3
+		tries=0
+		while [ "$tries" -lt 48 ] && ! grep -aq '^duse-42:' "$LOG"; do
+			sleep 5
+			tries=$((tries + 1))
+		done
+		grep -aq '^duse-42: 0' "$LOG" || result=1
+	fi
 	# AUDIO_CHECK=1: a tone through the session's PipeWire (daudio-42);
 	# what reached the card is in the WAV file ("audio-wav:" line).
 	if [ "$result" -eq 0 ] && [ "${AUDIO_CHECK:-0}" = 1 ]; then

@@ -31,6 +31,13 @@
 #		another window, two instant clicks into it and a key: every
 #		-mouseDown: must get its release (return within 1 s) and the
 #		key must arrive when typed
+#	use	(after wait, Gershwin's session) use it as the desktop user
+#		would, by mouse and keyboard: type into TextEdit and save the
+#		document (Alt+S, the save panel); create a folder on the
+#		desktop (Workspace, File > New Folder) and move it to the
+#		Trash (Alt+Backspace, OK); change a setting (System
+#		Preferences > Defaults: GSSavePanelShowProgress YES, Set).
+#		Each result is checked on disk
 #	openrc	(after stop, with foxyn_openrc) OpenRC's order and recovery:
 #		starting the desktop runlevel starts dbus before
 #		foxyn-desktop and stopping it stops them the other way; with
@@ -409,6 +416,121 @@ RUN
 	[ "$rc" = 0 ] && echo "desktop-session: GNUstep runs main-queue blocks from the run loop" ||
 	    fail "GNUstep's main queue (exit $rc)"
 	rm -rf "$d"
+	[ "$ok" = 1 ]
+	;;
+use)
+	[ -x /System/Library/Tools/gershwin-session ] ||
+	    { echo "desktop-session: no Gershwin session"; exit 0; }
+	command -v xdotool >/dev/null || { echo "desktop-session: FAIL no xdotool"; exit 1; }
+	XAUTHORITY=$(cat /var/run/foxyn-session.xauthority 2>/dev/null)
+	export XAUTHORITY
+	home=$(pw usershow "$user" | cut -d: -f9)
+	# click X Y: a click as a person makes it (held 150 ms)
+	click() {
+		xdotool mousemove "$1" "$2" mousedown 1
+		sleep 0.15
+		xdotool mouseup 1
+		sleep 1
+	}
+	# origin REGEX: the X and Y of the window whose name matches REGEX
+	# (its content, below the title bar)
+	origin() {
+		xdotool search --onlyvisible --name "$1" getwindowgeometry 2>/dev/null |
+		    sed -n 's/.*Position: \([0-9]*\),\([0-9]*\).*/\1 \2/p' | head -n 1
+	}
+	# waitwin REGEX: until such a window exists (30 s)
+	waitwin() {
+		i=0
+		while [ -z "$(origin "$1")" ] && [ "$i" -lt 30 ]; do sleep 1; i=$((i + 1)); done
+		[ -n "$(origin "$1")" ]
+	}
+	# TextEdit: type, Alt+S, the file name in the save panel, Return.
+	f=$home/use-test-$$.txt
+	if waitwin '^[*]?UNTITLED$'; then
+		xdotool search --name 'UNTITLED' windowactivate --sync >/dev/null 2>&1
+		set -- $(origin '^[*]?UNTITLED$')
+		click $(($1 + 530)) $(($2 + 300))
+		xdotool type --delay 50 "Hello from FoxynBSD"
+		sleep 1
+		xdotool key alt+s
+		if waitwin '^Save Plain Text$'; then
+			set -- $(origin '^Save Plain Text$')
+			click $(($1 + 213)) $(($2 + 432))
+			xdotool type --delay 50 "${f##*/}"
+			sleep 1
+			xdotool key Return
+			sleep 3
+		fi
+		if [ "$(cat "$f" 2>/dev/null)" = "Hello from FoxynBSD" ]; then
+			echo "desktop-session: TextEdit saved what was typed in it (${f##*/})"
+		else
+			fail "TextEdit: no saved document $f"
+		fi
+	else
+		fail "no TextEdit window"
+	fi
+	rm -f "$f"
+	# Workspace: File > New Folder on the desktop, then Move to Trash.
+	rm -rf "$home/Desktop/New Folder" "$home/.Trash/New Folder"
+	# Workspace must be the active application before its File menu is
+	# used (the menu bar shows the active application's menus): click
+	# the desktop until the active window is one of Workspace's: in the
+	# same X client id range as its "Desktop" window (GNUstep windows
+	# have no _NET_WM_PID).
+	desk=$(xdotool search --onlyvisible --name '^Desktop$' | head -n 1)
+	i=0
+	while [ "$i" -lt 5 ]; do
+		click 1000 650
+		act=$(xdotool getactivewindow 2>/dev/null)
+		[ -n "$act" ] && [ -n "$desk" ] && [ $((act >> 21)) = $((desk >> 21)) ] && break
+		sleep 1; i=$((i + 1))
+	done
+	# File > New Folder: Command-Shift-N (the Command key is Alt)
+	xdotool key alt+shift+n
+	i=0
+	while [ ! -d "$home/Desktop/New Folder" ] && [ "$i" -lt 10 ]; do sleep 1; i=$((i + 1)); done
+	if [ -d "$home/Desktop/New Folder" ]; then
+		echo "desktop-session: Workspace made a folder on the desktop"
+		sleep 2
+		# Select its icon (below System Disk), File > Move to Trash
+		# (Command-Backspace), and confirm with the default button.
+		click 1231 135
+		xdotool key alt+BackSpace
+		sleep 2
+		xdotool key Return
+		i=0
+		while [ -e "$home/Desktop/New Folder" ] && [ "$i" -lt 10 ]; do sleep 1; i=$((i + 1)); done
+		if [ ! -e "$home/Desktop/New Folder" ] && [ -d "$home/.Trash/New Folder" ]; then
+			echo "desktop-session: Workspace moved it to the Trash"
+		else
+			fail "Workspace did not move the folder to the Trash"
+		fi
+	else
+		fail "Workspace made no folder on the desktop"
+	fi
+	rm -rf "$home/.Trash/New Folder"
+	# System Preferences (the dock's third icon) > Defaults.
+	click 672 767
+	# (It opens at the same place; the origins xdotool reports for its
+	# window and its panes' differ by the title bar.)
+	if waitwin '^System Preferences$'; then
+		xdotool mousemove 328 300 click --repeat 2 --delay 150 1
+		sleep 3
+		if waitwin '^Defaults$'; then
+			click 300 451	# GSSavePanelShowProgress
+			click 627 482	# its pop-up: NO
+			click 627 505	# YES
+			click 743 572	# Set
+			sleep 1
+		fi
+	fi
+	v=$(su -m "$user" -c "sh -c '. /System/Library/Makefiles/GNUstep.sh; defaults read NSGlobalDomain GSSavePanelShowProgress'" 2>/dev/null)
+	case $v in
+	*GSSavePanelShowProgress\ 1|*GSSavePanelShowProgress\ YES)
+		echo "desktop-session: System Preferences changed a setting ($v)" ;;
+	*)	fail "System Preferences: GSSavePanelShowProgress is '$v'" ;;
+	esac
+	su -m "$user" -c "sh -c '. /System/Library/Makefiles/GNUstep.sh; defaults delete NSGlobalDomain GSSavePanelShowProgress'" >/dev/null 2>&1
 	[ "$ok" = 1 ]
 	;;
 clicks)
