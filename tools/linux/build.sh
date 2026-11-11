@@ -595,7 +595,8 @@ EOF
 # headers, which xgcc replaces with DragonFly's (the sysroot, then the
 # host gcc's own intrinsics and gcc 12's in /usr/libdata/gcc120), and the
 # hardening defaults of Linux distributions, which it turns off as the
-# DragonFly gcc has them.  Only compiling goes to gcc: links (libatomic,
+# DragonFly gcc has them, and the x86 ISA notes that newer assemblers add
+# (.note.gnu.property), which DragonFly's gold warns about.  Only compiling goes to gcc: links (libatomic,
 # libgomp and libssp are shared too) go to xcc, which links for the
 # target.  Warnings stay warnings: the host gcc is newer than gcc 12.
 write_xgcc_wrapper() {
@@ -610,7 +611,7 @@ for a; do
 		-idirafter "$inc" -idirafter "$SYSROOT/usr/libdata/gcc120" \\
 		-U__linux__ -U__linux -Ulinux -U__gnu_linux__ -D__DragonFly__ \\
 		-fno-pie -fcf-protection=none -fno-stack-clash-protection \\
-		-U_FORTIFY_SOURCE -fno-stack-protector \\
+		-U_FORTIFY_SOURCE -fno-stack-protector -Wa,-mx86-used-note=no \\
 		-ffile-prefix-map="$SRCDIR"=/usr/src -ffile-prefix-map="$OBJDIR"=/usr/obj \\
 		"\$@" -Wno-error -Wno-system-headers ;;
 	esac
@@ -702,7 +703,7 @@ build_makefs() {
 
 # Bump when the host tools or shims change, so an existing $OBJDIR gets
 # them rebuilt instead of failing with old ones (install -C/-B, chflags).
-TOOLS_STAMP=22
+TOOLS_STAMP=23
 
 kenv() {
 	[ "$(cat "$HOSTBIN/.done" 2>/dev/null)" = "$TOOLS_STAMP" ] || do_tools
@@ -1101,10 +1102,16 @@ world_dir() {
 	bin/sh)		world_lib "$1" NOSHARED=yes ;;
 	# In an object tree of its own: gcc_prep's stand-in gcc headers
 	# must not reach the real gcc build (gnu/usr.bin/cc80).
+	# The unwinder needs gcc, as gcc 12's runtime does (see
+	# write_xgcc_wrapper): built by clang, _Unwind_RaiseException
+	# returned garbage instead of _URC_END_OF_STACK when no frame caught
+	# an exception (libobjc2's UnexpectedException test).
 	gnu/lib/gcc80/libgcc_eh)
 		( MAKEOBJDIRPREFIX=$OBJDIR/world-libgcc
 		  export MAKEOBJDIRPREFIX; mkdir -p "$MAKEOBJDIRPREFIX"
-		  gcc_prep; world_lib "$1" ) && gcc_pic_unwind ;;
+		  gcc_prep; objdir_cc "$1" "xgcc 2" &&
+		  WORLD_CCVER=gcc80 world_lib "$1" CC=xgcc ) &&
+		    gcc_pic_unwind ;;
 	gnu/usr.bin/cc80) gcc_prep_clean; world_lib "$1" ;;
 	gnu/lib/gcc120)	world_gcc120 ;;
 	usr.bin/ruby)	world_ruby ;;
@@ -1196,6 +1203,7 @@ world_gcc120() {
 			    make CCVER=gcc120 -V .OBJDIR) || return
 			install -D -m 444 "$o/ssp.h" "$SYSROOT/usr/libdata/gcc120/ssp/ssp.h"
 		fi
+		objdir_cc "$g/$d" "xgcc 2" || return
 		WORLD_CCVER=gcc120 world_lib "$g/$d" CC=xgcc || return
 	done
 	for d in $GCC120_CXX; do
@@ -1259,19 +1267,31 @@ world_subdirs() {
 # (libgcc.a, see install_compiler_rt) and add the unwinder built from
 # libgcc_eh's sources the way libgcc_pic builds them (-DSHARED, exported).
 # It is built in its own object tree, next to the hidden libgcc_eh one.
+# objdir_cc DIR CC: DIR's objects (in $MAKEOBJDIRPREFIX) were compiled
+# by CC; make does not notice a change of compiler, so objects that an
+# other one compiled are removed first.
+objdir_cc() {
+	local o=$MAKEOBJDIRPREFIX$SRCDIR/$1
+	mkdir -p "$o"
+	[ "$(cat "$o/.foxyn-cc" 2>/dev/null)" = "$2" ] && return 0
+	find "$o" -maxdepth 1 -type f \( -name '*.o' -o -name '*.po' -o \
+	    -name '*.So' -o -name '*.a' \) -delete
+	echo "$2" > "$o/.foxyn-cc"
+}
+
 gcc_pic_unwind() {
 	local o=$OBJDIR/world-pic dst=$SYSROOT/usr/lib/gcc80 eh
-	cat > "$HOSTBIN/xcc-pic" <<'EOF'
+	cat > "$HOSTBIN/xgcc-pic" <<'EOF'
 #!/bin/sh
-exec xcc "$@" -fvisibility=default -UHIDE_EXPORTS -DSHARED -D_AVOID_WEAKREF
+exec xgcc "$@" -fvisibility=default -UHIDE_EXPORTS -DSHARED -D_AVOID_WEAKREF
 EOF
-	chmod 755 "$HOSTBIN/xcc-pic"
+	chmod 755 "$HOSTBIN/xgcc-pic"
 	msg "building the exported unwinder for libgcc_pic"
 	( MAKEOBJDIRPREFIX=$o; export MAKEOBJDIRPREFIX; mkdir -p "$o"
-	  gcc_prep
+	  gcc_prep; objdir_cc gnu/lib/gcc80/libgcc_eh "xgcc-pic 2" &&
 	  cd "$SRCDIR/gnu/lib/gcc80/libgcc_eh" && make obj >/dev/null &&
-	  make CCVER=clang CC=xcc-pic depend >/dev/null &&
-	  make -j"$JOBS" CCVER=clang CC=xcc-pic ) || return
+	  make CCVER=gcc80 CC=xgcc-pic depend >/dev/null &&
+	  make -j"$JOBS" CCVER=gcc80 CC=xgcc-pic ) || return
 	eh=$o$SRCDIR/gnu/lib/gcc80/libgcc_eh/libgcc_eh.a
 	rm -f "$o/libgcc_pic.a"
 	printf 'create %s\naddlib %s\naddlib %s\nsave\nend\n' \

@@ -175,10 +175,26 @@ Same QEMU setup, image from `367ed195d0`.
   built with the base `cc` (GCC 8), but a value that looks like the
   exception's address when built with DPorts' `clang19`, with
   `-lgcc_pic` (the default) or `-lgcc_eh`; `_Unwind_Backtrace` walks the
-  same frames to the end of the stack in both. Not resolved. Catching
-  exceptions works (libobjc2's other exception tests pass); an uncaught
-  exception in a clang-built program aborts without GNUstep's "uncaught
+  same frames to the end of the stack in both. Catching exceptions
+  worked (libobjc2's other exception tests passed); an uncaught exception
+  in a clang-built program aborted without GNUstep's "uncaught
   exception" report.
+
+  The cause was the link, not the compiler: DPorts' clang links
+  `/usr/lib/gcc80`'s `libgcc_pic.a`, the base `cc` (gcc 12) the one in
+  `/usr/lib/gcc120`. On the Linux host, `build.sh` compiled gcc 8's
+  unwinder (`gnu/lib/gcc80/libgcc_eh`, and its PIC copy in
+  `libgcc_pic.a`) with clang, whose code for libgcc's
+  `_Unwind_RaiseException` returned a clobbered value; gcc 12's runtime
+  was already compiled with the host gcc (`xgcc`). `build.sh` now
+  compiles gcc 8's unwinder with `xgcc` too (and removes objects another
+  compiler made: make does not notice the change). Then the C program
+  got `_URC_END_OF_STACK` with both compilers and both links, and
+  libobjc2 passed 198 of 198 tests. `xgcc` also no longer emits the x86
+  ISA notes (`.note.gnu.property`) of newer assemblers, which DragonFly's
+  gold warned about (`unknown program property type 0xc0010001`) at every
+  link with gcc 12's crt and libgcc; gcc 12's runtime is rebuilt once for
+  it.
 - **GNUstep GUI** (`Tests/gui` of the pinned revision, configured, run as
   `foxyn` in the desktop session's display):
   - with GNUstep's own theme (`GSTheme GNUstep` in the user's defaults):
