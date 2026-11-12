@@ -3194,7 +3194,8 @@ EOF
 	echo "everything the build and the boot test use is installed"
 }
 
-# The whole system, ready for `tools/linux/qemu.sh`: host tools, kernel,
+# The whole system, ready for `tools/linux/qemu.sh`: host tools, kernel and
+# its modules,
 # EFI loader and boot tree, the world (ROOTFS=base: the base programs)
 # and a root image with all of it.  Every step is incremental: after an
 # edit in the tree, running it again compiles what the edit affects,
@@ -3206,6 +3207,11 @@ EOF
 do_all() {
 	kenv
 	( do_kernel )
+	# The modules too: rootfs puts them in /boot/kernel, where devd(8)
+	# and the desktop load drivers from (sound, USB devices, msdos_iconv
+	# for a USB stick's file names).  Without them the image has only
+	# the loader's ehci.ko and xhci.ko.
+	! kconf_modules X86_64_GENERIC || ( do_modules )
 	( do_loader )
 	( do_esp )
 	case ${ROOTFS:-world} in
