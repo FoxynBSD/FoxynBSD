@@ -29,6 +29,11 @@
 #					 GNUstep (source); needs the internet and
 #					 QEMU; DESKTOP_SIZE=8G; boot it with
 #					 qemu.sh --desktop)
+#	tools/linux/build.sh rust		(rustc and cargo that run on FoxynBSD,
+#					 cross-built from Rust's release source:
+#					 tools/linux/build-rust.sh; needs the
+#					 world in the sysroot, the internet,
+#					 cmake and ninja; about 1.5 h)
 #	tools/linux/build.sh world		(the whole userland, buildworld
 #					 order; KEEP_GOING=1 lists failures)
 #	tools/linux/build.sh subdir DIR...	(build and install world dirs)
@@ -3253,6 +3258,7 @@ main() {
 	rootfs)		do_rootfs ;;
 	disk)		do_disk ;;
 	desktop)	do_desktop ;;
+	rust)		OBJDIR=$OBJDIR "$SRCDIR/tools/linux/build-rust.sh" ;;
 	subdir)		headers_current
 			[ -f "$SYSROOT/usr/lib/libc.so" ] || do_libc
 			wenv; for d; do world_dir "$d"; done ;;
@@ -3260,7 +3266,7 @@ main() {
 	esp)		do_esp "$@" ;;
 	doctor)		do_doctor ;;
 	env)		kenv; env | grep -E '^(PATH|MACHINE|MACHINE_ARCH|MACHINE_PLATFORM|CCVER|HOST_CCVER|HOST_BINUTILSVER)=' | sed 's/^/export /' ;;
-	*)		sed -n '3,30p' "$0" | sed 's/^# \{0,1\}//'; exit 1 ;;
+	*)		sed -n '3,56p' "$0" | sed 's/^# \{0,1\}//'; exit 1 ;;
 	esac
 }
 

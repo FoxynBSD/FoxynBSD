@@ -1,0 +1,37 @@
+Rust
+====
+
+url    = https://github.com/rust-lang/rust.git
+tag    = 1.99.1
+commit = 58cf8f9c35b355199727627d07ae34a4e2846d67
+date   = 2026-10-13
+
+tools/linux/build-rust.sh (tools/linux/build.sh rust) cross-builds this
+release on a Linux host into Rust's dist tarballs for
+x86_64-unknown-dragonfly: rustc, cargo, rust-std, rust-src, rustfmt and
+clippy, with prefix /System/Library/Rust.  It builds from the release's
+rustc-1.99.1-src.tar.xz (static.rust-lang.org, checked by SHA-256),
+which is this tag plus what the build needs and the repository does
+not carry: the vendored crates and LLVM.  The submodule records the
+revision; nothing is built from it, and its own submodules are not
+fetched.  Rust publishes no toolchain that runs on DragonFly (a tier 3
+target), and DPorts' (1.85) is older than current programs need.
+
+Changes made in the build directory, not in this submodule:
+- cargo is built native-static (OpenSSL, curl and libgit2 inside, as
+  Rust's own dists): the base LibreSSL is private.
+- the vendored openssl-src crate configures OpenSSL with
+  no-devcryptoeng on DragonFly, which has no /dev/crypto; its
+  .cargo-checksum.json entry is updated to match.
+- the target's C and C++ drivers (xcc) link C++ against gcc 12's
+  libstdc++ (/usr/lib/gcc120) with that run path, before gcc 8's.
+
+License: MIT OR Apache-2.0 for Rust itself (LICENSE-MIT,
+LICENSE-APACHE, COPYRIGHT), with the licences listed in COPYRIGHT and
+LICENSES/ for LLVM (Apache-2.0 WITH LLVM-exception) and the vendored
+crates.  The dist tarballs carry them.  Complete the file-level and
+provenance review before distributing the toolchain.
+
+When upgrading, update the version and checksum in build-rust.sh, check
+that the openssl-src change still applies, and run rustc and cargo in
+the guest (docs/rust.md).

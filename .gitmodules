@@ -94,3 +94,7 @@
 	path = contrib/gershwin-terminal
 	url = https://github.com/gershwin-desktop/gershwin-terminal.git
 	shallow = true
+[submodule "contrib/rust"]
+	path = contrib/rust
+	url = https://github.com/rust-lang/rust.git
+	shallow = true
