@@ -378,18 +378,16 @@ menu "FoxynBSD" {
 	"Log out"	f.quit
 }
 TWM
-# Gershwin's session (as its Library/Scripts/Gershwin.sh): the supervisor
-# runs Workspace, Menu and WindowManager, restarts them when they exit,
-# and ends the session when Menu's Log Out signals it.
-if [ -x /System/Library/Tools/gershwin-session ] &&
+# Gershwin's session, as upstream and GhostBSD start it: its own
+# Library/Scripts/Gershwin.sh (install-gershwin-system.sh, with the
+# session's sound and locale for FoxynBSD) sets up the environment and
+# D-Bus, and its supervisor runs Workspace, Menu and WindowManager,
+# restarts them when they exit, and ends the session when Menu's Log Out
+# signals it.  Applications start from the Dock or Workspace.
+if [ -x /System/Library/Scripts/Gershwin.sh ] &&
+    [ -x /System/Library/Tools/gershwin-session ] &&
     [ -x /System/Library/Tools/Workspace ]; then
-	PATH=/System/Library/Tools:$PATH
-	export PATH
-	[ -n "${DBUS_SESSION_BUS_ADDRESS:-}" ] || eval "$(dbus-launch --sh-syntax --exit-with-x11)"
-	[ -x /usr/local/libexec/foxyn-audio ] && /usr/local/libexec/foxyn-audio &
-	(sleep 6; exec "$app") &
-	(sleep 9; exec xterm -fa 'DejaVu Sans Mono' -fs 11 -geometry 80x24+40+60 -title Terminal) &
-	exec gershwin-session Workspace Menu WindowManager
+	exec /System/Library/Scripts/Gershwin.sh
 fi
 # The window manager first: clients mapped before it starts are not
 # redrawn when twm reparents them.  -dc: no compositing (no GL here).

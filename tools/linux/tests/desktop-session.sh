@@ -1,11 +1,12 @@
 #!/bin/sh
 # The desktop that foxyn-desktop(8) installed (boot-test.sh --desktop).
 #	wait	wait for the session that rc.d (foxyn_desktop) or OpenRC
-#		(foxyn_openrc, foxyn-desktop -o) started at boot: X, a window
-#		manager (WindowManager or twm), an xterm and the GNUstep
-#		application's window (TextEdit's with GNUstep from source in
-#		/System, else Sudoku's) and Gershwin's Menu when installed,
-#		all clients as the desktop user
+#		(foxyn_openrc, foxyn-desktop -o) started at boot, all
+#		clients as the desktop user.  Gershwin's session (its
+#		Gershwin.sh): Workspace's desktop, Menu and WindowManager;
+#		then open TextEdit and Terminal by clicking their Dock icons,
+#		as the user would.  Otherwise (DPorts' GNUstep): X, a window
+#		manager (WindowManager or twm), an xterm and Sudoku's window
 #	stop	end the session: as Menu's Log Out does, SIGTERM to the
 #		user's gershwin-session when it runs, else `service
 #		foxyn_desktop stop`; X, the service and the user's
@@ -44,7 +45,8 @@
 #		document (Alt+S, the save panel); create a folder on the
 #		desktop (Workspace, File > New Folder) and move it to the
 #		Trash (Alt+Backspace, OK); change a setting (System
-#		Preferences > Defaults: GSSavePanelShowProgress YES, Set).
+#		Preferences > Defaults: GSSavePanelShowProgress YES, Set);
+#		in Gershwin's Terminal, type a command that writes a file.
 #		Each result is checked on disk
 #	net [URL]	(after wait) the network as the desktop user's
 #		applications see it: vtnet0 has a DHCP lease (an address,
@@ -84,6 +86,29 @@ if [ -x /System/Applications/TextEdit.app/TextEdit ]; then
 else
 	app=Sudoku appwin=Sudoku
 fi
+# Gershwin's session (foxyn-desktop's ~/.xsession runs Gershwin.sh): no
+# application starts with it; Terminal is Gershwin's, whose window title
+# begins with "Terminal" (Terminal - csh (pts/0) 80x25).
+gershwin=0 term=xterm
+if [ -x /System/Library/Scripts/Gershwin.sh ] &&
+    [ -x /System/Applications/Terminal.app/Terminal ]; then
+	gershwin=1 term=Terminal
+fi
+# winup REGEX: a visible window whose name matches REGEX
+winup() {
+	xdotool search --onlyvisible --name "$1" >/dev/null 2>&1
+}
+# dockx N: the X of the Dock's Nth icon (from 0), centred at the bottom
+# of the screen: Workspace, TextEdit, Terminal, System Preferences and
+# the Trash, 64 pixels each (Gershwin's GlobalDefaults).
+dockx() {
+	w=$(xwininfo -root 2>/dev/null | awk '$1 == "Width:" { print $2 }')
+	echo $(( ${w:-1280} / 2 - 5 * 32 + 32 + 64 * $1 ))
+}
+docky() {
+	h=$(xwininfo -root 2>/dev/null | awk '$1 == "Height:" { print $2 }')
+	echo $(( ${h:-800} - 33 ))
+}
 case ${1:-} in
 wait)
 	# Also for the session's sound: on a card that cannot record,
@@ -94,12 +119,40 @@ wait)
 	i=0
 	while [ "$i" -lt 90 ]; do
 		XAUTHORITY=$(cat /var/run/foxyn-session.xauthority 2>/dev/null)
-		xwininfo -root -tree 2>/dev/null | grep -q "\"$appwin\"" &&
-		    xwininfo -root -tree | grep -q '"Terminal"' &&
+		export XAUTHORITY
+		if [ "$gershwin" = 1 ]; then
+			xwininfo -root -tree 2>/dev/null | grep -q '"Desktop"' &&
+			    pgrep -u "$uid" -x Menu >/dev/null &&
+			    pgrep -u "$uid" -x WindowManager >/dev/null
+		else
+			xwininfo -root -tree 2>/dev/null | grep -q "\"$appwin\"" &&
+			    xwininfo -root -tree | grep -q '"Terminal"'
+		fi &&
 		    { [ "$audio" = 0 ] || pgrep -u "$uid" -x wireplumber >/dev/null; } &&
 		    break
 		sleep 2; i=$((i + 1))
 	done
+	# Gershwin: TextEdit and Terminal from the Dock (held clicks, as
+	# desktop-session use makes them); Workspace starts each at most
+	# once, so a click that came too early is repeated.
+	if [ "$gershwin" = 1 ]; then
+		sleep 5
+		for d in "1 TextEdit ^[*]?UNTITLED$" "2 Terminal ^Terminal"; do
+			set -- $d
+			n=0
+			while ! winup "$3" && [ "$n" -lt 3 ]; do
+				xdotool mousemove "$(dockx $1)" "$(docky)" mousedown 1
+				sleep 0.15
+				xdotool mouseup 1
+				i=0
+				while ! winup "$3" && [ "$i" -lt 20 ]; do sleep 1; i=$((i + 1)); done
+				n=$((n + 1))
+			done
+			winup "$3" && echo "desktop-session: the Dock opened $2" ||
+			    fail "the Dock did not open $2"
+		done
+		xdotool mousemove 1000 650
+	fi
 	service $svc status | sed 's/^/desktop-session: /'
 	[ "$svc" = foxyn_openrc ] &&
 	    rc-status desktop | sed 's/^/desktop-session: openrc: /'
@@ -112,7 +165,7 @@ wait)
 	else
 		fail "no window manager runs as $user"
 	fi
-	procs="xterm $app"
+	procs="$term $app"
 	# Gershwin's menu bar, which foxyn-desktop builds with GNUstep.
 	[ -x /System/Library/CoreServices/Applications/Menu.app/Menu ] &&
 	    procs="$procs Menu"
@@ -137,9 +190,9 @@ wait)
 		    echo "desktop-session: p11-kit trusts $n certificate authorities" ||
 		    fail "p11-kit trusts no certificate authority (HTTPS fails)"
 	fi
-	for w in Terminal "$appwin"; do
-		xwininfo -root -tree | grep -q "\"$w\"" &&
-		    echo "desktop-session: window \"$w\" is mapped" ||
+	for w in '^Terminal' "^[*]?$appwin\$"; do
+		winup "$w" &&
+		    echo "desktop-session: a window \"$w\" is mapped" ||
 		    fail "no \"$w\" window"
 	done
 	# The cookie is the user's: another account cannot connect.
@@ -535,8 +588,13 @@ use)
 		fail "Workspace made no folder on the desktop"
 	fi
 	rm -rf "$home/.Trash/New Folder"
-	# System Preferences (the dock's third icon) > Defaults.
-	click 672 767
+	# System Preferences > Defaults: the Dock's fourth icon in Gershwin's
+	# session (after Terminal), else its third.
+	if [ "$gershwin" = 1 ]; then
+		click "$(dockx 3)" "$(docky)"
+	else
+		click 672 767
+	fi
 	# (It opens at the same place; the origins xdotool reports for its
 	# window and its panes' differ by the title bar.)
 	if waitwin '^System Preferences$'; then
@@ -557,6 +615,26 @@ use)
 	*)	fail "System Preferences: GSSavePanelShowProgress is '$v'" ;;
 	esac
 	su -m "$user" -c "sh -c '. /System/Library/Makefiles/GNUstep.sh; defaults delete NSGlobalDomain GSSavePanelShowProgress'" >/dev/null 2>&1
+	# Gershwin's Terminal (the session's, opened from the Dock by wait):
+	# a click into it and a command typed; its shell writes a file.
+	if [ "$gershwin" = 1 ]; then
+		t=$home/terminal-test-$$
+		rm -f "$t"
+		xdotool search --onlyvisible --name '^Terminal' windowactivate --sync >/dev/null 2>&1
+		set -- $(origin '^Terminal')
+		[ -n "${1:-}" ] && click $(($1 + 250)) $(($2 + 200))
+		xdotool type --delay 50 "echo typed in Terminal > ${t##*/}"
+		sleep 0.5
+		xdotool key Return
+		i=0
+		while [ ! -s "$t" ] && [ "$i" -lt 10 ]; do sleep 1; i=$((i + 1)); done
+		if [ "$(cat "$t" 2>/dev/null)" = "typed in Terminal" ]; then
+			echo "desktop-session: Terminal ran a command typed in it (${t##*/})"
+		else
+			fail "Terminal: no file $t from the typed command"
+		fi
+		rm -f "$t"
+	fi
 	[ "$ok" = 1 ]
 	;;
 clicks)
@@ -589,7 +667,7 @@ RUN
 	# Another window first (the session's xterm), so the click into the
 	# probe activates it; then the clicks as xdotool makes them, press
 	# and release back to back.
-	xdotool search --name '^Terminal$' windowactivate --sync >/dev/null 2>&1
+	xdotool search --name '^Terminal' windowactivate --sync >/dev/null 2>&1
 	sleep 1
 	xdotool mousemove 1000 400 click 1; sleep 1
 	xdotool mousemove 1000 400 click 1; sleep 1

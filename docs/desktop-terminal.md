@@ -55,9 +55,14 @@ FreeBSD's headers (`<termios.h>`, `<libutil.h>` for `forkpty(3)`), and links
 `/usr/local/include` renames the `iconv` functions, as on FreeBSD and
 OpenBSD.
 
+The automatic session no longer opens an xterm (or TextEdit): it runs
+Gershwin's own `Gershwin.sh`, as upstream's images and GhostBSD do, and the
+user opens Terminal from the Dock. xterm stays installed for twm, the
+fallback session with DPorts' GNUstep.
+
 In QEMU, Terminal opened in the Gershwin session as the desktop user with
 a `csh` on `pts/0` (window "Terminal — csh (pts/0) 80x25"), in the Eau
 theme, with its Terminal, Shell, Edit, Font and Windows menus in Menu's
-bar. Typing into it was not verified in that run (the lab VM had been
-started by hand, with root's environment, after Workspace was killed
-twice). The license notes above still apply.
+bar. Opened from the Dock in the automatic session, a command typed into
+it ran (`desktop-session use`: `echo ... > file`, checked on disk). The
+license notes above still apply.

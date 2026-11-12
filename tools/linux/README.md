@@ -977,8 +977,10 @@ with Sudoku as the application; `foxyn-desktop -w twm` skips
 WindowManager. At boot, the service starts X (XLibre when it was built,
 else DPorts' Xorg) as root with a fresh cookie and no TCP listener, gives
 the cookie to `foxyn` only, and runs `~foxyn/.xsession` as that user:
-Gershwin's session, where `gershwin-session` supervises Workspace, Menu
-and WindowManager, with TextEdit and an xterm. Menu's System > Log Out
+Gershwin's session, started as upstream and GhostBSD start it, by its own
+`/System/Library/Scripts/Gershwin.sh`: `gershwin-session` supervises
+Workspace, Menu and WindowManager, and applications (TextEdit, Terminal,
+System Preferences) start from the Dock. Menu's System > Log Out
 ends the session; X stops and the console login remains (Ctrl-Alt-F1).
 With `-g dports` the session is WindowManager (twm when it is missing),
 Sudoku and an xterm, and ends when the window manager exits; twm's menu
