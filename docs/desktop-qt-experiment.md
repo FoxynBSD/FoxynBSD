@@ -33,7 +33,10 @@ had an empty `LANG`, while `en_US.UTF-8` was installed; its installed
 Running the same application from that terminal with
 `LANG=en_US.UTF-8` opened it without repeating the warning. This checks an
 explicit environment variable, not the session startup fallback; the
-latter has not been tested with Qt in a newly built image.
+latter has not been tested with Qt in a newly built image. A separate QEMU
+snapshot boot of a desktop image with the fallback did show
+`LANG=en_US.UTF-8` in the desktop user's process environment; Qt itself
+was not installed in that image.
 Starting from the serial console without the session's X authorization
 failed. The linker warning and general application compatibility remain
 to be investigated. The test does not validate a browser, network access,
