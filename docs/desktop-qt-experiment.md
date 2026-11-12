@@ -30,10 +30,15 @@ compiler warned about the base and GCC 14 libstdc++ versions; the session
 also warned that its `C` locale was not UTF-8. In that guest, the terminal
 had an empty `LANG`, while `en_US.UTF-8` was installed; its installed
 `Gershwin.sh` lacked the locale fallback now present in the source tree.
-The fallback's effect on Qt has not been tested in a newly built image.
+Running the same application from that terminal with
+`LANG=en_US.UTF-8` opened it without repeating the warning. This checks an
+explicit environment variable, not the session startup fallback; the
+latter has not been tested with Qt in a newly built image.
 Starting from the serial console without the session's X authorization
 failed. The linker warning and general application compatibility remain
 to be investigated. The test does not validate a browser, network access,
 or physical hardware.
 
 ![Qt Widgets and QtPositioning smoke test in QEMU](screenshots/issue-13/qemu-qt612-widget-positioning.png)
+
+![The same test with an explicit UTF-8 locale](screenshots/issue-13/qemu-qt612-utf8.png)
