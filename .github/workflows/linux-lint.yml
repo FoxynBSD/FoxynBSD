@@ -52,6 +52,9 @@ jobs:
       - name: Test hardware report redaction
         run: ruby tools/linux/tests/hardware-report-redact-test.rb
 
+      - name: Test QEMU launcher arguments and ESP copying
+        run: AUDIO=none python3 tools/linux/tests/qemu-desktop-devices.py
+
       # The contrib/ submodules: under contrib/, each with a
       # README.DRAGONFLY that records the commit the tree points to.
       - name: Check the submodule records
