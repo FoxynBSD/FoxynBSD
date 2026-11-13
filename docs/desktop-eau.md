@@ -192,5 +192,12 @@ six checks in both runs; the exception appeared only in the unpatched run.
 See [the captured test output](screenshots/issue-13/qemu-eau-system-colors.png).
 
 These results do not establish that the separate full-suite NSPanel abort
-above is fixed. A freshly built desktop image, theme switching, other
+above is fixed. A focused programmatic test (`tools/desktop/tests/eau-theme-switch.m`)
+then switched between GNUstep's default theme and Eau three times. Each
+patched run preserved the theme colors and all expected defaults; the
+stock library logged the exception and left four defaults missing after
+each switch. Eau also logged a failure to capture a Menu process snapshot
+in this test; its cause and effect were not investigated.
+
+A freshly built desktop image, interactive theme switching, other
 applications and physical hardware have not been tested with this patch.
