@@ -1,0 +1,26 @@
+--- a/Source/NSColor.m
++++ b/Source/NSColor.m
+@@ -2053,6 +2053,23 @@
+       list = defaultSystemColors;
+     }
+   NSAssert([[list name] isEqual: @"System"], NSInvalidArgumentException);
++
++  /* Theme resources may be installed read-only.  Keep a mutable system
++   * list in memory so missing defaults and later user overrides do not
++   * attempt to edit the theme's color file.
++   */
++  if (list != defaultSystemColors && [list isEditable] == NO)
++    {
++      NSColorList *mutableList = AUTORELEASE([[NSColorList alloc]
++        initWithName: @"System"]);
++      enumerator = [[list allKeys] objectEnumerator];
++      while ((key = [enumerator nextObject]) != nil)
++        {
++          [mutableList setColor: [list colorWithKey: key] forKey: key];
++        }
++      list = mutableList;
++    }
++
+   [NSColorList _setThemeSystemColorList: list];
+
+   /* We always update the system dictionary and send a notification, since
