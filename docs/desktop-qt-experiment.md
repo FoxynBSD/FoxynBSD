@@ -27,9 +27,21 @@ g++14 -fPIC -no-pie -static-libgcc qt-smoke.cpp -o qt-smoke \
 window showing the compiled Qt version and a `QGeoCoordinate` value. It
 was run from the desktop user's terminal on the existing QEMU guest. The
 compiler warned about the base and GCC 14 libstdc++ versions; the session
-also warned that its `C` locale was not UTF-8. Starting from the serial
-console without the session's X authorization failed. These warnings and
-general application compatibility remain to be investigated. The test
-does not validate a browser, network access, or physical hardware.
+also warned that its `C` locale was not UTF-8. In that guest, the terminal
+had an empty `LANG`, while `en_US.UTF-8` was installed; its installed
+`Gershwin.sh` lacked the locale fallback now present in the source tree.
+Running the same application from that terminal with
+`LANG=en_US.UTF-8` opened it without repeating the warning. This checks an
+explicit environment variable, not the session startup fallback; the
+latter has not been tested with Qt in a newly built image. A separate QEMU
+snapshot boot of a desktop image with the fallback did show
+`LANG=en_US.UTF-8` in the desktop user's process environment; Qt itself
+was not installed in that image.
+Starting from the serial console without the session's X authorization
+failed. The linker warning and general application compatibility remain
+to be investigated. The test does not validate a browser, network access,
+or physical hardware.
 
 ![Qt Widgets and QtPositioning smoke test in QEMU](screenshots/issue-13/qemu-qt612-widget-positioning.png)
+
+![The same test with an explicit UTF-8 locale](screenshots/issue-13/qemu-qt612-utf8.png)
