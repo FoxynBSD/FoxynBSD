@@ -258,7 +258,12 @@ elif [ "$GUI" = 1 ] || [ "$ROOT" != 0 ]; then
 	VESP=$QEMU_STATE/esp-$GUI$ROOT/$CONF
 	rm -rf "$VESP"
 	mkdir -p "$(dirname "$VESP")"
-	cp -al "$ESP" "$VESP" 2>/dev/null || cp -a "$ESP" "$VESP"
+	cp -al "$ESP" "$VESP" 2>/dev/null || {
+		# A failed hardlink copy can leave a partial destination, notably
+		# across filesystems.  Remove it before making the regular copy.
+		rm -rf "$VESP"
+		cp -a "$ESP" "$VESP"
+	}
 	if [ "$GUI" = 1 ]; then
 		rm -f "$VESP/boot/loader.conf"
 		printf 'console="efi"\nautoboot_delay="5"\n' > "$VESP/boot/loader.conf"

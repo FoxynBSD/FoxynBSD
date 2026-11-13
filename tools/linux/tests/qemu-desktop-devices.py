@@ -63,3 +63,20 @@ with tempfile.TemporaryDirectory() as directory:
                             text=True)
     assert result.returncode != 0 and "comma" in result.stderr
     print("monitor: ok")
+
+    # Model cp -al failing after creating part of the destination, as it
+    # does when the source and QEMU_STATE are on different filesystems.
+    cp = bindir / "cp"
+    cp.write_text('#!/bin/sh\n'
+                  'if [ "$1" = -al ]; then\n'
+                  '  mkdir -p "$3/EFI/BOOT"\n'
+                  '  exit 1\n'
+                  'fi\n'
+                  'exec /bin/cp "$@"\n')
+    cp.chmod(0o755)
+    subprocess.run([str(repo / "tools/linux/qemu.sh"), "--serial", "--disk"],
+                   env=env, check=True, capture_output=True, text=True)
+    copied = root / "qemu/esp-0disk/X86_64_GENERIC"
+    assert (copied / "EFI/BOOT/BOOTX64.EFI").is_file()
+    assert not (copied / "X86_64_GENERIC").exists()
+    print("partial hardlink copy: ok")
