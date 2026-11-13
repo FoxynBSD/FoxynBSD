@@ -171,3 +171,26 @@ alternating row colours and text field bezels off/on by default
 (`state.m`), and `NSPanel/behaviour.m`, which aborts. Some are deliberate
 theme choices, the abort is not; not investigated yet.
 
+
+## Read-only system colors, 2026-11-13
+
+A root-owned Eau `ThemeColors.clr` is not editable by an ordinary user.
+With the pinned GNUstep GUI, activating Eau raised
+`NSColorListNotEditableException` while adding missing system colors. The
+GUI patch copies a read-only theme color list into an editable in-memory
+list before adding defaults; it does not change the installed file.
+
+In an existing QEMU desktop, the focused test in
+`tools/desktop/tests/eau-system-colors.m` compared the installed library
+with a locally rebuilt library from GNUstep GUI revision
+`8f804fd520c60800961e0bee072066f4bbadca94`. With the installed library,
+35 theme colors were present, four expected defaults were missing, and
+one color-list exception was logged. With the patched library, the 35
+colors were preserved, all four defaults were present, and no color-list
+exception was logged. The original `NSPanel/behaviour.m` test also passed
+six checks in both runs; the exception appeared only in the unpatched run.
+See [the captured test output](screenshots/issue-13/qemu-eau-system-colors.png).
+
+These results do not establish that the separate full-suite NSPanel abort
+above is fixed. A freshly built desktop image, theme switching, other
+applications and physical hardware have not been tested with this patch.

@@ -1507,6 +1507,7 @@ do_rootfs() {
 	    "$SRCDIR/tools/desktop/patches/gnustep-base-kvm-configure.txt" \
 	    "$SRCDIR/tools/desktop/patches/gnustep-base-connection-null.patch" \
 	    "$SRCDIR/tools/desktop/patches/gnustep-base-dispatch-pipe.txt" \
+	    "$SRCDIR/tools/desktop/patches/gnustep-gui-theme-colors.patch" \
 	    "$SRCDIR/tools/desktop/patches/gnustep-back-mouse-init.txt" \
 	    "$SRCDIR/tools/desktop/patches/libdispatch-dragonfly.txt" \
 	    "$SRCDIR/tools/desktop/patches/menu-dragonfly-gnumakefile.txt" \
