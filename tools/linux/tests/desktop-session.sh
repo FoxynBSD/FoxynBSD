@@ -201,6 +201,19 @@ wait)
 	else
 		echo "desktop-session: X rejected a client without the cookie"
 	fi
+	# The misc bitmap fonts built from contrib (build-fonts.sh): the server
+	# drops a font path element it cannot read (fonts.dir, encodings.dir)
+	# with "Could not init font path element".  xterm cannot check this
+	# here: it has no controlling tty for the user's pty.
+	fp=$(grep -a -A1 'FontPath set to' /var/log/Xorg.0.log | tail -n +2 | head -n 1 | tr -d '\t')
+	if grep -aq 'Could not init font path element' /var/log/Xorg.0.log; then
+		fail "X dropped a font path element: $(grep -a 'Could not init font path element' /var/log/Xorg.0.log | head -n 2 | tr '\n' ' ')"
+	elif [ -n "$fp" ]; then
+		echo "desktop-session: X font path $fp"
+	else
+		fail "no FontPath in /var/log/Xorg.0.log"
+	fi
+	echo "desktop-session: $(sed -n '1p' /usr/local/share/fonts/misc/fonts.dir) misc fonts in fonts.dir"
 	tail -n 10 /var/log/foxyn-session.log | sed 's/^/desktop-session: log: /'
 	;;
 stop)
