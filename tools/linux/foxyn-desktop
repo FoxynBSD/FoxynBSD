@@ -105,8 +105,8 @@ if [ -n "$mirror" ]; then
 	    > /usr/local/etc/pkg/repos/df-latest.conf
 	pkg update -f >> "$log" 2>&1 || die "pkg update failed (see $log)"
 fi
-pkgs="xorg-minimal xf86-video-scfb xf86-input-libinput dejavu font-misc-misc
-    font-alias xauth xinput xwininfo xsetroot xterm twm"
+pkgs="xorg-minimal xf86-video-scfb xf86-input-libinput dejavu xauth xinput
+    xwininfo xsetroot xterm twm"
 if [ "$gnustep" = dports ]; then
 	pkgs="$pkgs gnustep gnustep-sudoku"
 	gsroot=/usr/local/GNUstep
@@ -139,6 +139,15 @@ gnustep_sh=$gsroot/System/Library/Makefiles/GNUstep.sh
 say "installing $(echo $pkgs)"
 pkg install -y $pkgs >> "$log" 2>&1 || {
 	tail -n 5 "$log" >&2; die "pkg install failed (see $log)"; }
+
+# The misc bitmap fonts and their encodings are built from contrib/
+# (build-fonts.sh, into /usr/local/share/fonts), not installed from
+# DPorts: XLibre's default font path reads them there.  DejaVu, above,
+# is still DPorts'.
+[ -r "$share/build-fonts.sh" ] || die "$share/build-fonts.sh is missing"
+say "building the bitmap fonts from contrib"
+FONT_SRC=/usr/share/foxynbsd/contrib sh "$share/build-fonts.sh" >> "$log" 2>&1 ||
+	{ tail -n 5 "$log" >&2; die "build-fonts failed (see $log)"; }
 
 # GnuTLS (GNUstep's TLS, among others) reads the system's certificate
 # authorities through p11-kit's trust module, which DPorts' p11-kit

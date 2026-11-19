@@ -1,0 +1,16 @@
+FONT-UTIL
+=========
+
+A git submodule (see docs/contrib.md), not a copy of the sources:
+
+url    = https://gitlab.freedesktop.org/xorg/font/util.git
+tag    = font-util-1.4.2
+commit = 5c92c11482e017fa7210a71b6f44e40042816209
+date   = 2026-04-25
+
+Used for ucs2any.c and its map-* files only (the ISO8859-*, KOI8-R and
+JISX0201 conversions of the misc fonts), built by tools/desktop/build-fonts.sh
+with the base compiler. bdftruncate and the fontutil.m4 and .pc files are
+not used. Nothing is written into the submodule.
+
+Licence: see COPYING.

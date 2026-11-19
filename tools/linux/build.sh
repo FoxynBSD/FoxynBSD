@@ -1484,9 +1484,20 @@ do_rootfs() {
 	    "$SRCDIR/tools/linux/tests/gnustep-clickprobe.m" \
 	    "$SRCDIR/tools/linux/tests/gnustep-sound.m" \
 	    "$SRCDIR/tools/linux/tests/gnustep-fetch.m" "$root/root/tests/"
+	# The sources build-fonts.sh builds the X bitmap fonts from: the
+	# contrib/ submodules, without their .git.  The image has no git.
+	for c in font-misc-misc font-alias encodings font-util bdftopcf xorgproto; do
+		[ -n "$(ls -A "$SRCDIR/contrib/$c" 2>/dev/null)" ] ||
+			die "contrib/$c is not checked out: git submodule update --init contrib/$c"
+		mkdir -p "$root/usr/share/foxynbsd/contrib/$c"
+		tar -C "$SRCDIR/contrib/$c" --exclude=.git -cf - . |
+		    tar -C "$root/usr/share/foxynbsd/contrib/$c" -xf -
+	done
 	# What foxyn-desktop builds GNUstep (contrib/gnustep-*'s revisions)
 	# and Gershwin's session and applications with.
 	mkdir -p "$root/usr/share/foxynbsd/desktop/patches"
+	install -m 444 "$SRCDIR/tools/desktop/build-fonts.sh" \
+	    "$root/usr/share/foxynbsd/desktop/"
 	install -m 444 "$SRCDIR/tools/desktop/build-gnustep.sh" \
 	    "$SRCDIR/tools/desktop/build-windowmanager.sh" \
 	    "$SRCDIR/tools/desktop/build-textedit.sh" \

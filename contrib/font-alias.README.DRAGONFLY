@@ -1,0 +1,15 @@
+FONT-ALIAS
+==========
+
+A git submodule (see docs/contrib.md), not a copy of the sources:
+
+url    = https://gitlab.freedesktop.org/xorg/font/alias.git
+tag    = font-alias-1.0.6
+commit = ebeee85f070dc12197ad98d1c849786f8e3be124
+date   = 2026-02-07
+
+Only misc/fonts.alias is used: tools/desktop/build-fonts.sh installs it in
+/usr/local/share/fonts/misc.  The 75dpi, 100dpi and cyrillic aliases point
+at fonts that are not built.  Nothing is written into the submodule.
+
+Licence: see COPYING.

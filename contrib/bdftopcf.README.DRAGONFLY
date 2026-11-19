@@ -1,0 +1,18 @@
+BDFTOPCF
+========
+
+A git submodule (see docs/contrib.md), not a copy of the sources:
+
+url    = https://gitlab.freedesktop.org/xorg/util/bdftopcf.git
+tag    = bdftopcf-1.1.2
+commit = 0ee2c68b5d3ea3eb36f895d9dfcc4ebe1416f176
+date   = 2024-10-12
+
+tools/desktop/build-fonts.sh compiles bdftopcf with the base compiler
+(the object list of its Makefile.am; config.h written in the work
+directory, with the defines it needs) and converts the misc BDF fonts
+with `bdftopcf -t`. Not built: bdftopcf's compression support (bzip2), the
+man pages. It needs the X protocol headers of contrib/xorgproto. Nothing
+is written into the submodule.
+
+Licence: see COPYING (MIT-style and Open Group notices).

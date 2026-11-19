@@ -1,0 +1,16 @@
+ENCODINGS
+=========
+
+A git submodule (see docs/contrib.md), not a copy of the sources:
+
+url    = https://gitlab.freedesktop.org/xorg/font/encodings.git
+tag    = encodings-1.1.0
+commit = a7e63704951b95351096c1d96808d48d0fb7e0a8
+date   = 2024-03-02
+
+tools/desktop/build-fonts.sh installs the .enc files (and large/) in
+/usr/local/share/fonts/encodings and writes their encodings.dir from each
+file's STARTENCODING name, as mkfontscale would (mkfontscale is not built).
+Nothing is written into the submodule.
+
+Licence: see COPYING.

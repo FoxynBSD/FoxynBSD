@@ -108,3 +108,9 @@ Before committing, check upstream's build files for new sources and new
 | Path | Upstream | Tag | Built in |
 |------|----------|-----|----------|
 | `contrib/cronie` | <https://github.com/cronie-crond/cronie> | `cronie-1.7.2` + 35 (master, for the `crontab` backup fix) | `usr.sbin/cron`: `cron(8)`, `crontab(1)`; `gnu/usr.sbin/anacron`: `anacron(8)` |
+| `contrib/font-misc-misc` | <https://gitlab.freedesktop.org/xorg/font/misc-misc> | `font-misc-misc-1.1.3` | `tools/desktop/build-fonts.sh`: the misc bitmap fonts in `/usr/local/share/fonts/misc` |
+| `contrib/font-alias` | <https://gitlab.freedesktop.org/xorg/font/alias> | `font-alias-1.0.6` | `build-fonts.sh`: `misc/fonts.alias` |
+| `contrib/encodings` | <https://gitlab.freedesktop.org/xorg/font/encodings> | `encodings-1.1.0` | `build-fonts.sh`: `/usr/local/share/fonts/encodings` |
+| `contrib/font-util` | <https://gitlab.freedesktop.org/xorg/font/util> | `font-util-1.4.2` | `build-fonts.sh`: `ucs2any` and its `map-*` files |
+| `contrib/bdftopcf` | <https://gitlab.freedesktop.org/xorg/util/bdftopcf> | `bdftopcf-1.1.2` | `build-fonts.sh`: `bdftopcf(1)` |
+| `contrib/xorgproto` | <https://gitlab.freedesktop.org/xorg/proto/xorgproto> | `xorgproto-2025.1` | `build-fonts.sh`: the X protocol headers (for bdftopcf) |

@@ -98,3 +98,27 @@
 	path = contrib/rust
 	url = https://github.com/rust-lang/rust.git
 	shallow = true
+[submodule "contrib/font-misc-misc"]
+	path = contrib/font-misc-misc
+	url = https://gitlab.freedesktop.org/xorg/font/misc-misc.git
+	shallow = true
+[submodule "contrib/font-alias"]
+	path = contrib/font-alias
+	url = https://gitlab.freedesktop.org/xorg/font/alias.git
+	shallow = true
+[submodule "contrib/encodings"]
+	path = contrib/encodings
+	url = https://gitlab.freedesktop.org/xorg/font/encodings.git
+	shallow = true
+[submodule "contrib/font-util"]
+	path = contrib/font-util
+	url = https://gitlab.freedesktop.org/xorg/font/util.git
+	shallow = true
+[submodule "contrib/bdftopcf"]
+	path = contrib/bdftopcf
+	url = https://gitlab.freedesktop.org/xorg/util/bdftopcf.git
+	shallow = true
+[submodule "contrib/xorgproto"]
+	path = contrib/xorgproto
+	url = https://gitlab.freedesktop.org/xorg/proto/xorgproto.git
+	shallow = true

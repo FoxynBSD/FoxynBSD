@@ -1,0 +1,22 @@
+FONT-MISC-MISC
+==============
+
+A git submodule (see docs/contrib.md), not a copy of the sources:
+
+url    = https://gitlab.freedesktop.org/xorg/font/misc-misc.git
+tag    = font-misc-misc-1.1.3
+commit = c4e2af05583764fae3d0b2aa20d5c93b031cbcbf
+date   = 2023-02-27
+
+tools/desktop/build-fonts.sh builds its BDF fonts into PCF with
+contrib/bdftopcf and the ISO8859-*, KOI8-R and JISX0201 conversions with
+ucs2any (contrib/font-util), and installs them in
+/usr/local/share/fonts/misc, where XLibre's default font path reads them
+(foxyn-desktop(8) runs it on the desktop image).
+
+Not built: the truncated fonts (bdftruncate), compressed PCF, and the
+75dpi, 100dpi and cyrillic sets (their fonts.alias entries stay unresolved).
+Nothing is written into the submodule.
+
+Licence: see COPYING.  When upgrading, check the lists in build-fonts.sh
+against Makefile.am (the BDF2UCS_* variables) and the new files.
