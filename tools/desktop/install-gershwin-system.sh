@@ -60,6 +60,18 @@ mkdir -p "$prefix/Library/Preferences"
 (cd "$work/gershwin-system/Library/Preferences" && tar cf - .) |
     (cd "$prefix/Library/Preferences" && tar xf -)
 say "installed $prefix/Library/Preferences (GlobalDefaults, fonts.conf, GlobalShortcuts.plist)"
+# Aqua-style window buttons: the Eau theme and the window manager both read
+# EauTitleBarButtonStyle, and "orb" selects the round coloured buttons.
+globals=$prefix/Library/Preferences/GlobalDefaults/NSGlobalDomain.plist
+grep -q EauTitleBarButtonStyle "$globals" || {
+	sed '/<\/dict>/i\
+    <key>EauTitleBarButtonStyle</key>\
+    <string>orb</string>' "$globals" > "$work/NSGlobalDomain.plist" &&
+	grep -q '<string>orb</string>' "$work/NSGlobalDomain.plist" &&
+	cat "$work/NSGlobalDomain.plist" > "$globals" ||
+	    die "cannot set EauTitleBarButtonStyle in $globals"
+}
+say "set EauTitleBarButtonStyle=orb (Aqua-style window buttons)"
 mkdir -p "$prefix/Library/Scripts"
 install -m 555 "$work/gershwin-system/Library/Scripts/Gershwin.sh" "$prefix/Library/Scripts/"
 say "installed $prefix/Library/Scripts/Gershwin.sh"
