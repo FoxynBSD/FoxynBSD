@@ -242,6 +242,17 @@ chmod 1777 "$MNT/tmp"
 [ -d "$MNT/var/tmp" ] && chmod 1777 "$MNT/var/tmp"
 rm -f "$MNT/var/db/boot-count"
 
+# The live image's "installer" account (uid 0, no password, runs the BSD
+# Installer) and the login banner that points at it belong to the live
+# system only. Leaving them would give the installed system a root login
+# without a password.
+sed -i '' '/^installer:/d' "$MNT/etc/master.passwd" ||
+    die "cannot remove the installer account"
+[ ! -f "$MNT/etc/passwd" ] || sed -i '' '/^installer:/d' "$MNT/etc/passwd"
+pwd_mkdb -p -d "$MNT/etc" "$MNT/etc/master.passwd" ||
+    die "cannot rebuild the password databases"
+printf 'Welcome to FoxynBSD!\n' > "$MNT/etc/issue"
+
 # What differs from the live image: a read-write root on this disk.
 # fsck checks a UFS root at boot; HAMMER2 needs no check.
 pass=0

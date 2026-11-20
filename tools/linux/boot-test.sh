@@ -663,6 +663,19 @@ if [ "$result" -eq 0 ] && [ -n "$ROOTARG" ] && [ "$MODE" != install ] &&
 		sleep 5
 		tries=$((tries + 1))
 	done
+	# The live image's "installer" account (uid 0, no password) and its
+	# login banner must not be on an installed system.
+	if [ "$MODE" = installed ]; then
+		printf "sh -c 'if grep -q \"^installer:\" /etc/master.passwd; then echo acct-check: installer present; else echo acct-check: installer absent; fi; if grep -q \"login as .installer\" /etc/issue; then echo acct-check: issue mentions installer; else echo acct-check: issue clean; fi; echo acct-\$((6*7)): 0'\r" >&3
+		tries=0
+		while [ "$tries" -lt 12 ] && ! grep -aq '^acct-42:' "$LOG"; do
+			sleep 5
+			tries=$((tries + 1))
+		done
+		grep -aq '^acct-check: installer absent' "$LOG" &&
+		    grep -aq '^acct-check: issue clean' "$LOG" ||
+		    { echo ">>> the installed system still has the live installer account or banner" >&2; result=1; }
+	fi
 	# Packages from DragonFly's mirror (pkg-check: lines, pkg-42): only
 	# on request, as it needs the internet, and on a writable root.
 	if [ "${PKG_CHECK:-0}" = 1 ] &&
