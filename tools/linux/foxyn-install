@@ -53,6 +53,12 @@ shift $((OPTIND - 1))
 DISK=${1#/dev/}
 
 case $FSTYPE in hammer2|ufs) ;; *) die "-t must be hammer2 or ufs" ;; esac
+case $DISK in ''|*[!A-Za-z0-9_]*) die "DISK must be a whole-disk device name" ;; esac
+disks=$(sysctl -n kern.disks) || die "cannot list disks"
+case " $disks " in
+*" $DISK "*) ;;
+*) die "/dev/$DISK is not a listed whole disk" ;;
+esac
 # The disk's serial number name: devfs makes /dev/serno/<serial> an
 # alias, the same device (major and minor) as /dev/$DISK.  Its slices
 # are <serial>.s0, ...; the whole disk is the entry without a dot.
@@ -76,19 +82,110 @@ ESPDEV=${SLICE}0 ROOTDEV=${SLICE}1
 [ -c "/dev/$DISK" ] || die "no disk /dev/$DISK"
 [ -f /boot/loader.efi ] && [ -f /boot/kernel/kernel ] ||
     die "this image has no /boot/loader.efi and /boot/kernel/kernel to install"
-if mount | grep -q "^/dev/$DISK"; then
-	die "/dev/$DISK is in use: $(mount | grep "^/dev/$DISK" | head -n 1)"
-fi
-root=$(mount | sed -n 's|^\([^ ]*\) on / .*|\1|p')
-case $root in
-/dev/$DISK|/dev/${DISK}s*) die "/dev/$DISK holds the running system's root" ;;
+# Require a parseable character-device number even if ls itself fails.
+device_number() {
+	ls -ln "$1" 2>/dev/null | awk '
+	    NR == 1 && $1 ~ /^c/ && $5 ~ /^[0-9]+,$/ &&
+	    $6 ~ /^(0x[0-9a-fA-F]+|[0-9]+)$/ { print $5, $6; ok = 1 }
+	    END { exit !ok }'
+}
+check_target() {
+disks=$(sysctl -n kern.disks) || die "cannot list disks"
+case " $disks " in
+*" $DISK "*) ;;
+*) die "/dev/$DISK is not a listed whole disk" ;;
 esac
+target_number=$(device_number "/dev/$DISK") || die "cannot inspect target disk"
+target_info=$(diskinfo "/dev/$DISK") || die "cannot inspect target size"
+case $target_info in *' blksize='*' offset='*' size='*) ;; *) die "cannot inspect target size" ;; esac
+target_serial=
+for path in /dev/serno/*; do
+	[ -e "$path" ] || continue
+	[ -c "$path" ] || die "cannot inspect serial alias $path"
+	number=$(device_number "$path") || die "cannot inspect serial alias $path"
+	[ "$number" = "$target_number" ] || continue
+	[ -z "$target_serial" ] || die "target serial aliases are ambiguous"
+	target_serial=${path#/dev/serno/}
+done
+disk_numbers=$target_number
+for path in /dev/"$DISK"s[0-9]* /dev/"$DISK"[a-p]; do
+	[ -e "$path" ] || continue
+	[ -c "$path" ] || die "cannot inspect target device $path"
+	number=$(device_number "$path") || die "cannot inspect target device $path"
+	disk_numbers=$(printf '%s\n%s' "$disk_numbers" "$number")
+done
+layer_numbers=
+for path in /dev/md[0-9]* /dev/vn[0-9]* /dev/ccd[0-9]* /dev/ar[0-9]* /dev/mapper/*; do
+	[ -e "$path" ] || continue
+	[ -c "$path" ] || die "cannot inspect layered device $path"
+	number=$(device_number "$path") || die "cannot inspect layered device $path"
+	layer_numbers=$(printf '%s\n%s' "$layer_numbers" "$number")
+done
+mounts=$(mount) || die "cannot inspect mounted filesystems"
+swap=$(swapctl -l) || die "cannot inspect active swap"
+swap_sources=$(printf '%s\n' "$swap" | awk '
+    NR == 1 { if ($1 != "Device:") exit 1; next }
+    NF != 3 { exit 1 }
+    { print $1 }
+    END { if (NR == 0) exit 1 }') || die "cannot parse active swap"
+root=$(printf '%s\n' "$mounts" | sed -n 's|^\([^ ]*\) on / .*|\1|p')
+root=${root#/dev/}
+root=${root%%@*}
+case $root in
+"$DISK"|"$DISK"s[0-9]*|"$DISK"[a-p])
+	die "/dev/$DISK holds the running system's root" ;;
+esac
+# devfs aliases, including slice-by-uuid and serno, name the same character
+# device as the ordinary slice. Compare device numbers, not alias spelling.
+# A root we cannot identify is not evidence that this disk is safe to erase.
+case $root in ''|*[!A-Za-z0-9_./+-]*|*..*) die "cannot identify the running system's root device" ;; esac
+[ -c "/dev/$root" ] || die "cannot identify the running system's root device"
+rootmm=$(device_number "/dev/$root") || die "cannot identify the running system's root device"
+if printf '%s\n' "$disk_numbers" | grep -Fxq "$rootmm"; then
+	die "/dev/$DISK holds the running system's root"
+fi
+# Check mounted and swap character devices as well, including aliases.
+# Refuse unrecognized sources instead of guessing their backing disks.
+for source in $(printf '%s\n' "$mounts" | awk '$2 == "on" { print $1 }'; printf '%s\n' "$swap_sources"); do
+	case $source in
+	devfs|tmpfs|procfs|fdescfs|linprocfs|kernfs|autofs|pseudofs) continue ;;
+	esac
+	device=${source#/dev/}
+	device=${device%%@*}
+	case $device in ''|*[!A-Za-z0-9_./+-]*|*..*) die "cannot identify mounted source $source" ;; esac
+	[ -c "/dev/$device" ] || die "cannot identify mounted source $source"
+	mm=$(device_number "/dev/$device") || die "cannot inspect mounted device $source"
+	# Layered devices can hide backing storage. Match device numbers so
+	# that a devfs alias cannot bypass this conservative refusal.
+	if printf '%s\n' "$layer_numbers" | grep -Fxq "$mm"; then
+		die "cannot identify backing storage for mounted source $source"
+	fi
+	if printf '%s\n' "$disk_numbers" | grep -Fxq "$mm"; then
+		die "/dev/$DISK is in use: $source is mounted or active swap"
+	fi
+done
+}
+
+check_target
+reviewed_number=$target_number
+reviewed_info=$target_info
+reviewed_serial=$target_serial
+
+msg "target: $reviewed_info"
+msg "target serial alias: ${reviewed_serial:-unavailable}"
 
 if [ -z "$YES" ]; then
 	printf 'Erase all of /dev/%s and install FoxynBSD on it? [y/N] ' "$DISK"
 	read -r answer
 	case $answer in [yY]*) ;; *) die "nothing done" ;; esac
 fi
+
+# Recheck after the user has had time to review and confirm. Device numbers
+# and sizes alone cannot prove identity after removal and replacement.
+check_target
+[ "$target_number" = "$reviewed_number" ] && [ "$target_info" = "$reviewed_info" ] &&
+    [ "$target_serial" = "$reviewed_serial" ] ||
+    die "target changed after confirmation; nothing was written"
 
 # The partitions: the ESP first, the root in the rest of the disk.
 msg "partitioning /dev/$DISK (GPT: ${ESPMB} MiB ESP, $FSTYPE root)"
