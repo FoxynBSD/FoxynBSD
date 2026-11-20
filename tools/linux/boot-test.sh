@@ -32,6 +32,9 @@
 #	INSTALLED	the disk --install installs on and --installed boots
 #			(default $OBJDIR/installed.img, made INSTALL_SIZE big, 4G)
 #	INSTALL_ARGS	foxyn-install options for --install (e.g. "-t ufs")
+#	INSTALL_USER, INSTALL_USER_PASSWORD
+#			--install: create that ordinary user with -u; --installed
+#			checks its id, home directory and su
 #	INSTALL_ROOT_PASSWORD
 #			--install: pipe this test password to foxyn-install -P;
 #			--installed then checks root has a hash, not the text
@@ -416,8 +419,17 @@ if [ "$result" -eq 0 ] && [ "$MODE" = install ]; then
 	    { echo ">>> foxyn-install did not reject a changed target" >&2; result=1; }
 fi
 if [ "$result" -eq 0 ] && [ "$MODE" = install ]; then
+	inst_opts= inst_in=
 	if [ -n "${INSTALL_ROOT_PASSWORD:-}" ]; then
-		printf "sh -c 'echo %s | foxyn-install -y -P ${INSTALL_ARGS:-} vbd2; echo install-\$((6*7)): \$?'\r" "$INSTALL_ROOT_PASSWORD" >&3
+		inst_opts="$inst_opts -P"
+		inst_in="echo $INSTALL_ROOT_PASSWORD;"
+	fi
+	if [ -n "${INSTALL_USER:-}" ]; then
+		inst_opts="$inst_opts -u $INSTALL_USER"
+		inst_in="$inst_in echo ${INSTALL_USER_PASSWORD:?INSTALL_USER needs INSTALL_USER_PASSWORD};"
+	fi
+	if [ -n "$inst_opts" ]; then
+		printf "sh -c '(%s) | foxyn-install -y%s ${INSTALL_ARGS:-} vbd2; echo install-\$((6*7)): \$?'\r" "$inst_in" "$inst_opts" >&3
 	else
 		printf "sh -c 'foxyn-install -y ${INSTALL_ARGS:-} vbd2; echo install-\$((6*7)): \$?'\r" >&3
 	fi
@@ -698,6 +710,18 @@ if [ "$result" -eq 0 ] && [ -n "$ROOTARG" ] && [ "$MODE" != install ] &&
 			grep -aq '^rootpw-check: hashed' "$LOG" ||
 			    { echo ">>> the installed root password is not set as a hash" >&2; result=1; }
 		fi
+	fi
+	if [ "$MODE" = installed ] && [ -n "${INSTALL_USER:-}" ]; then
+		printf "sh -c 'id %s | sed \"s/^/usr-check: /\"; ls -ld /home/%s | sed \"s/^/usr-check: /\"; su %s -c \"echo usr-check: su-ok \\\$(id -un)\"; echo usr-\$((6*7)): 0'\r" "$INSTALL_USER" "$INSTALL_USER" "$INSTALL_USER" >&3
+		tries=0
+		while [ "$tries" -lt 12 ] && ! grep -aq '^usr-42:' "$LOG"; do
+			sleep 5
+			tries=$((tries + 1))
+		done
+		grep -aq "^usr-check: su-ok $INSTALL_USER" "$LOG" &&
+		    grep -aq "^usr-check: uid=[0-9]*($INSTALL_USER).*(wheel)" "$LOG" &&
+		    grep -aq "^usr-check: d.* $INSTALL_USER .*/home/$INSTALL_USER" "$LOG" ||
+		    { echo ">>> the installed user $INSTALL_USER is not set up (id, wheel, home, su)" >&2; result=1; }
 	fi
 	# Packages from DragonFly's mirror (pkg-check: lines, pkg-42): only
 	# on request, as it needs the internet, and on a writable root.
