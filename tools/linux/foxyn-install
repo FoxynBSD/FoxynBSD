@@ -9,10 +9,13 @@
 # or disk.img.
 #
 # Usage:
-#	foxyn-install [-y] [-t hammer2|ufs] [-b BOOTDISK] [-s ESPSIZE] DISK
+#	foxyn-install [-y] [-P] [-t hammer2|ufs] [-b BOOTDISK] [-s ESPSIZE] DISK
 #
 #	DISK		the disk to erase, as in /dev (vbd2, da0, nvme0, ...)
 #	-y		do not ask before erasing DISK
+#	-P		read the installed system's root password, one line, from
+#			standard input (checked before anything is erased).
+#			Without -P root has no password, as on the test images
 #	-t		root file system: hammer2 (default) or ufs
 #	-b		what the kernel will call the disk when it boots from it;
 #			it goes into loader.conf and fstab.  Default: each
@@ -34,14 +37,17 @@ FSTYPE=hammer2
 BOOTDISK=
 ESPMB=256
 YES=
+ROOTPW=
+SETPW=
 
 die() { echo "foxyn-install: $*" >&2; exit 1; }
 msg() { echo "foxyn-install: $*"; }
-usage() { die "usage: foxyn-install [-y] [-t hammer2|ufs] [-b BOOTDISK] [-s ESPSIZE] DISK"; }
+usage() { die "usage: foxyn-install [-y] [-P] [-t hammer2|ufs] [-b BOOTDISK] [-s ESPSIZE] DISK"; }
 
-while getopts yt:b:s: o; do
+while getopts yPt:b:s: o; do
 	case $o in
 	y)	YES=1 ;;
+	P)	SETPW=1 ;;
 	t)	FSTYPE=$OPTARG ;;
 	b)	BOOTDISK=$OPTARG ;;
 	s)	ESPMB=$OPTARG ;;
@@ -50,6 +56,10 @@ while getopts yt:b:s: o; do
 done
 shift $((OPTIND - 1))
 [ $# -eq 1 ] || usage
+if [ -n "$SETPW" ]; then
+	IFS= read -r ROOTPW || die "no root password on standard input"
+	[ -n "$ROOTPW" ] || die "the root password is empty"
+fi
 DISK=${1#/dev/}
 
 case $FSTYPE in hammer2|ufs) ;; *) die "-t must be hammer2 or ufs" ;; esac
@@ -252,6 +262,14 @@ sed -i '' '/^installer:/d' "$MNT/etc/master.passwd" ||
 pwd_mkdb -p -d "$MNT/etc" "$MNT/etc/master.passwd" ||
     die "cannot rebuild the password databases"
 printf 'Welcome to FoxynBSD!\n' > "$MNT/etc/issue"
+if [ -n "$SETPW" ]; then
+	printf '%s\n' "$ROOTPW" | pw -V "$MNT/etc" usermod root -h 0 ||
+	    die "cannot set the root password"
+	ROOTPW=
+	msg "root password set"
+else
+	msg "WARNING: root has no password on the installed system (use -P)"
+fi
 
 # What differs from the live image: a read-write root on this disk.
 # fsck checks a UFS root at boot; HAMMER2 needs no check.

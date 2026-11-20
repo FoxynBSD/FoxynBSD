@@ -32,6 +32,9 @@
 #	INSTALLED	the disk --install installs on and --installed boots
 #			(default $OBJDIR/installed.img, made INSTALL_SIZE big, 4G)
 #	INSTALL_ARGS	foxyn-install options for --install (e.g. "-t ufs")
+#	INSTALL_ROOT_PASSWORD
+#			--install: pipe this test password to foxyn-install -P;
+#			--installed then checks root has a hash, not the text
 #	PKG_CHECK	1: with --disk or --installed, also bootstrap pkg(8)
 #			and install inxi from DragonFly's mirror
 #			(/root/tests/pkg-check; needs the internet)
@@ -247,6 +250,12 @@ fi
 if [ "$result" -eq 0 ] && [ -n "$ROOTARG" ] && [ "$MODE" != done ]; then
 	result=1
 	printf 'root\r' >&3
+	if [ "$MODE" = installed ] && [ -n "${INSTALL_ROOT_PASSWORD:-}" ]; then
+		# The password foxyn-install -P set: logging in with it is
+		# part of the test.
+		sleep 3
+		printf '%s\r' "$INSTALL_ROOT_PASSWORD" >&3
+	fi
 	tries=0
 	while [ "$tries" -lt 12 ]; do
 		sleep 5
@@ -407,7 +416,11 @@ if [ "$result" -eq 0 ] && [ "$MODE" = install ]; then
 	    { echo ">>> foxyn-install did not reject a changed target" >&2; result=1; }
 fi
 if [ "$result" -eq 0 ] && [ "$MODE" = install ]; then
-	printf "sh -c 'foxyn-install -y ${INSTALL_ARGS:-} vbd2; echo install-\$((6*7)): \$?'\r" >&3
+	if [ -n "${INSTALL_ROOT_PASSWORD:-}" ]; then
+		printf "sh -c 'echo %s | foxyn-install -y -P ${INSTALL_ARGS:-} vbd2; echo install-\$((6*7)): \$?'\r" "$INSTALL_ROOT_PASSWORD" >&3
+	else
+		printf "sh -c 'foxyn-install -y ${INSTALL_ARGS:-} vbd2; echo install-\$((6*7)): \$?'\r" >&3
+	fi
 	tries=0
 	while [ "$tries" -lt 120 ] && ! grep -aq '^install-42:' "$LOG"; do
 		sleep 5
@@ -675,6 +688,16 @@ if [ "$result" -eq 0 ] && [ -n "$ROOTARG" ] && [ "$MODE" != install ] &&
 		grep -aq '^acct-check: installer absent' "$LOG" &&
 		    grep -aq '^acct-check: issue clean' "$LOG" ||
 		    { echo ">>> the installed system still has the live installer account or banner" >&2; result=1; }
+		if [ -n "${INSTALL_ROOT_PASSWORD:-}" ]; then
+			printf "sh -c 'if grep -q \"^root::\" /etc/master.passwd; then echo rootpw-check: empty; elif grep -qF \"root:%s:\" /etc/master.passwd; then echo rootpw-check: plain text; else echo rootpw-check: hashed; fi; echo rootpw-\$((6*7)): 0'\r" "$INSTALL_ROOT_PASSWORD" >&3
+			tries=0
+			while [ "$tries" -lt 12 ] && ! grep -aq '^rootpw-42:' "$LOG"; do
+				sleep 5
+				tries=$((tries + 1))
+			done
+			grep -aq '^rootpw-check: hashed' "$LOG" ||
+			    { echo ">>> the installed root password is not set as a hash" >&2; result=1; }
+		fi
 	fi
 	# Packages from DragonFly's mirror (pkg-check: lines, pkg-42): only
 	# on request, as it needs the internet, and on a writable root.
