@@ -31,6 +31,10 @@
 #	BOOT_LOG	serial log path (default $OBJDIR/qemu/<KERNCONF>.boot.log)
 #	INSTALLED	the disk --install installs on and --installed boots
 #			(default $OBJDIR/installed.img, made INSTALL_SIZE big, 4G)
+#	INSTALL_SOURCE	desktop: --install runs foxyn-install from a copy of
+#			$DESKTOP_SRC (default $OBJDIR/desktop.img), not root.iso;
+#			the target then gets /System and LoginWindow; the
+#			refusal tests are skipped; INSTALL_SIZE defaults to 12G
 #	INSTALL_ARGS	foxyn-install options for --install (e.g. "-t ufs")
 #	INSTALL_USER, INSTALL_USER_PASSWORD
 #			--install: create that ordinary user with -u; --installed
@@ -104,6 +108,16 @@ if [ "$MODE" = install ]; then
 	truncate -s "${INSTALL_SIZE:-4G}" "$INSTALLED"
 	ROOTDISK=$INSTALLED
 	export ROOTDISK
+	if [ "${INSTALL_SOURCE:-}" = desktop ]; then
+		# Run foxyn-install from a copy of a desktop image (vbd1, as
+		# root.iso would be), so the target gets Gershwin too.
+		rm -f "$OBJDIR/install-source-desktop.img"
+		cp --reflink=auto "${DESKTOP_SRC:-$OBJDIR/desktop.img}" "$OBJDIR/install-source-desktop.img"
+		ROOTARG=--disk DISK=$OBJDIR/install-source-desktop.img
+		export DISK
+		INSTALL_SIZE=${INSTALL_SIZE:-12G}
+		rm -f "$INSTALLED"; truncate -s "$INSTALL_SIZE" "$INSTALLED"
+	fi
 fi
 export INSTALLED
 CONF=${1:-X86_64_GENERIC}
@@ -283,7 +297,7 @@ fi
 # --install: install on the empty disk, which this boot sees as vbd2,
 # for booting alone (vbd0).  foxyn-install prints "foxyn-install: done"
 # when it finished.
-if [ "$result" -eq 0 ] && [ "$MODE" = install ]; then
+if [ "$result" -eq 0 ] && [ "$MODE" = install ] && [ -z "${INSTALL_SOURCE:-}" ]; then
 	# vbd1 is root.iso, attached read-only by qemu.sh.  The installer must
 	# reject it before trying any disk operations, even with -y.
 	printf "sh -c 'foxyn-install -y vbd1; echo rootguard-\$((6*7)): \$?'\r" >&3
@@ -296,7 +310,7 @@ if [ "$result" -eq 0 ] && [ "$MODE" = install ]; then
 	    grep -aq "foxyn-install: /dev/vbd1 holds the running system's root" "$LOG" ||
 	    { echo ">>> foxyn-install did not reject the root disk" >&2; result=1; }
 fi
-if [ "$result" -eq 0 ] && [ "$MODE" = install ]; then
+if [ "$result" -eq 0 ] && [ "$MODE" = install ] && [ -z "${INSTALL_SOURCE:-}" ]; then
 	# qemu.sh derives the root image serial from its basename. Simulate
 	# mount reporting that alias and check the same rejection.
 	root_serial=$(basename "${ROOTISO:-$OBJDIR/root.iso}" | sed 's/\.[^.]*$//; s/[^A-Za-z0-9_-]/_/g' | cut -c1-20)
@@ -310,7 +324,7 @@ if [ "$result" -eq 0 ] && [ "$MODE" = install ]; then
 	    [ "$(grep -ac "foxyn-install: /dev/vbd1 holds the running system's root" "$LOG")" -ge 2 ] ||
 	    { echo ">>> foxyn-install did not reject the root alias" >&2; result=1; }
 fi
-if [ "$result" -eq 0 ] && [ "$MODE" = install ]; then
+if [ "$result" -eq 0 ] && [ "$MODE" = install ] && [ -z "${INSTALL_SOURCE:-}" ]; then
 	# Failure to inspect the target must not look like an unused disk.
 	printf "sh -c 'echo \"exit 1\" > /tmp/rootguard-bin/ls; chmod +x /tmp/rootguard-bin/ls; PATH=/tmp/rootguard-bin:\$PATH foxyn-install -y vbd0; rc=\$?; rm -f /tmp/rootguard-bin/ls; echo inspectguard-\$((6*7)): \$rc'\r" >&3
 	tries=0
@@ -322,7 +336,7 @@ if [ "$result" -eq 0 ] && [ "$MODE" = install ]; then
 	    grep -aq '^foxyn-install: cannot inspect target disk' "$LOG" ||
 	    { echo ">>> foxyn-install did not reject a target inspection failure" >&2; result=1; }
 fi
-if [ "$result" -eq 0 ] && [ "$MODE" = install ]; then
+if [ "$result" -eq 0 ] && [ "$MODE" = install ] && [ -z "${INSTALL_SOURCE:-}" ]; then
 	# The ESP is read-only and has the stable serial alias foxyn-esp.
 	# Simulate a separate mounted filesystem backed by that alias.
 	printf "sh -c 'echo \"echo vbd1 on / fs\" > /tmp/rootguard-bin/mount; echo \"echo serno/foxyn-esp on /mnt fs\" >> /tmp/rootguard-bin/mount; PATH=/tmp/rootguard-bin:\$PATH foxyn-install -y vbd0; echo mountguard-\$((6*7)): \$?'\r" >&3
@@ -335,7 +349,7 @@ if [ "$result" -eq 0 ] && [ "$MODE" = install ]; then
 	    grep -aq '^foxyn-install: /dev/vbd0 is in use: serno/foxyn-esp is mounted or active swap' "$LOG" ||
 	    { echo ">>> foxyn-install did not reject a mounted disk alias" >&2; result=1; }
 fi
-if [ "$result" -eq 0 ] && [ "$MODE" = install ]; then
+if [ "$result" -eq 0 ] && [ "$MODE" = install ] && [ -z "${INSTALL_SOURCE:-}" ]; then
 	# Simulate active swap on the read-only ESP via its serial alias.
 	printf "sh -c 'echo \"echo vbd1 on / fs\" > /tmp/rootguard-bin/mount; echo \"echo Device: blocks Used:; echo /dev/serno/foxyn-esp 100 0\" > /tmp/rootguard-bin/swapctl; chmod +x /tmp/rootguard-bin/swapctl; PATH=/tmp/rootguard-bin:\$PATH foxyn-install -y vbd0; echo swapguard-\$((6*7)): \$?'\r" >&3
 	tries=0
@@ -347,7 +361,7 @@ if [ "$result" -eq 0 ] && [ "$MODE" = install ]; then
 	    grep -aq '^foxyn-install: /dev/vbd0 is in use: /dev/serno/foxyn-esp is mounted or active swap' "$LOG" ||
 	    { echo ">>> foxyn-install did not reject active swap" >&2; result=1; }
 fi
-if [ "$result" -eq 0 ] && [ "$MODE" = install ]; then
+if [ "$result" -eq 0 ] && [ "$MODE" = install ] && [ -z "${INSTALL_SOURCE:-}" ]; then
 	# Failure to read or parse swap must stop before disk operations.
 	printf "sh -c 'echo \"exit 1\" > /tmp/rootguard-bin/swapctl; PATH=/tmp/rootguard-bin:\$PATH foxyn-install -y vbd0; echo swapfail-\$((6*7)): \$?'\r" >&3
 	tries=0
@@ -359,7 +373,7 @@ if [ "$result" -eq 0 ] && [ "$MODE" = install ]; then
 	    grep -aq '^foxyn-install: cannot inspect active swap' "$LOG" ||
 	    { echo ">>> foxyn-install did not reject a swap inspection failure" >&2; result=1; }
 fi
-if [ "$result" -eq 0 ] && [ "$MODE" = install ]; then
+if [ "$result" -eq 0 ] && [ "$MODE" = install ] && [ -z "${INSTALL_SOURCE:-}" ]; then
 	printf "sh -c 'echo \"echo unexpected-output\" > /tmp/rootguard-bin/swapctl; PATH=/tmp/rootguard-bin:\$PATH foxyn-install -y vbd0; rc=\$?; rm -f /tmp/rootguard-bin/swapctl; echo swapparse-\$((6*7)): \$rc'\r" >&3
 	tries=0
 	while [ "$tries" -lt 24 ] && ! grep -aq '^swapparse-42:' "$LOG"; do
@@ -370,7 +384,7 @@ if [ "$result" -eq 0 ] && [ "$MODE" = install ]; then
 	    grep -aq '^foxyn-install: cannot parse active swap' "$LOG" ||
 	    { echo ">>> foxyn-install did not reject invalid swap output" >&2; result=1; }
 fi
-if [ "$result" -eq 0 ] && [ "$MODE" = install ]; then
+if [ "$result" -eq 0 ] && [ "$MODE" = install ] && [ -z "${INSTALL_SOURCE:-}" ]; then
 	# Unknown or layered mount sources must not be treated as unused disks.
 	printf "sh -c 'echo \"echo vbd1 on / fs\" > /tmp/rootguard-bin/mount; echo \"echo /dev/unknown:backing on /mnt fs\" >> /tmp/rootguard-bin/mount; PATH=/tmp/rootguard-bin:\$PATH foxyn-install -y vbd0; echo unknownguard-\$((6*7)): \$?'\r" >&3
 	tries=0
@@ -382,7 +396,7 @@ if [ "$result" -eq 0 ] && [ "$MODE" = install ]; then
 	    grep -aq '^foxyn-install: cannot identify mounted source /dev/unknown:backing' "$LOG" ||
 	    { echo ">>> foxyn-install did not reject an unknown mount source" >&2; result=1; }
 fi
-if [ "$result" -eq 0 ] && [ "$MODE" = install ]; then
+if [ "$result" -eq 0 ] && [ "$MODE" = install ] && [ -z "${INSTALL_SOURCE:-}" ]; then
 	# md0 exists in this image. Its backing storage must not be assumed safe.
 	printf "sh -c 'echo \"echo vbd1 on / fs\" > /tmp/rootguard-bin/mount; echo \"echo md0 on /mnt fs\" >> /tmp/rootguard-bin/mount; PATH=/tmp/rootguard-bin:\$PATH foxyn-install -y vbd0; echo layerguard-\$((6*7)): \$?'\r" >&3
 	tries=0
@@ -394,7 +408,7 @@ if [ "$result" -eq 0 ] && [ "$MODE" = install ]; then
 	    grep -aq '^foxyn-install: cannot identify backing storage for mounted source md0' "$LOG" ||
 	    { echo ">>> foxyn-install did not reject a layered mount" >&2; result=1; }
 fi
-if [ "$result" -eq 0 ] && [ "$MODE" = install ]; then
+if [ "$result" -eq 0 ] && [ "$MODE" = install ] && [ -z "${INSTALL_SOURCE:-}" ]; then
 	# An intervening swap change after confirmation must be detected.
 	printf "sh -c 'echo \"echo vbd1 on / fs\" > /tmp/rootguard-bin/mount; echo \"echo Device: blocks Used:; if test -f /tmp/swapguard-seen; then echo /dev/serno/foxyn-esp 100 0; else touch /tmp/swapguard-seen; fi\" > /tmp/rootguard-bin/swapctl; chmod +x /tmp/rootguard-bin/swapctl; printf \"y\\\\n\" | PATH=/tmp/rootguard-bin:\$PATH foxyn-install vbd0; rc=\$?; rm -f /tmp/rootguard-bin/swapctl /tmp/swapguard-seen; echo reguard-\$((6*7)): \$rc'\r" >&3
 	tries=0
@@ -406,7 +420,7 @@ if [ "$result" -eq 0 ] && [ "$MODE" = install ]; then
 	    [ "$(grep -ac 'foxyn-install: /dev/vbd0 is in use: /dev/serno/foxyn-esp is mounted or active swap' "$LOG")" -ge 2 ] ||
 	    { echo ">>> foxyn-install did not recheck active swap" >&2; result=1; }
 fi
-if [ "$result" -eq 0 ] && [ "$MODE" = install ]; then
+if [ "$result" -eq 0 ] && [ "$MODE" = install ] && [ -z "${INSTALL_SOURCE:-}" ]; then
 	# A changed target description after review must stop before writing.
 	printf "sh -c 'echo \"echo vbd1 on / fs\" > /tmp/rootguard-bin/mount; echo \"if test -f /tmp/diskguard-seen; then echo changed blksize=512 offset=0x0 size=0x2; else echo original blksize=512 offset=0x0 size=0x1; touch /tmp/diskguard-seen; fi\" > /tmp/rootguard-bin/diskinfo; chmod +x /tmp/rootguard-bin/diskinfo; printf \"y\\\\n\" | PATH=/tmp/rootguard-bin:\$PATH foxyn-install vbd0; rc=\$?; rm -f /tmp/rootguard-bin/diskinfo /tmp/diskguard-seen; echo identityguard-\$((6*7)): \$rc'\r" >&3
 	tries=0

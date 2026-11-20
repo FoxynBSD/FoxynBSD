@@ -254,7 +254,7 @@ trap 'umount "$MNT/boot/efi" 2>/dev/null; umount "$MNT" 2>/dev/null; rmdir "$MNT
 # The running system, as it is now: on root.iso /etc, /var and /root are
 # the tmpfs copies (with the password databases already made).
 msg "copying the system to /dev/${DISK}s1"
-for d in bin boot etc lib libexec root sbin usr var; do
+for d in bin boot etc lib libexec root sbin usr var System; do
 	[ -d "/$d" ] || continue
 	cpdup -i0 -s0 -q "/$d" "$MNT/$d"
 done
@@ -295,6 +295,23 @@ if [ -n "$NEWUSER" ]; then
 	chown "$uid:$gid" "$MNT/home/$NEWUSER"
 	chmod 700 "$MNT/home/$NEWUSER"
 	msg "user $NEWUSER created (uid $uid, wheel)"
+fi
+
+# A desktop image (build.sh desktop): Gershwin and GNUstep are in /System,
+# copied above. The target starts LoginWindow at boot instead of the live
+# image's automatic session of the live user "foxyn", whose account (no
+# password) and home are not kept unless -u asks for that name.
+if [ -x /System/Library/CoreServices/Applications/LoginWindow.app/LoginWindow ] &&
+    [ -x /usr/local/etc/rc.d/foxyn_loginwindow ]; then
+	sed -i '' -e '/^foxyn_desktop_enable=/d' -e '/^foxyn_desktop_user=/d' \
+	    -e '/^foxyn_loginwindow_enable=/d' -e '/^foxyn_openrc_enable=/d' \
+	    "$MNT/etc/rc.conf"
+	printf 'foxyn_loginwindow_enable="YES"\n' >> "$MNT/etc/rc.conf"
+	if [ "$NEWUSER" != foxyn ] && grep -q '^foxyn:' "$MNT/etc/master.passwd"; then
+		pw -V "$MNT/etc" userdel foxyn ||
+		    die "cannot remove the live user foxyn"
+	fi
+	msg "desktop: LoginWindow starts at boot (foxyn_loginwindow)"
 fi
 
 # What differs from the live image: a read-write root on this disk.
